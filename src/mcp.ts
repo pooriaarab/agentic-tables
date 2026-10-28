@@ -1,7 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { errorBody, type Context } from "./context.js";
+import { type Context } from "./context.js";
+import { errorBody } from "./errors.js";
 import { FIELD_TYPES, type Table, type Values } from "./model.js";
 import { OPERATORS } from "./query.js";
 import { VERSION } from "./version.js";

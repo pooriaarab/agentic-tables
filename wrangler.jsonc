@@ -1,0 +1,7 @@
+{
+  // Worker for the /api/v1/tables HTTP API. The store is in memory, so state
+  // lasts only as long as one Worker instance does.
+  "name": "agentic-tables",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-01-01"
+}
