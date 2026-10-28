@@ -287,6 +287,29 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         return rowView(table, id, doc);
       });
     },
+    /** Insert many rows in one transaction. If any row fails, none is written. A failure names the row, as "row 2.Age". */
+    async insertRows(tableId: string, list: Values[], actor: Actor): Promise<Row[]> {
+      assertActor(actor);
+      return store.transaction(async (ops) => {
+        const table = await loadTable(ops, tableId);
+        const out: Row[] = [];
+        for (const [i, values] of list.entries()) {
+          const at = stamp();
+          let merged: Record<string, Json>;
+          try {
+            merged = await merge(ops, table, {}, values);
+          } catch (error) {
+            if (error instanceof ValidationError) throw new ValidationError(error.issues.map((x) => ({ ...x, field: `row ${i + 1}.${x.field}` })));
+            throw error;
+          }
+          const doc: RowDoc = { tableId, baseId: table.baseId, values: merged, createdAt: at, updatedAt: at, createdBy: actor, updatedBy: actor };
+          const id = newId("row");
+          await write(ops, "rows", id, doc);
+          out.push(rowView(table, id, doc));
+        }
+        return out;
+      });
+    },
     async updateRow(rowId: string, values: Values, actor: Actor): Promise<Row> {
       assertActor(actor);
       return store.transaction(async (ops) => {

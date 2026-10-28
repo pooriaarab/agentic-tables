@@ -2,7 +2,11 @@
 
 Typed tables that agents read and write as rows.
 
-Status: in development. The package exports `VERSION` only.
+Keywords: database,tables,airtable,rows,schema,agents,mcp,cli,structured-data.
+
+- SDK: import { createTables, createMemoryStore } from "agentic-tables".
+- CLI: agentic-tables new | schema | insert | query | export | import.
+- MCP: run agentic-tables mcp, then call describe_table.
 
 ## Docs
 

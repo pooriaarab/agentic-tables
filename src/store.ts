@@ -122,27 +122,38 @@ function storeOps(tables: Collections): StoreOps {
   };
 }
 
-export function createMemoryStore(options: AdapterOptions = {}): Store {
-  let tables: Collections = new Map();
+export interface MemoryStoreOptions extends AdapterOptions {
+  /** Start with this data. */
+  initial?: Record<string, Record<string, Doc>>;
+  /** Called after each write or committed transaction. The file store saves here. */
+  onChange?: (snapshot: Record<string, Record<string, Doc>>) => void;
+}
+
+export function createMemoryStore(options: MemoryStoreOptions = {}): Store {
+  let tables: Collections = new Map(Object.entries(options.initial ?? {}).map(([name, docs]) => [name, new Map(Object.entries(copy(docs)))]));
   let lock: Promise<unknown> = Promise.resolve();
+  const snapshot = () => Object.fromEntries([...tables].map(([name, docs]) => [name, Object.fromEntries(docs)]));
   // One operation at a time, so a transaction sees no other writer.
-  const exclusive = <R>(fn: () => Promise<R>): Promise<R> => {
-    const run = lock.then(fn, fn);
+  const exclusive = <R>(fn: () => Promise<R>, write: boolean): Promise<R> => {
+    const run = lock.then(fn, fn).then((result) => {
+      if (write) options.onChange?.(snapshot());
+      return result;
+    });
     lock = run.catch(() => undefined);
     return run;
   };
   return {
     region: options.region ?? "eu",
-    get: (c, id) => exclusive(() => storeOps(tables).get(c, id)),
-    put: (c, id, doc) => exclusive(() => storeOps(tables).put(c, id, doc)),
-    delete: (c, id) => exclusive(() => storeOps(tables).delete(c, id)),
-    query: (c, q) => exclusive(() => storeOps(tables).query(c, q)),
+    get: (c, id) => exclusive(() => storeOps(tables).get(c, id), false),
+    put: (c, id, doc) => exclusive(() => storeOps(tables).put(c, id, doc), true),
+    delete: (c, id) => exclusive(() => storeOps(tables).delete(c, id), true),
+    query: (c, q) => exclusive(() => storeOps(tables).query(c, q), false),
     transaction: (fn) =>
       exclusive(async () => {
         const draft: Collections = new Map([...tables].map(([name, docs]) => [name, new Map(docs)]));
         const result = await fn(storeOps(draft));
         tables = draft;
         return result;
-      }),
+      }, true),
   };
 }

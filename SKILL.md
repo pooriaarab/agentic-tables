@@ -1,10 +1,25 @@
 ---
 name: agentic-tables
-description: Typed tables that agents read and write as rows.
+description: Typed tables that agents read and write as rows. Use to keep structured data with a schema, validate rows, and query them.
 ---
 
 # agentic-tables
 
-Typed tables that agents read and write as rows.
+## Use the MCP server
 
-The package is in development. Nothing here is callable yet.
+Start it with `npx agentic-tables mcp`. Call `describe_table` first. Then use
+`insert_rows`, `update_row`, `query_rows`, `get_row`, and `delete_row`.
+`insert_rows` writes all rows or none.
+
+## Use the CLI
+
+```sh
+agentic-tables new People --field "Name:text!" --field "Age:number"
+agentic-tables insert People --json '{"Name":"Ada","Age":36}'
+agentic-tables query People --filter '{"field":"Age","op":"gt","value":30}'
+```
+
+## Rules
+
+- Read the schema before you write.
+- Treat a failed call as a failure. Read `issues` and fix the value.
