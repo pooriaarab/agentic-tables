@@ -13,6 +13,7 @@
 //  9. An insert that fails one field writes no row.
 // 10. Delete a row that other rows link to: the links go away.
 // 11. Duplicate field names when a table is created.
+// 12. A required field set to "" or [] (the same emptiness rule as the query layer).
 import { beforeEach, describe, expect, test } from "vitest";
 import {
   createMemoryStore,
@@ -90,6 +91,16 @@ describe("row validation", () => {
     const row = await t.insertRow(table.id, { Name: "Ada" }, human);
     await expectIssue(t.updateRow(row.id, { Name: null }, human), "Name", "required");
     expect((await t.getRow(row.id)).values.Name).toBe("Ada");
+  });
+
+  test("treats an empty string and an empty list as empty for required", async () => {
+    const { table } = await people();
+    await expectIssue(t.insertRow(table.id, { Name: "" }, human), "Name", "required");
+    const row = await t.insertRow(table.id, { Name: "Ada" }, human);
+    await expectIssue(t.updateRow(row.id, { Name: "" }, human), "Name", "required");
+    const tagged = await t.createTable(baseId, "Tagged", [{ name: "Tags", type: "multi_select", options: ["a"], required: true }]);
+    await expectIssue(t.insertRow(tagged.id, { Tags: [] }, human), "Tags", "required");
+    expect((await t.insertRow(tagged.id, { Tags: ["a"] }, human)).values.Tags).toEqual(["a"]);
   });
 
   test("rejects select values that are not options and duplicates", async () => {

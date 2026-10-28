@@ -1,5 +1,6 @@
 import {
   checkValue,
+  isEmpty,
   FIELD_TYPES,
   NotFoundError,
   PRINCIPAL_KINDS,
@@ -52,7 +53,6 @@ interface RowDoc {
 
 const read = async <T>(ops: StoreOps, collection: string, id: string): Promise<T | null> => (await ops.get(collection, id)) as unknown as T | null;
 const write = (ops: StoreOps, collection: string, id: string, doc: object): Promise<void> => ops.put(collection, id, doc as Doc);
-const isEmpty = (value: Json | undefined): boolean => value === null || value === undefined;
 
 async function all<T>(ops: StoreOps, collection: string, where: Record<string, string>, orderField: string): Promise<{ id: string; data: T }[]> {
   const out: { id: string; data: T }[] = [];

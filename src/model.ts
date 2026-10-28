@@ -1,5 +1,8 @@
 import type { Json } from "./store.js";
 
+/** The one emptiness rule: null, missing, an empty string, or an empty list. Queries and "required" both use it. */
+export const isEmpty = (value: unknown): boolean => value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
+
 export const FIELD_TYPES = ["text", "long_text", "number", "checkbox", "date", "single_select", "multi_select", "link", "file"] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
 
