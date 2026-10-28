@@ -23,6 +23,13 @@
 // 16. Rename a field to a name that exists (any case), or a field that is gone.
 // 17. Delete a field: values go, later writes to that name fail.
 // 18. Duplicate field names when a table is created.
+// 20. Select to select without options keeps the current options, and a given
+//     list reports the options it drops.
+// 21. Text to number refuses "007", "0x1A", "1e3", "-0", "Infinity", "NaN",
+//     and numbers past the safe range. "2.50" and "-3" convert.
+// 22. Clear on a required field is refused, for a type change and for options.
+// 23. Point a link at another table: refused.
+// 24. Number or checkbox to select converts. Blank text cells count as empty.
 // 19. A required field set to "" or [] (the same emptiness rule as the query layer).
 import { beforeEach, describe, expect, test } from "vitest";
 import {
@@ -206,6 +213,54 @@ describe("schema migrations", () => {
     );
     await t.changeFieldType(table.id, "Val", { to: "single_select" });
     expect((await t.getTable(table.id)).fields[1]?.options).toEqual(["a", "b"]);
+  });
+
+  test("select to select keeps the current options and reports the ones it drops", async () => {
+    const table = await t.createTable(baseId, "S", [{ name: "Stage", type: "single_select", options: ["lead", "won", "lost"] }]);
+    await t.insertRow(table.id, { Stage: "lead" }, human);
+    const kept = await t.changeFieldType(table.id, "Stage", { to: "multi_select" });
+    expect(kept.droppedOptions).toEqual([]);
+    expect((await t.getTable(table.id)).fields[0]?.options).toEqual(["lead", "won", "lost"]);
+    const dry = await t.changeFieldType(table.id, "Stage", { to: "multi_select", options: ["lead", "won"], dryRun: true });
+    expect(dry).toMatchObject({ applied: false, droppedOptions: ["lost"] });
+    const shrunk = await t.setOptions(table.id, "Stage", ["lead"]);
+    expect(shrunk.droppedOptions).toEqual(["won", "lost"]);
+  });
+
+  test("text to number refuses text a number cannot keep exactly", async () => {
+    const lossy = ["007", "0x1A", "1e3", "-0", "Infinity", "NaN", "12345678901234567890", "+5", "1,5"];
+    const table = await withNotes([...lossy, "2.50", "-3", ""]);
+    const dry = await t.changeFieldType(table.id, "Val", { to: "number", dryRun: true });
+    expect(dry.failures.map((f) => f.value)).toEqual(lossy);
+    expect(dry).toMatchObject({ converted: 2, empty: 1 });
+    await expect(t.changeFieldType(table.id, "Val", { to: "number" })).rejects.toBeInstanceOf(MigrationError);
+    expect((await vals(table.id)).slice(0, 2)).toEqual(["007", "0x1A"]);
+    await t.changeFieldType(table.id, "Val", { to: "number", onFailure: "clear" });
+    expect((await vals(table.id)).slice(-3)).toEqual([2.5, -3, null]);
+  });
+
+  test("clear is refused on a required field", async () => {
+    const table = await t.createTable(baseId, "R", [{ name: "Val", type: "text", required: true }, { name: "Stage", type: "single_select", options: ["a", "b"], required: true }]);
+    const row = await t.insertRow(table.id, { Val: "x", Stage: "a" }, human);
+    await expectIssue(t.changeFieldType(table.id, "Val", { to: "number", onFailure: "clear" }), "Val", "required");
+    await expectIssue(t.setOptions(table.id, "Stage", ["b"], { onInUse: "clear" }), "Stage", "required");
+    expect((await t.getRow(row.id)).values).toMatchObject({ Val: "x", Stage: "a" });
+  });
+
+  test("a link cannot move to another table", async () => {
+    const { table, companies } = await people();
+    const other = await t.createTable(baseId, "Orgs", [{ name: "Name", type: "text" }]);
+    const company = await t.insertRow(companies.id, { Name: "Acme" }, human);
+    const row = await t.insertRow(table.id, { Name: "x", Company: [company.id] }, human);
+    await expectIssue(t.changeFieldType(table.id, "Company", { to: "link", linkTable: other.id }), "Company", "type");
+    expect((await t.getRow(row.id)).values.Company).toEqual([company.id]);
+  });
+
+  test("number and checkbox convert to select", async () => {
+    const table = await t.createTable(baseId, "N", [{ name: "Val", type: "number" }]);
+    await t.insertRow(table.id, { Val: 3 }, human);
+    await t.changeFieldType(table.id, "Val", { to: "single_select" });
+    expect((await t.listRows(table.id)).items[0]?.values.Val).toBe("3");
   });
 
   test("deleting a row removes it from links in other rows", async () => {

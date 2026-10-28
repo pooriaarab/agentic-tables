@@ -172,6 +172,8 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     return merged;
   };
 
+  const requiredNoClear = (field: Field): Issue => ({ field: field.name, code: "required", message: "is required, so a value cannot be cleared. Make the field optional first" });
+
   const rewriteRows = async (ops: StoreOps, tableId: string, change: (doc: RowDoc, id: string) => Record<string, Json> | null): Promise<void> => {
     for (const { id, data } of await all<RowDoc>(ops, "rows", { tableId }, "createdAt")) {
       const values = change(data, id);
@@ -181,7 +183,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
   const saveTable = (ops: StoreOps, id: string, table: TableDoc, fields: Field[]): Promise<void> => write(ops, "tables", id, { ...table, fields, updatedAt: stamp() });
 
   const report = (field: Field, to: FieldType, rows: { id: string; value: Json | undefined }[]): MigrationReport => ({
-    field: field.name, from: field.type, to, total: rows.length, empty: rows.filter((r) => isEmpty(r.value)).length, converted: 0, failures: [], applied: false,
+    field: field.name, from: field.type, to, total: rows.length, empty: rows.filter((r) => isEmpty(r.value)).length, converted: 0, failures: [], droppedOptions: [], applied: false,
   });
 
   return {
@@ -321,17 +323,20 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         const select = change.to === "single_select" || change.to === "multi_select";
         const to: Field = {
           id: from.id, name: from.name, type: change.to, required: from.required,
-          ...(select ? { options: change.options ?? deriveOptions(cells.map((c) => c.value).filter((v): v is Json => !isEmpty(v)), change.to) } : {}),
+          ...(select ? { options: change.options ?? deriveOptions([...(from.options ?? []), ...cells.map((c) => c.value).filter((v): v is Json => !isEmpty(v))], change.to) } : {}),
           ...(change.to === "link" && change.linkTable ? { linkTable: change.linkTable } : {}),
         };
         const issues: Issue[] = [];
         checkFields([to], [], issues);
         await checkLinkTables(ops, table.baseId, [to], issues);
+        if (from.type === "link" && to.type === "link" && to.linkTable !== from.linkTable)
+          issues.push({ field: from.name, code: "type", message: "cannot point a link at another table: the stored row ids belong to the old one. Add a new link field instead" });
         if (issues.length > 0) throw new ValidationError(issues);
         const plan = planConversion(cells, from, to);
         const clear = change.onFailure === "clear";
         if (plan.report.failures.length > 0 && !clear && !change.dryRun) throw new MigrationError(plan.report);
         if (change.dryRun) return plan.report;
+        if (from.required && [...plan.next.values()].some(isEmpty)) throw new ValidationError([requiredNoClear(from)]);
         await rewriteRows(ops, tableId, (doc, id) => (plan.next.has(id) ? { ...doc.values, [from.id]: plan.next.get(id) as Json } : null));
         await saveTable(ops, tableId, table, table.fields.map((f) => (f === from ? to : f)));
         return { ...plan.report, applied: true };
@@ -360,7 +365,9 @@ export function createTables(store: Store, options: TablesOptions = {}) {
             next.set(id, kept as Json);
           }
         }
+        out.droppedOptions = (from.options ?? []).filter((o) => !optionList.includes(o));
         if (out.failures.length > 0 && opts.onInUse !== "clear") throw new MigrationError(out);
+        if (from.required && [...next.values()].some(isEmpty)) throw new ValidationError([requiredNoClear(from)]);
         await rewriteRows(ops, tableId, (doc, id) => (next.has(id) ? { ...doc.values, [from.id]: next.get(id) as Json } : null));
         await saveTable(ops, tableId, table, table.fields.map((f) => (f === from ? to : f)));
         return { ...out, applied: true };

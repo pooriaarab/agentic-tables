@@ -1,5 +1,4 @@
-import { isDate, TablesError, type Field, type FieldType } from "./model.js";
-import { checkValue } from "./model.js";
+import { checkValue, isDate, isEmpty, TablesError, type Field, type FieldType } from "./model.js";
 import type { Json } from "./store.js";
 
 export interface Failure {
@@ -17,6 +16,8 @@ export interface MigrationReport {
   empty: number;
   converted: number;
   failures: Failure[];
+  /** Options of the source select that the target select does not list. */
+  droppedOptions: string[];
   applied: boolean;
 }
 
@@ -27,6 +28,19 @@ export class MigrationError extends TablesError {
       `${report.failures.length} of ${report.total} rows block the change to "${report.field}" and nothing changed. First: ${report.failures[0]?.reason}`,
     );
   }
+}
+
+/**
+ * Read a plain decimal number such as "12", "-3.5", or "2.50", or return null.
+ * It refuses text that a number cannot hold exactly: "007", "0x1A", "1e3", "-0", a
+ * number past the safe range, "NaN", and "Infinity". Zip codes and ids stay text.
+ */
+export function parseDecimal(text: string): number | null {
+  const trimmed = text.trim();
+  if (!/^-?(0|[1-9]\d*)(\.\d+)?$/.test(trimmed)) return null;
+  const plain = trimmed.includes(".") ? trimmed.replace(/0+$/, "").replace(/\.$/, "") : trimmed;
+  const number = Number(plain);
+  return String(number) === plain ? number : null;
 }
 
 const BOOLEAN_WORDS: Record<string, boolean> = { true: true, yes: true, "1": true, false: false, no: false, "0": false };
@@ -44,7 +58,7 @@ export function coerce(value: Json, from: FieldType, to: Field): { value: Json }
     case "number":
       if (typeof value === "boolean") return { value: value ? 1 : 0 };
       if (typeof value !== "string") return fail();
-      return value.trim() !== "" && Number.isFinite(Number(value)) ? { value: Number(value) } : fail(`"${value}" is not a number`);
+      return parseDecimal(value) === null ? fail(`"${value}" is not a plain number a number field can keep exactly`) : { value: parseDecimal(value) as number };
     case "checkbox": {
       if (typeof value === "number" && (value === 0 || value === 1)) return { value: value === 1 };
       if (typeof value !== "string") return fail();
@@ -54,10 +68,12 @@ export function coerce(value: Json, from: FieldType, to: Field): { value: Json }
     case "date":
       return typeof value === "string" && isDate(value.trim()) ? { value: value.trim() } : fail(`"${String(value)}" is not an ISO date`);
     case "single_select":
+      if (typeof value === "number" || typeof value === "boolean") return { value: String(value) };
       if (typeof value === "string") return { value: value.trim() };
       if (Array.isArray(value) && from === "multi_select" && value.length <= 1) return { value: value[0] ?? null };
       return fail(Array.isArray(value) ? "has more than one option" : undefined);
     case "multi_select":
+      if (typeof value === "number" || typeof value === "boolean") return { value: [String(value)] };
       if (typeof value === "string") return { value: value.split(",").map((s) => s.trim()).filter(Boolean) };
       return fail();
     default:
@@ -81,13 +97,15 @@ export function planConversion(
   from: Field,
   to: Field,
 ): { report: MigrationReport; next: Map<string, Json> } {
-  const report: MigrationReport = { field: from.name, from: from.type, to: to.type, total: rows.length, empty: 0, converted: 0, failures: [], applied: false };
+  const report: MigrationReport = { field: from.name, from: from.type, to: to.type, total: rows.length, empty: 0, converted: 0, failures: [], droppedOptions: (from.options ?? []).filter((o) => to.options !== undefined && !to.options.includes(o)), applied: false };
   const next = new Map<string, Json>();
   for (const { id, value } of rows) {
-    if (value === null || value === undefined) {
+    if (isEmpty(value)) {
       report.empty += 1;
+      if (value !== null && value !== undefined) next.set(id, null);
       continue;
     }
+    if (value === null || value === undefined) continue;
     const result = coerce(value, from.type, to);
     const issue = "error" in result ? { message: result.error } : checkValue(to, result.value);
     if ("error" in result || issue) {
