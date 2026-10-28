@@ -2,14 +2,9 @@
 
 Typed tables that agents read and write as rows.
 
-Keywords: database,tables,airtable,rows,schema,agents,mcp,cli,structured-data.
-
-- SDK: import { summarizeText, dispatchText } from "agentic-tables".
-- CLI: agentic-tables summary --text "...".
-- MCP: run agentic-tables mcp, then call summarize_text.
+Status: in development. The package exports `VERSION` only.
 
 ## Docs
 
 - README: https://github.com/pooriaarab/agentic-tables
-- Core contract: https://github.com/pooriaarab/agentic-tables/blob/main/docs/agentic-core.md
 - License: MIT

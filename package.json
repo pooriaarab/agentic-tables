@@ -39,10 +39,6 @@
       "import": "./dist/index.js"
     }
   },
-  "bin": {
-    "agentic-tables": "./dist/cli.js",
-    "agentic-tables-mcp": "./dist/mcp-bin.js"
-  },
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",

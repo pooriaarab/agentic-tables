@@ -2,39 +2,13 @@
 
 Typed tables that agents read and write as rows.
 
-## Mental model
+## Status
 
-Text goes in. Stats or a route receipt come out. One core serves
-all three faces, so each face returns the same shape.
-
-## The three faces
-
-- SDK: `import { summarizeText } from "agentic-tables"`.
-- CLI: `npx agentic-tables summary --text "..."`.
-- MCP: `npx agentic-tables mcp`, then call a tool below.
-
-Keywords: database,tables,airtable,rows,schema,agents,mcp,cli,structured-data.
-
-## MCP tools
-
-| Tool | Use it for |
-| --- | --- |
-| summarize_text | Count chars, words, lines, top words. |
-| dispatch_text | Route one text. Pass dryRun to preview. |
-| get_cost_report | Read session cost totals. |
-
-## The loop
-
-1. Discover the tools with `tools/list`.
-2. Run `summarize_text` on a sample.
-3. Preview a route with `dispatch_text` and dryRun true.
-4. Run the real route when the preview looks right.
-5. Read `get_cost_report` and state the cost.
+The package is in development. It exports `VERSION` only. The CLI, the MCP
+server, and the HTTP API do not exist yet. Do not call a tool that is not here.
 
 ## Rules
 
-- Preview with dry run before each real dispatch.
-- Stop when a guard denies the call. State the reason.
-- Never retry a denied call with changed text to dodge a guard.
-- Report adapter errors as errors. Never present them as success.
-- State the cost report before you claim the task is done.
+- Keep the domain logic behind the `Store` interface. Do not import Cloudflare or Firebase APIs in `src/`.
+- Write the list of failure cases before you write the code for a check.
+- Never log row content or an email address.

@@ -1,47 +1,7 @@
 export { VERSION } from "./version.js";
-export {
-  defineBrand,
-  createLogger,
-  GuardError,
-  VendorError,
-  createGuards,
-  LocalRouterAdapter,
-  HttpRouterAdapter,
-  recordCost,
-  getCostReport,
-  resetCosts,
-  createDryRunResult,
-  dispatchText,
-  summarizeText,
-} from "./core.js";
-export type {
-  BrandConfig,
-  LogLevel,
-  Logger,
-  LoggerOptions,
-  CapsConfig,
-  QuietHoursConfig,
-  GuardsConfig,
-  Guards,
-  DispatchReceipt,
-  RouterAdapter,
-  HttpRouterOptions,
-  CostEntry,
-  CostReport,
-  DispatchOptions,
-  DispatchResult,
-  TopWord,
-  TextSummary,
-  SummarizeOptions,
-} from "./core.js";
-
-import { defineBrand, type BrandConfig } from "./core.js";
-import { VERSION } from "./version.js";
-
-export const DEFAULT_BRAND: BrandConfig = defineBrand({
-  name: "Agentic pack",
-  command: "agentic-tables",
-  description: "Typed tables that agents read and write as rows.",
-  keywords: ["database","tables","airtable","rows","schema","agents","mcp","cli","structured-data"],
-  version: VERSION,
-});
+export { createTables } from "./tables.js";
+export type { Base, ListRowsOptions, Tables, TablesOptions } from "./tables.js";
+export { checkValue, FIELD_TYPES, NotFoundError, PRINCIPAL_KINDS, TablesError, ValidationError } from "./model.js";
+export type { Actor, Field, FieldInput, FieldType, FileRef, Issue, PrincipalKind, Row, Table, Values } from "./model.js";
+export { createMemoryStore } from "./store.js";
+export type { Doc, Json, Page, Query, Region, Store, StoreOps } from "./store.js";

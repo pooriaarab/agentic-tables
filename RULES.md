@@ -1,13 +1,8 @@
 # agentic-tables rules
 
-These rules bind every run of agentic-tables. They also bind
-agents that drive this pack over MCP.
+These rules bind every agent that uses this package.
 
-1. Preview before you act. Run each dispatch with dry run first.
-2. Respect guards. A denied call stays denied.
-3. Report failures as failures. Adapters throw, and callers surface
-   the error. No silent success follows a failed call.
-4. Count the cost. Read the cost report before you close a task.
-5. Keep quiet hours. The pack refuses routes inside the window.
-
-Pack: Typed tables that agents read and write as rows. Keywords: database,tables,airtable,rows,schema,agents,mcp,cli,structured-data.
+1. Read the schema before you write a row.
+2. Report a failed call as a failure. Do not present it as success.
+3. Preview a schema change with a dry run before you apply it.
+4. Do not retry a rejected row with changed values to get past a check.
