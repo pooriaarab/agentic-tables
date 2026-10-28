@@ -67,6 +67,8 @@ export function createApp(tables: Tables) {
     return c.json(await tables.createTable(c.req.param("baseId"), String(body.name ?? ""), body.fields ?? []), 201);
   });
   api.get("/bases/:baseId/tables", async (c) => c.json({ items: await tables.listTables(c.req.param("baseId")) }));
+  api.delete("/bases/:baseId", async (c) => (actorOf(c), c.json(await tables.deleteBase(c.req.param("baseId")))));
+  api.delete("/tables/:tableId", async (c) => (actorOf(c), c.json(await tables.deleteTable(c.req.param("tableId")))));
   api.get("/tables/:tableId", async (c) => c.json(await tables.getTable(c.req.param("tableId"))));
 
   api.post("/tables/:tableId/fields", async (c) => c.json(await tables.addField(c.req.param("tableId"), await jsonBody<AddFieldInput>(c)), 201));
@@ -74,6 +76,11 @@ export function createApp(tables: Tables) {
     c.json(await tables.renameField(c.req.param("tableId"), c.req.param("field"), String((await jsonBody<{ name?: string }>(c)).name ?? ""))),
   );
   api.delete("/tables/:tableId/fields/:field", async (c) => c.json(await tables.deleteField(c.req.param("tableId"), c.req.param("field"))));
+  api.put("/tables/:tableId/fields/:field/required", async (c) => {
+    const body = await jsonBody<{ required?: unknown; dryRun?: boolean }>(c);
+    if (typeof body.required !== "boolean") throw new TablesError("BAD_REQUEST", "required must be true or false");
+    return c.json(await tables.setRequired(c.req.param("tableId"), c.req.param("field"), body.required, { dryRun: body.dryRun === true }));
+  });
   api.post("/tables/:tableId/fields/:field/type", async (c) =>
     c.json(await tables.changeFieldType(c.req.param("tableId"), c.req.param("field"), await jsonBody<ChangeTypeOptions>(c))),
   );

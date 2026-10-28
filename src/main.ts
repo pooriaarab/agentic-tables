@@ -21,6 +21,8 @@ Commands:
   query <table> [--filter <json>] [--sort <Field[:desc]>] [--limit <n>] [--cursor <c>]
   export <table>                      Print the rows as CSV.
   import <table> --file <csv> [--create]
+  required <table> <field> <true|false> [--dry-run]
+  delete-table <table> --yes          Delete a table with its rows and views.
   mcp                                 Start the MCP server on stdio.
 
 A field spec is Name:type[!][=arg]. "!" means required. A select takes its
@@ -52,7 +54,7 @@ function parse(argv: string[]): Parsed {
       continue;
     }
     const name = token.slice(2);
-    const value = name === "create" ? "true" : rest[++i];
+    const value = ["create", "yes", "dry-run"].includes(name) ? "true" : rest[++i];
     if (value === undefined) throw new UsageError(`flag --${name} needs a value`);
     flags.set(name, [...(flags.get(name) ?? []), value]);
   }
@@ -116,6 +118,17 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
         limit: flag("limit") === undefined ? undefined : Number(flag("limit")),
         cursor: flag("cursor"),
       });
+    }
+    case "required": {
+      const table = await ctx.table(need(0, "a table"));
+      const value = need(2, "true or false");
+      if (value !== "true" && value !== "false") throw new UsageError("required needs true or false");
+      return ctx.tables.setRequired(table.id, need(1, "a field"), value === "true", { dryRun: flag("dry-run") !== undefined });
+    }
+    case "delete-table": {
+      const table = await ctx.table(need(0, "a table"));
+      if (flag("yes") === undefined) throw new UsageError(`delete-table removes "${table.name}" with all its rows. Add --yes to confirm`);
+      return ctx.tables.deleteTable(table.id);
     }
     case "export": {
       const table = await ctx.table(need(0, "a table"));

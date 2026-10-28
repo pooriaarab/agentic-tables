@@ -230,6 +230,14 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       if (values) await write(ops, "rows", id, { ...data, values });
     }
   };
+  const dropTable = async (ops: StoreOps, tableId: string): Promise<{ rows: number; views: number }> => {
+    const rows = await all<RowDoc>(ops, "rows", { tableId }, "createdAt");
+    const views = await all<object>(ops, "views", { tableId }, "createdAt");
+    for (const { id } of rows) await ops.delete("rows", id);
+    for (const { id } of views) await ops.delete("views", id);
+    await ops.delete("tables", tableId);
+    return { rows: rows.length, views: views.length };
+  };
   const saveTable = (ops: StoreOps, id: string, table: TableDoc, fields: Field[]): Promise<void> => write(ops, "tables", id, { ...table, fields, updatedAt: stamp() });
 
   const report = (field: Field, to: FieldType, rows: { id: string; value: Json | undefined }[]): MigrationReport => ({
@@ -523,6 +531,56 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         return { ...plan.report, applied: true };
       });
     },
+    /** Delete a table with its rows and views. It is refused while another table has a link field that points at it. */
+    async deleteTable(tableId: string): Promise<{ rows: number; views: number }> {
+      return store.transaction(async (ops) => {
+        const table = await loadTable(ops, tableId);
+        const issues: Issue[] = [];
+        for (const { id, data } of await all<TableDoc>(ops, "tables", { baseId: table.baseId }, "createdAt")) {
+          if (id === tableId) continue;
+          for (const f of data.fields) if (f.type === "link" && f.linkTable === tableId) issues.push({ field: `${data.name}.${f.name}`, code: "type", message: "links to this table. Delete that field first" });
+        }
+        if (issues.length > 0) throw new ValidationError(issues);
+        return dropTable(ops, tableId);
+      });
+    },
+    /** Delete a base with all its tables, rows, and views. */
+    async deleteBase(baseId: string): Promise<{ tables: number; rows: number; views: number }> {
+      return store.transaction(async (ops) => {
+        if (!(await read(ops, "bases", baseId))) throw new NotFoundError(`base "${baseId}"`);
+        const out = { tables: 0, rows: 0, views: 0 };
+        for (const { id } of await all<TableDoc>(ops, "tables", { baseId }, "createdAt")) {
+          const gone = await dropTable(ops, id);
+          out.tables += 1;
+          out.rows += gone.rows;
+          out.views += gone.views;
+        }
+        await ops.delete("bases", baseId);
+        return out;
+      });
+    },
+    /**
+     * Make a field required or optional. Making it required fails when rows have no value for it:
+     * the report lists them and nothing changes. A dry run returns the same report and writes nothing.
+     */
+    async setRequired(tableId: string, ref: string, required: boolean, opts: { dryRun?: boolean } = {}): Promise<MigrationReport> {
+      return store.transaction(async (ops) => {
+        const table = await loadTable(ops, tableId);
+        const field = findField(table, ref);
+        const rows = await all<RowDoc>(ops, "rows", { tableId }, "createdAt");
+        const out = report(field, field.type, rows.map((r) => ({ id: r.id, value: r.data.values[field.id] })));
+        for (const { id, data } of rows) {
+          const value = data.values[field.id];
+          if (required && isEmpty(value)) out.failures.push({ rowId: id, value: value ?? null, reason: "has no value" });
+        }
+        out.converted = out.total - out.failures.length;
+        if (opts.dryRun) return out;
+        if (out.failures.length > 0) throw new MigrationError(out);
+        if (field.required !== required) await saveTable(ops, tableId, table, table.fields.map((f) => (f === field ? { ...f, required } : f)));
+        return { ...out, applied: true };
+      });
+    },
+
     /** Replace the options of a select field. Rows that use a removed option abort the change, or lose that value. */
     async setOptions(tableId: string, ref: string, optionList: string[], opts: { onInUse?: "abort" | "clear" } = {}): Promise<MigrationReport> {
       return store.transaction(async (ops) => {

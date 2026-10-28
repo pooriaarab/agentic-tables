@@ -53,6 +53,10 @@ export function createMcpServer(ctx: Context): McpServer {
     const t = await ctx.table(table);
     return describe(await ctx.tables.addField(t.id, { ...field, ...(field.linkTable ? { linkTable: (await ctx.table(field.linkTable)).id } : {}), ...(fill === undefined ? {} : { default: fill }) }));
   });
+  tool("set_required", "Make a field required or optional. Making it required fails and lists the rows that have no value. Use dryRun to see the list first.", { table: tableRef, field: z.string(), required: z.boolean(), dryRun: z.boolean().optional() }, "write", async ({ table, field, required, dryRun }) =>
+    ctx.tables.setRequired((await ctx.table(table)).id, field, required, { dryRun }),
+  );
+  tool("delete_table", "Delete a table with all its rows and views. It fails while another table links to it.", { table: tableRef }, "delete", async ({ table }) => ctx.tables.deleteTable((await ctx.table(table)).id));
   tool("insert_rows", "Insert rows. Keys are field names. All rows are checked first. If one fails, none is written, and the error names the row and field.", { table: tableRef, rows: z.array(z.record(z.any())).min(1).max(500) }, "write", async ({ table, rows }) => ({
     rows: await ctx.tables.insertRows((await ctx.table(table)).id, rows as Values[], ctx.actor),
   }));

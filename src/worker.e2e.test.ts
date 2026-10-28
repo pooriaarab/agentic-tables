@@ -120,6 +120,27 @@ describe("tables Worker over wrangler dev", () => {
     expect(dropped.status).toBe(404);
   });
 
+  test("changes required with a report, and deletes tables and bases", async () => {
+    const { base, table } = await makePeople();
+    const linked = (await call("POST", `/bases/${base.id}/tables`, HUMAN, { name: "Orders", fields: [{ name: "Who", type: "link", linkTable: table.id }] })).body;
+    await call("POST", `/tables/${table.id}/rows`, HUMAN, { values: { Name: "Ada" } });
+    await call("POST", `/tables/${table.id}/rows`, HUMAN, { values: { Name: "Bob", Age: 5 } });
+    const blocked = await call("PUT", `/tables/${table.id}/fields/Age/required`, HUMAN, { required: true });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.report).toMatchObject({ applied: false, failures: [{ reason: "has no value" }] });
+    expect((await call("PUT", `/tables/${table.id}/fields/Age/required`, HUMAN, { required: true, dryRun: true })).body.applied).toBe(false);
+    expect((await call("PUT", `/tables/${table.id}/fields/Age/required`, HUMAN, { required: "yes" })).status).toBe(400);
+    expect((await call("PUT", `/tables/${table.id}/fields/Age/required`, HUMAN, { required: false })).body.applied).toBe(true);
+
+    expect((await call("DELETE", `/tables/${table.id}`, {})).status).toBe(401);
+    const refused = await call("DELETE", `/tables/${table.id}`, HUMAN);
+    expect(refused).toMatchObject({ status: 422, body: { error: { issues: [{ field: "Orders.Who" }] } } });
+    expect((await call("DELETE", `/tables/${linked.id}`, HUMAN)).body).toEqual({ rows: 0, views: 0 });
+    expect((await call("DELETE", `/bases/${base.id}`, HUMAN)).body).toEqual({ tables: 1, rows: 2, views: 0 });
+    expect((await call("GET", `/tables/${table.id}`)).status).toBe(404);
+    expect((await call("DELETE", `/bases/${base.id}`, HUMAN)).status).toBe(404);
+  });
+
   test("refuses to serve without the unsafe flag", async () => {
     for (const [method, path] of [["GET", "/bases"], ["POST", "/bases"]] as const) {
       const response = await fetch(`http://127.0.0.1:${PORT + 1}/api/v1/tables${path}`, { method, headers: HUMAN, body: method === "POST" ? "{}" : undefined });
