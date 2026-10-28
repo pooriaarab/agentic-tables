@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "agentic-tables": {
-      "command": "npx",
-      "args": ["-y", "agentic-tables", "mcp"]
-    }
-  }
-}

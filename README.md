@@ -7,7 +7,7 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: scaffold. This repository holds the starter code only. It is not on npm
+> Status: in development. The package exports `VERSION` only. It is not on npm
 > yet, and none of the features below work yet.
 
 ## Planned features
@@ -19,12 +19,12 @@ Typed tables that agents read and write as rows.
 - Import and export CSV.
 - Share by invite or link, with roles.
 
-## Surfaces
+## Planned surfaces
 
 One package gives you each way in:
 
 - **Library and SDK**: `import { ... } from "agentic-tables"`.
-- **CLI**: `npx agentic-tables --help`.
+- **CLI**: `npx agentic-tables`.
 - **MCP server**: `npx agentic-tables mcp`, for Claude Code and other MCP clients.
 - **HTTP API**: a Cloudflare Worker you deploy to your own account.
 - **Web UI**: a small app served by the same Worker.
