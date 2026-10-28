@@ -15,8 +15,10 @@ const dir = mkdtempSync(join(tmpdir(), "tables-e2e-"));
 const env = { ...process.env, AGENTIC_TABLES_DB: join(dir, "db.json") };
 const steps: { step: string; ok: boolean }[] = [];
 
+// Each actor has its own default base. The tests that mix actors on one table name the base of human:cli.
+let sharedBase: string | undefined;
 const run = (args: string[], actor = "human:cli") => {
-  const result = spawnSync("node", [cli, ...args], { env: { ...env, AGENTIC_TABLES_ACTOR: actor }, encoding: "utf8" });
+  const result = spawnSync("node", [cli, ...args], { env: { ...env, AGENTIC_TABLES_ACTOR: actor, ...(sharedBase ? { AGENTIC_TABLES_BASE: sharedBase } : {}) }, encoding: "utf8" });
   return { code: result.status, out: result.stdout, err: result.stderr };
 };
 const ok = (args: string[], actor?: string) => {
@@ -39,6 +41,7 @@ describe("cli", () => {
   test("creates, writes, rejects, queries, imports, and exports across processes", () => {
     const table = ok(["new", "People", "--field", "Name:text!", "--field", "Age:number", "--field", "Stage:single_select=lead|won"]);
     expect(table.fields.map((f: any) => f.name)).toEqual(["Name", "Age", "Stage"]);
+    sharedBase = ok(["export-data"]).bases[0].base.id;
     expect(ok(["schema", "People"]).fields[0]).toMatchObject({ name: "Name", required: true });
 
     const row = ok(["insert", "People", "--json", '{"Name":"Ada","Age":36,"Stage":"won"}'], "agent:claude");
@@ -104,7 +107,7 @@ describe("data rights over the CLI and MCP", () => {
 
       const refused = cli2(["erase-data"], "human:ada");
       expect(refused.status).toBe(2);
-      expect(JSON.parse(cli2(["erase-data", "--yes"], "human:eve").stdout)).toEqual({ bases: 0, tables: 0, rows: 0, views: 0 });
+      expect(JSON.parse(cli2(["erase-data", "--yes"], "human:eve").stdout)).toEqual({ bases: 0, tables: 0, rows: 0, views: 0, authoredRows: 0 });
       expect(cli2(["export-data"], "human:ada").stdout).toContain("ada-secret");
 
       const client = new Client({ name: "e2e-gdpr", version: "0.0.0" });
@@ -113,7 +116,7 @@ describe("data rights over the CLI and MCP", () => {
         const exported = (await client.callTool({ name: "export_my_data", arguments: {} })) as { content: { text: string }[] };
         expect(JSON.parse(exported.content[0]!.text).bases).toHaveLength(1);
         const erased = (await client.callTool({ name: "erase_my_data", arguments: {} })) as { content: { text: string }[] };
-        expect(JSON.parse(erased.content[0]!.text)).toEqual({ bases: 1, tables: 1, rows: 1, views: 0 });
+        expect(JSON.parse(erased.content[0]!.text)).toEqual({ bases: 1, tables: 1, rows: 1, views: 0, authoredRows: 0 });
         steps.push({ step: "mcp export_my_data and erase_my_data", ok: true });
       } finally {
         await client.close();
@@ -125,10 +128,73 @@ describe("data rights over the CLI and MCP", () => {
   }, 60_000);
 });
 
+describe("data rights across two principals", () => {
+  test("erase removes only the data of the principal that asks, and counts it", async () => {
+    const dir3 = mkdtempSync(join(tmpdir(), "tables-two-actors-"));
+    const env3 = { ...process.env, AGENTIC_TABLES_DB: join(dir3, "db.json") } as Record<string, string>;
+    const cli3 = (args: string[], extra: Record<string, string> = {}) =>
+      JSON.parse(execFileSync("node", [cli, ...args], { env: { ...env3, AGENTIC_TABLES_ACTOR: "human:cli", ...extra }, encoding: "utf8" })) as any;
+    const mcp = async <T>(extra: Record<string, string>, fn: (call: (name: string, args?: Record<string, unknown>) => Promise<any>) => Promise<T>): Promise<T> => {
+      const client = new Client({ name: "e2e-two", version: "0.0.0" });
+      await client.connect(new StdioClientTransport({ command: "node", args: [cli, "mcp"], env: { ...env3, AGENTIC_TABLES_ACTOR: "agent:mcp", ...extra } }));
+      try {
+        return await fn(async (name, args = {}) => JSON.parse(((await client.callTool({ name, arguments: args })) as { content: { text: string }[] }).content[0]!.text));
+      } finally {
+        await client.close();
+      }
+    };
+    try {
+      // The human makes a table and a row in the human's default base.
+      cli3(["new", "People", "--field", "Name:text"]);
+      cli3(["insert", "People", "--json", '{"Name":"cli-secret"}']);
+      const humanBase = cli3(["export-data"]).bases[0].base.id as string;
+
+      // The agent does not see the human's table. It gets its own default base.
+      await mcp({}, async (call) => {
+        expect(await call("list_tables")).toEqual([]);
+        await call("create_table", { name: "Notes", fields: [{ name: "Body", type: "text" }] });
+        await call("insert_rows", { table: "Notes", rows: [{ Body: "mcp-secret" }] });
+      });
+      // The agent writes one row into the human's base, by naming that base.
+      await mcp({ AGENTIC_TABLES_BASE: humanBase }, async (call) => {
+        await call("insert_rows", { table: "People", rows: [{ Name: "mcp-in-human-base" }] });
+      });
+
+      // Export for each principal. Each holds its own base, and the agent also holds its row in the human's base.
+      const humanExport = cli3(["export-data"]);
+      expect(humanExport.bases).toHaveLength(1);
+      expect(humanExport.bases[0].rows.map((r: any) => r.values.Name).sort()).toEqual(["cli-secret", "mcp-in-human-base"]);
+      expect(humanExport.authoredRows).toEqual([]);
+      const agentExport = await mcp({}, (call) => call("export_my_data"));
+      expect(agentExport.bases).toHaveLength(1);
+      expect(agentExport.bases[0].rows.map((r: any) => r.values.Body)).toEqual(["mcp-secret"]);
+      expect(agentExport.authoredRows.map((r: any) => r.values.Name)).toEqual(["mcp-in-human-base"]);
+
+      // The agent erases. Its base and its row in the human's base go. The human's own row stays.
+      const erased = await mcp({}, (call) => call("erase_my_data"));
+      expect(erased).toEqual({ bases: 1, tables: 1, rows: 1, views: 0, authoredRows: 1 });
+      const after = cli3(["export-data"]);
+      expect(after.bases[0].rows.map((r: any) => r.values.Name)).toEqual(["cli-secret"]);
+      const dump = readFileSync(join(dir3, "db.json"), "utf8");
+      expect(dump).not.toContain("mcp-secret");
+      expect(dump).not.toContain("mcp-in-human-base");
+      expect(dump).toContain("cli-secret");
+      expect(await mcp({}, (call) => call("erase_my_data"))).toEqual({ bases: 0, tables: 0, rows: 0, views: 0, authoredRows: 0 });
+
+      // The human erases. Everything of the human goes, and the counts match.
+      expect(cli3(["erase-data", "--yes"])).toEqual({ bases: 1, tables: 1, rows: 1, views: 0, authoredRows: 0 });
+      expect(readFileSync(join(dir3, "db.json"), "utf8")).not.toContain("cli-secret");
+      steps.push({ step: "two principals: export and erase", ok: true });
+    } finally {
+      rmSync(dir3, { recursive: true, force: true });
+    }
+  }, 90_000);
+});
+
 describe("mcp", () => {
   test("describes the schema and does typed row CRUD over stdio", async () => {
     const client = new Client({ name: "e2e", version: "0.0.0" });
-    await client.connect(new StdioClientTransport({ command: "node", args: [cli, "mcp"], env: { ...env, AGENTIC_TABLES_ACTOR: "agent:e2e" } as Record<string, string> }));
+    await client.connect(new StdioClientTransport({ command: "node", args: [cli, "mcp"], env: { ...env, AGENTIC_TABLES_ACTOR: "agent:e2e", AGENTIC_TABLES_BASE: sharedBase! } as Record<string, string> }));
     try {
       const names = (await client.listTools()).tools.map((t) => t.name);
       expect(names).toEqual(expect.arrayContaining(["list_tables", "describe_table", "create_table", "add_field", "insert_rows", "update_row", "delete_row", "get_row", "query_rows", "set_required", "delete_table", "export_my_data", "erase_my_data"]));
@@ -169,7 +235,8 @@ describe("one file, many processes", () => {
     const client = new Client({ name: "e2e-shared", version: "0.0.0" });
     try {
       expect(cliRun(["new", "Log", "--field", "Msg:text"]).status).toBe(0);
-      await client.connect(new StdioClientTransport({ command: "node", args: [cli, "mcp"], env: { ...sharedEnv, AGENTIC_TABLES_ACTOR: "agent:mcp" } }));
+      const sharedBase = JSON.parse(cliRun(["export-data"]).stdout).bases[0].base.id as string;
+      await client.connect(new StdioClientTransport({ command: "node", args: [cli, "mcp"], env: { ...sharedEnv, AGENTIC_TABLES_ACTOR: "agent:mcp", AGENTIC_TABLES_BASE: sharedBase } }));
       // The server has loaded the file. Now the CLI writes, then the server writes.
       expect(cliRun(["insert", "Log", "--json", '{"Msg":"from cli"}']).status).toBe(0);
       const viaMcp = (await client.callTool({ name: "insert_rows", arguments: { table: "Log", rows: [{ Msg: "from mcp" }] } })) as { isError?: boolean };

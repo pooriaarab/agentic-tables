@@ -80,11 +80,11 @@ describe("erase", () => {
     await fill(t, ada, "ada");
     await fill(t, ada, "ada2");
     const { table } = await fill(t, bob, "bob");
-    expect(await t.eraseOwnerData("ada")).toEqual({ bases: 2, tables: 2, rows: 2, views: 2 });
+    expect(await t.eraseOwnerData("ada")).toEqual({ bases: 2, tables: 2, rows: 2, views: 2, authoredRows: 0 });
     expect((await t.exportOwnerData("ada")).bases).toEqual([]);
     expect((await t.listBases()).map((b) => b.ownerId)).toEqual(["bob"]);
     expect((await t.listRows(table.id)).items).toHaveLength(1);
-    expect(await t.eraseOwnerData("ada")).toEqual({ bases: 0, tables: 0, rows: 0, views: 0 });
+    expect(await t.eraseOwnerData("ada")).toEqual({ bases: 0, tables: 0, rows: 0, views: 0, authoredRows: 0 });
   });
 
   test("a base with no owner is never exported or erased", async () => {

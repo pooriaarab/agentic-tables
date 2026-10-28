@@ -88,21 +88,23 @@ A failure returns `{"error":{"code","message","issues"}}`: `422` for a validatio
 
 ## Your data (GDPR)
 
-A base has an owner, the id of the principal that created it. Two actions work by owner id:
+A base has an owner, the id of the principal that created it. Two actions work by principal id:
 
-- **Export**: every base the owner holds, with its tables, views, and rows, as one JSON object (`format: "agentic-tables-export"`, `version: 1`). Each row keeps the principal kind of its author.
-- **Hard delete**: every base the owner holds goes in one transaction. The store keeps no copy and no marker. With the file store, the file is rewritten without the data.
+- **Export**: every base the principal owns, with its tables, views, and rows. It also lists `authoredRows`: the rows the principal wrote in bases it does not own. The output is one JSON object (`format: "agentic-tables-export"`, `version: 1`). Each row keeps the principal kind of its author.
+- **Hard delete**: every base the principal owns goes in one transaction, and so does every row the principal wrote in other bases. Links to a deleted row are removed. Other rows in those bases stay. The store keeps no copy and no marker. With the file store, the file is rewritten without the data.
+
+The result of a hard delete counts what it removed: `bases`, `tables`, `views`, `rows` (rows inside the owned bases), and `authoredRows` (rows in other bases).
 
 | Surface | Export | Hard delete |
 | --- | --- | --- |
-| Library | `exportOwnerData(ownerId)` | `eraseOwnerData(ownerId)` |
+| Library | `exportOwnerData(principalId)` | `eraseOwnerData(principalId)` |
 | CLI | `export-data` | `erase-data --yes` |
 | MCP | `export_my_data` | `erase_my_data` |
 | HTTP | `GET /me/export` | `DELETE /me/data` |
 
-The CLI, MCP, and HTTP actions act for the actor of the call only. A base made before owners existed has no owner. It is never exported and never erased.
+The CLI, MCP, and HTTP actions act for the actor of the call only. In the unsafe mode the HTTP actor comes from an unchecked header, so anyone can name any id. The CLI and MCP give each actor id its own default base, so two actors on one file never share data by accident. Set `AGENTIC_TABLES_BASE` to a base id to work in a shared base. A base made before owners existed has no owner. It is never exported and never erased as a whole, but rows that the principal wrote in it are.
 
-Not covered yet: rows that this owner wrote in bases of other owners stay as they are, there is no audit log of access, and there is no retention setting. The export holds all data in memory, so a very large owner needs a streaming export later.
+Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`) when another principal wrote them. File refs hold blob keys, and erase does not remove the blobs. A file store rewrite does not wipe old file blocks or backups. There is no audit log of access, and there is no retention setting. Agents that act for a person own data under their own id until the principal chain lands. The export holds all data in memory, so a very large export needs a streaming version later.
 
 ## Limits
 
@@ -117,6 +119,7 @@ Not covered yet: rows that this owner wrote in bases of other owners stay as the
 ```sh
 export AGENTIC_TABLES_DB=./crm.json            # default ./agentic-tables.json
 export AGENTIC_TABLES_ACTOR=agent:claude       # who writes, as kind:id. Default human:cli.
+export AGENTIC_TABLES_BASE=base_...            # optional. The base to work in. Default: one base per actor id.
 
 npx agentic-tables new People --field "Name:text!" --field "Age:number" --field "Stage:single_select=lead|won"
 npx agentic-tables insert People --json '{"Name":"Ada","Age":36,"Stage":"won"}'

@@ -34,6 +34,8 @@ export interface OwnerExport {
   exportedAt: string;
   ownerId: string;
   bases: { base: Base; tables: Table[]; views: View[]; rows: Row[] }[];
+  /** Rows this principal wrote in bases it does not own. */
+  authoredRows: Row[];
 }
 
 export interface EraseSummary {
@@ -41,6 +43,8 @@ export interface EraseSummary {
   tables: number;
   rows: number;
   views: number;
+  /** Rows this principal wrote in bases it does not own. They are not part of `rows`. */
+  authoredRows: number;
 }
 
 export interface TablesOptions {
@@ -260,8 +264,31 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     await ops.delete("tables", tableId);
     return { rows: rows.length, views: views.length };
   };
+  /** Delete a row and remove its id from every link that points at it. */
+  const removeRow = async (ops: StoreOps, rowId: string, row: RowDoc): Promise<void> => {
+    for (const { id: tableId, data: table } of await all<TableDoc>(ops, "tables", { baseId: row.baseId }, "createdAt")) {
+      const links = table.fields.filter((f) => f.type === "link" && f.linkTable === row.tableId);
+      if (links.length === 0) continue;
+      await rewriteRows(ops, tableId, (doc) => {
+        const hit = links.filter((f) => (doc.values[f.id] as string[] | undefined)?.includes(rowId));
+        return hit.length === 0 ? null : { ...doc.values, ...Object.fromEntries(hit.map((f) => [f.id, (doc.values[f.id] as string[]).filter((id) => id !== rowId)])) };
+      });
+    }
+    await ops.delete("rows", rowId);
+  };
+  /** Rows the principal wrote in bases it does not own, with the table of each. */
+  const authoredElsewhere = async (ops: StoreOps, principalId: string): Promise<{ id: string; data: RowDoc; table: TableDoc }[]> => {
+    const found: { id: string; data: RowDoc; table: TableDoc }[] = [];
+    for (const base of await all<{ ownerId?: string }>(ops, "bases", {}, "createdAt")) {
+      if (base.data.ownerId === principalId) continue;
+      for (const { id: tableId, data: table } of await all<TableDoc>(ops, "tables", { baseId: base.id }, "createdAt")) {
+        for (const r of await all<RowDoc>(ops, "rows", { tableId }, "createdAt")) if (r.data.createdBy?.id === principalId) found.push({ ...r, table });
+      }
+    }
+    return found;
+  };
   const dropBase = async (ops: StoreOps, baseId: string): Promise<EraseSummary> => {
-    const total: EraseSummary = { bases: 1, tables: 0, rows: 0, views: 0 };
+    const total: EraseSummary = { bases: 1, tables: 0, rows: 0, views: 0, authoredRows: 0 };
     for (const { id } of await all<TableDoc>(ops, "tables", { baseId }, "createdAt")) {
       const gone = await dropTable(ops, id);
       total.tables += 1;
@@ -297,7 +324,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       return (await all<Omit<Base, "id">>(store, "bases", {}, "createdAt")).map((e) => ({ id: e.id, ...e.data }));
     },
 
-    /** Export every base the owner holds, with its tables, views, and rows, in one consistent read. Memory grows with the data. */
+    /** Export every base the principal owns, and every row it wrote in other bases, in one consistent read. Memory grows with the data. */
     async exportOwnerData(ownerId: string): Promise<OwnerExport> {
       assertOwnerId(ownerId);
       return store.transaction(async (ops) => {
@@ -311,20 +338,25 @@ export function createTables(store: Store, options: TablesOptions = {}) {
           }
           bases.push(out);
         }
-        return { format: "agentic-tables-export", version: 1, exportedAt: stamp(), ownerId, bases };
+        const authoredRows = (await authoredElsewhere(ops, ownerId)).map((r) => rowView(r.table, r.id, r.data));
+        return { format: "agentic-tables-export", version: 1, exportedAt: stamp(), ownerId, bases, authoredRows };
       });
     },
-    /** Hard delete every base the owner holds. No copy stays in the store. Rows the owner wrote in bases of others stay. */
+    /** Hard delete every base the principal owns and every row it wrote in other bases. No copy stays in the store. Other rows in those bases stay. */
     async eraseOwnerData(ownerId: string): Promise<EraseSummary> {
       assertOwnerId(ownerId);
       return store.transaction(async (ops) => {
-        const total: EraseSummary = { bases: 0, tables: 0, rows: 0, views: 0 };
+        const total: EraseSummary = { bases: 0, tables: 0, rows: 0, views: 0, authoredRows: 0 };
         for (const { id } of await all<object>(ops, "bases", { ownerId }, "createdAt")) {
           const gone = await dropBase(ops, id);
           total.bases += 1;
           total.tables += gone.tables;
           total.rows += gone.rows;
           total.views += gone.views;
+        }
+        for (const r of await authoredElsewhere(ops, ownerId)) {
+          await removeRow(ops, r.id, r.data);
+          total.authoredRows += 1;
         }
         return total;
       });
@@ -495,6 +527,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       if (issues.length > 0 || !group) throw new ValidationError(issues);
       const rows = await scanRows(table, filter, spec, view.sort?.direction ?? "asc");
       const perGroup = run.limit ?? 50;
+      if (!Number.isInteger(perGroup) || perGroup < 1 || perGroup > 1000) throw new TablesError("INVALID_QUERY", "limit must be an integer from 1 to 1000");
       const values: (string | null)[] = [...(group.options ?? []), null];
       return {
         kind: "board",
@@ -511,15 +544,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       await store.transaction(async (ops) => {
         const row = await read<RowDoc>(ops, "rows", rowId);
         if (!row) throw new NotFoundError(`row "${rowId}"`);
-        for (const { id: tableId, data: table } of await all<TableDoc>(ops, "tables", { baseId: row.baseId }, "createdAt")) {
-          const links = table.fields.filter((f) => f.type === "link" && f.linkTable === row.tableId);
-          if (links.length === 0) continue;
-          await rewriteRows(ops, tableId, (doc) => {
-            const hit = links.filter((f) => (doc.values[f.id] as string[] | undefined)?.includes(rowId));
-            return hit.length === 0 ? null : { ...doc.values, ...Object.fromEntries(hit.map((f) => [f.id, (doc.values[f.id] as string[]).filter((id) => id !== rowId)])) };
-          });
-        }
-        await ops.delete("rows", rowId);
+        await removeRow(ops, rowId, row);
       });
     },
 
@@ -612,7 +637,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       });
     },
     /** Delete a base with all its tables, rows, and views. */
-    async deleteBase(baseId: string): Promise<Omit<EraseSummary, "bases">> {
+    async deleteBase(baseId: string): Promise<Omit<EraseSummary, "bases" | "authoredRows">> {
       return store.transaction(async (ops) => {
         if (!(await read(ops, "bases", baseId))) throw new NotFoundError(`base "${baseId}"`);
         const { tables, rows, views } = await dropBase(ops, baseId);

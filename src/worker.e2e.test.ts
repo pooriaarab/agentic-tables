@@ -159,8 +159,14 @@ describe("tables Worker over wrangler dev", () => {
     expect(JSON.stringify(adaExport)).not.toContain("Secret");
     expect(adaExport.bases.some((b: any) => b.base.id === mine.base.id && b.rows[0].values.Name === "Mine" && b.rows[0].createdBy.kind === "agent_of_human")).toBe(true);
 
+    // Eve also wrote a row in Ada's base. Export and erase for Eve cover it, and Ada's other rows stay.
+    await call("POST", `/tables/${mine.table.id}/rows`, eve, { values: { Name: "Eve was here" } });
+    expect((await call("GET", "/me/export", eve)).body.authoredRows.map((r: any) => r.values.Name)).toEqual(["Eve was here"]);
+    expect((await call("GET", "/me/export", HUMAN)).body.authoredRows).toEqual([]);
+
     const erased = await call("DELETE", "/me/data", eve);
-    expect(erased.body).toEqual({ bases: 1, tables: 1, rows: 0, views: 0 });
+    expect(erased.body).toEqual({ bases: 1, tables: 1, rows: 0, views: 0, authoredRows: 1 });
+    expect((await call("GET", `/tables/${mine.table.id}/rows`)).body.items.map((r: any) => r.values.Name)).toEqual(["Mine"]);
     expect((await call("GET", "/me/export", eve)).body.bases).toEqual([]);
     expect((await call("GET", `/bases/${theirs.id}/tables`)).body.items).toEqual([]);
     expect((await call("GET", `/tables/${mine.table.id}`)).status).toBe(200);
@@ -173,6 +179,59 @@ describe("tables Worker over wrangler dev", () => {
       expect(((await response.json()) as any).error.code).toBe("UNSAFE_NOT_ENABLED");
     }
     steps.push({ step: "no unsafe flag: 503", status: 503 });
+  });
+
+  test("rejects bodies that do not match the schema, and oversize bodies", async () => {
+    const { base, table } = await makePeople();
+    const rows = `/tables/${table.id}/rows`;
+    const bad = async (path: string, body: unknown, status = 400) => {
+      const response = await call("POST", path, HUMAN, body);
+      expect(response.status).toBe(status);
+      expect(response.body.error.code).toBe(status === 413 ? "PAYLOAD_TOO_LARGE" : "BAD_REQUEST");
+      return response;
+    };
+
+    await bad(rows, { values: 5 });
+    await bad(rows, { values: [1] });
+    await bad(rows, { values: null });
+    await bad(rows, { rows: [5] });
+    await bad(rows, { rows: [null] });
+    await bad(rows, { rows: "x" });
+    await bad(rows, { values: { Name: "Ok" }, extra: true });
+    await bad(rows, { values: { Name: "Ok" }, rows: [{ Name: "Ok" }] });
+    await bad(rows, { rows: Array.from({ length: 501 }, () => ({ Name: "Ok" })) });
+    await bad(`/bases/${base.id}/tables`, { name: "T", fields: [{ name: "A", type: "text", required: "false" }] });
+    await bad(`/bases/${base.id}/tables`, { name: "T", fields: [null] });
+    await bad(`/bases/${base.id}/tables`, { name: "T", fields: [{ name: "A", type: "select", options: [1] }] });
+    await bad(`/bases/${base.id}/tables`, { name: "T", fields: [{ name: "A", type: "single_select", options: [1] }] });
+    await bad(`/bases/${base.id}/tables`, { name: "T", extra: 1 });
+    await bad(`/tables/${table.id}/fields`, { name: "B", type: "text", required: "no" });
+    await bad(`/tables/${table.id}/fields`, { name: "B", type: "text", unknown: 1 });
+    await bad("/bases", { name: "" });
+    await bad("/bases", { name: 5 });
+    await bad(`/tables/${table.id}/views`, { name: "V", kind: "grid", extra: 1 });
+    await bad(`/tables/${table.id}/views`, { name: "V", kind: "calendar" });
+    await bad(`/tables/${table.id}/fields/Name/type`, { to: "number", dryRun: "yes" });
+    expect((await call("PATCH", `/tables/${table.id}/fields/Name`, HUMAN, { name: 5 })).status).toBe(400);
+    for (const body of [{ required: "true" }, { required: true, dryRun: "yes" }, { required: true, extra: 1 }, {}]) {
+      expect((await call("PUT", `/tables/${table.id}/fields/Age/required`, HUMAN, body)).status).toBe(400);
+    }
+    expect((await call("PATCH", `/rows/${(await call("POST", rows, HUMAN, { values: { Name: "R" } })).body.id}`, HUMAN, { values: 5 })).status).toBe(400);
+
+    const big = await call("POST", rows, HUMAN, { values: { Name: "x".repeat(1024 * 1024 + 1) } });
+    expect(big.status).toBe(413);
+    expect(big.body.error.code).toBe("PAYLOAD_TOO_LARGE");
+    const noLength = await call("POST", rows, HUMAN, undefined, JSON.stringify({ values: { Name: "x".repeat(1024 * 1024 + 1) } }));
+    expect(noLength.status).toBe(413);
+
+    // Nothing bad reached the store. Only the one "R" row exists.
+    expect((await call("GET", rows)).body.items.map((r: any) => r.values.Name)).toEqual(["R"]);
+    // A 500-row batch still passes.
+    const max = await call("POST", rows, HUMAN, { rows: Array.from({ length: 500 }, (_, i) => ({ Name: `n${i}` })) });
+    expect(max.status).toBe(201);
+    // A bad limit is a client error.
+    const view = (await call("POST", `/tables/${table.id}/views`, HUMAN, { name: "B", kind: "board", groupBy: "Stage" })).body;
+    for (const limit of ["-1", "abc", "0", "1001"]) expect((await call("GET", `/views/${view.id}/rows?limit=${limit}`)).status).toBe(400);
   });
 
   test("fails loudly, with a code and no internal detail", async () => {
