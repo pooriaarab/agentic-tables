@@ -420,6 +420,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       if (issues.length > 0 || !group) throw new ValidationError(issues);
       const rows = await scanRows(table, filter, spec, view.sort?.direction ?? "asc");
       const perGroup = run.limit ?? 50;
+      if (!Number.isInteger(perGroup) || perGroup < 1 || perGroup > 1000) throw new TablesError("INVALID_QUERY", "limit must be an integer from 1 to 1000");
       const values: (string | null)[] = [...(group.options ?? []), null];
       return {
         kind: "board",
