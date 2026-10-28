@@ -12,6 +12,8 @@
 //  9. A table bigger than the scan cap: fail, never return a partial answer.
 // 10. A board grouped by a field that is not a single select.
 // 11. A saved view whose field was deleted: fail loudly when it runs.
+// 12. A board whose group field changed type: fail loudly, never lose rows.
+// 13. A sort direction or view kind that is not valid: refuse it.
 import { beforeEach, describe, expect, test } from "vitest";
 import { createMemoryStore, createTables, TablesError, ValidationError, type Actor, type Tables } from "./index.js";
 
@@ -125,6 +127,21 @@ describe("views", () => {
     if (run.kind !== "board") throw new Error("expected a board");
     expect(run.groups.map((g) => [g.value, g.count])).toEqual([["lead", 2], ["won", 1], ["lost", 1], [null, 1]]);
   });
+  test("a board fails loudly when its group field changes type", async () => {
+    await seed();
+    await t.insertRow(tableId, { Name: "a", Stage: "lead" }, human);
+    const view = await t.createView(tableId, { name: "Board", kind: "board", groupBy: "Stage" });
+    await t.changeFieldType(tableId, "Stage", { to: "text" });
+    await rejects(t.runView(view.id), "type");
+  });
+
+  test("refuses a sort direction or view kind it does not know", async () => {
+    await seed();
+    await rejects(t.queryRows(tableId, { sort: { field: "Name", direction: "DESC" as never } }), "type");
+    await rejects(t.createView(tableId, { name: "V", kind: "list" as never }), "type");
+    await rejects(t.createView(tableId, { name: "V", kind: "grid", sort: { field: "Name", direction: "down" as never } }), "type");
+  });
+
   test("a board needs a single select field", async () => {
     await rejects(t.createView(tableId, { name: "B", kind: "board", groupBy: "Tags" }), "type");
     await rejects(t.createView(tableId, { name: "B", kind: "board" }), "type");

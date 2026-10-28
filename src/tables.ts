@@ -128,6 +128,10 @@ async function all<T>(ops: StoreOps, collection: string, where: Record<string, s
   return out;
 }
 
+const checkDirection = (sort: Sort | undefined, issues: Issue[]): void => {
+  if (sort?.direction !== undefined && sort.direction !== "asc" && sort.direction !== "desc") issues.push({ field: "direction", code: "type", message: 'must be "asc" or "desc"' });
+};
+
 const findField = (table: TableDoc, ref: string): Field => {
   const field = table.fields.find((f) => f.id === ref) ?? table.fields.find((f) => f.name === ref);
   if (!field) throw new NotFoundError(`field "${ref}"`);
@@ -317,6 +321,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       const issues: Issue[] = [];
       const filter = q.filter ? resolveFilter(table, q.filter, issues) : undefined;
       const spec = q.sort ? resolveSort(table, q.sort, issues) : undefined;
+      checkDirection(q.sort, issues);
       if (issues.length > 0) throw new ValidationError(issues);
       const direction = q.sort?.direction ?? "asc";
       if (!filter && (!spec || "system" in spec)) {
@@ -353,6 +358,8 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       const group = input.groupBy ? table.fields.find((f) => f.id === input.groupBy || f.name === input.groupBy) : undefined;
       if (input.kind === "board" && group?.type !== "single_select") issues.push({ field: input.groupBy ?? "groupBy", code: "type", message: "a board needs groupBy set to a single select field" });
       if (input.name.trim() === "") issues.push({ field: "name", code: "type", message: "needs a name" });
+      if (input.kind !== "grid" && input.kind !== "board") issues.push({ field: "kind", code: "type", message: 'must be "grid" or "board"' });
+      checkDirection(input.sort, issues);
       if (issues.length > 0) throw new ValidationError(issues);
       const view: View = {
         id: newId("view"), tableId, name: input.name.trim(), kind: input.kind,
@@ -382,6 +389,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       const spec = view.sort ? resolveSort(table, view.sort, issues) : undefined;
       const group = table.fields.find((f) => f.id === view.groupBy);
       if (!group) issues.push({ field: String(view.groupBy), code: "unknown_field", message: "no such field" });
+      if (group && group.type !== "single_select") issues.push({ field: group.name, code: "type", message: `a board needs a single select field, and this one is now ${group.type}. Create a new view` });
       if (issues.length > 0 || !group) throw new ValidationError(issues);
       const rows = await scanRows(table, filter, spec, view.sort?.direction ?? "asc");
       const perGroup = run.limit ?? 50;

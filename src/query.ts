@@ -1,4 +1,4 @@
-import { isDate, type Field, type FieldType, type Issue, type Table } from "./model.js";
+import { isDate, isEmpty, type Field, type FieldType, type Issue, type Table } from "./model.js";
 import type { Json } from "./store.js";
 
 export type Op =
@@ -78,11 +78,10 @@ export function resolveSort(table: Table, sort: Sort, issues: Issue[]): SortSpec
   return undefined;
 }
 
-const isEmptyValue = (v: Json | undefined): boolean => v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
 const time = (v: Json): number => Date.parse(v as string);
 
 function test(field: Field, c: Condition, v: Json | undefined): boolean {
-  const empty = isEmptyValue(v);
+  const empty = isEmpty(v);
   if (c.op === "is_empty") return field.type === "checkbox" ? v !== true : empty;
   if (c.op === "not_empty") return !empty;
   if (field.type === "checkbox") return ((v ?? false) === c.value) === (c.op === "eq");
@@ -117,7 +116,7 @@ export function matches(table: Table, filter: Filter, values: Record<string, Jso
 export function sortKey(spec: SortSpec, row: { values: Record<string, Json>; createdAt: string; updatedAt: string }): string | number | null {
   if ("system" in spec) return row[spec.system];
   const v = row.values[spec.field.id];
-  if (isEmptyValue(v)) return spec.field.type === "checkbox" ? 0 : null;
+  if (isEmpty(v)) return spec.field.type === "checkbox" ? 0 : null;
   switch (spec.field.type) {
     case "single_select": return spec.field.options?.indexOf(v as string) ?? 0;
     case "date": return time(v as Json);
