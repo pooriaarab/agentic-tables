@@ -91,8 +91,7 @@ export function createApp(tables: Tables) {
   );
   api.delete("/tables/:tableId/fields/:field", async (c) => c.json(await tables.deleteField(c.req.param("tableId"), c.req.param("field"))));
   api.put("/tables/:tableId/fields/:field/required", async (c) => {
-    const body = await jsonBody<{ required?: unknown; dryRun?: boolean }>(c);
-    if (typeof body.required !== "boolean") throw new TablesError("BAD_REQUEST", "required must be true or false");
+    const body = await jsonBody(c, schemas.setRequired);
     return c.json(await tables.setRequired(c.req.param("tableId"), c.req.param("field"), body.required, { dryRun: body.dryRun === true }));
   });
   api.post("/tables/:tableId/fields/:field/type", async (c) =>

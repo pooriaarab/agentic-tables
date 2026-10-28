@@ -37,6 +37,7 @@ export const schemas = {
       dryRun: z.boolean().optional(),
     })
     .strict(),
+  setRequired: z.object({ required: z.boolean(), dryRun: z.boolean().optional() }).strict(),
   insertRows: z
     .object({ values: values.optional(), rows: z.array(values).min(1).max(MAX_BATCH_ROWS).optional() })
     .strict()

@@ -182,6 +182,9 @@ describe("tables Worker over wrangler dev", () => {
     await bad(`/tables/${table.id}/views`, { name: "V", kind: "calendar" });
     await bad(`/tables/${table.id}/fields/Name/type`, { to: "number", dryRun: "yes" });
     expect((await call("PATCH", `/tables/${table.id}/fields/Name`, HUMAN, { name: 5 })).status).toBe(400);
+    for (const body of [{ required: "true" }, { required: true, dryRun: "yes" }, { required: true, extra: 1 }, {}]) {
+      expect((await call("PUT", `/tables/${table.id}/fields/Age/required`, HUMAN, body)).status).toBe(400);
+    }
     expect((await call("PATCH", `/rows/${(await call("POST", rows, HUMAN, { values: { Name: "R" } })).body.id}`, HUMAN, { values: 5 })).status).toBe(400);
 
     const big = await call("POST", rows, HUMAN, { values: { Name: "x".repeat(1024 * 1024 + 1) } });
