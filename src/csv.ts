@@ -1,4 +1,4 @@
-import { coerce } from "./migrate.js";
+import { coerce, parseDecimal } from "./migrate.js";
 import { checkValue, isDate, TablesError, ValidationError, type FieldInput, type Issue, type Row, type Table, type Values } from "./model.js";
 
 /** Read CSV (RFC 4180): quoted cells may hold commas, quotes, and newlines. */
@@ -36,19 +36,32 @@ function show(value: unknown): string {
   return String(value);
 }
 
-/** Write rows as CSV. The header holds the field names. */
+const FORMULA_START = /^[=+\-@\t\r]/;
+
+/** A spreadsheet runs a cell that starts with = + - @ tab or CR as a formula. A leading apostrophe makes it text. */
+const guard = (cell: string): string => (FORMULA_START.test(cell) ? `'${cell}` : cell);
+const unguard = (cell: string): string => (cell.startsWith("'") && FORMULA_START.test(cell.slice(1)) ? cell.slice(1) : cell);
+
+/**
+ * Write rows as CSV. The header holds the field names. Every cell except a number or a checkbox, and
+ * every header, gets the formula guard. Import reads a guarded header back, and keeps a guarded cell as written.
+ */
 export function toCsv(table: Table, rows: Row[]): string {
-  const lines = [table.fields.map((f) => escape(f.name)).join(",")];
-  for (const row of rows) lines.push(table.fields.map((f) => escape(show(row.values[f.name]))).join(","));
+  const lines = [table.fields.map((f) => escape(guard(f.name))).join(",")];
+  for (const row of rows) {
+    lines.push(table.fields.map((f) => escape(f.type === "number" || f.type === "checkbox" ? show(row.values[f.name]) : guard(show(row.values[f.name])))).join(","));
+  }
   return `${lines.join("\n")}\n`;
 }
 
 /** Turn CSV records into row values. Empty cells are left out. Any bad cell fails the whole import with its line. */
 export function csvToValues(table: Table, header: string[], records: string[][]): Values[] {
   const issues: Issue[] = [];
-  const fields = header.map((name) => table.fields.find((f) => f.name === name));
-  header.forEach((name, i) => {
+  const names = header.map(unguard);
+  const fields = names.map((name) => table.fields.find((f) => f.name === name));
+  names.forEach((name, i) => {
     if (!fields[i]) issues.push({ field: name, code: "unknown_field", message: "no such field in the table" });
+    else if (names.indexOf(name) !== i) issues.push({ field: name, code: "duplicate_field", message: "the header lists this field twice" });
   });
   if (issues.length > 0) throw new ValidationError(issues);
   const out: Values[] = [];
@@ -73,12 +86,12 @@ export function csvToValues(table: Table, header: string[], records: string[][])
   return out;
 }
 
-/** Guess a field type for each column. A column that does not fit one type is text. */
+/** Guess a field type for each column. A column that does not fit one type is text. Numbers must be plain decimals: "00123" and "0x1F" stay text. */
 export function inferFields(header: string[], records: string[][]): FieldInput[] {
   return header.map((name, i) => {
     const cells = records.map((r) => r[i] ?? "").filter((c) => c.trim() !== "");
     const all = (test: (c: string) => boolean) => cells.length > 0 && cells.every(test);
-    if (all((c) => Number.isFinite(Number(c)))) return { name, type: "number" };
+    if (all((c) => parseDecimal(c) !== null)) return { name, type: "number" };
     if (all((c) => /^(true|false)$/i.test(c.trim()))) return { name, type: "checkbox" };
     if (all((c) => isDate(c.trim()))) return { name, type: "date" };
     if (cells.some((c) => c.length > 200 || c.includes("\n"))) return { name, type: "long_text" };

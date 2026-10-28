@@ -62,8 +62,8 @@ Operators by type: text `eq neq contains starts_with is_empty not_empty`; number
 - You cannot change `required` on an existing field yet.
 - You cannot delete a table or a base yet.
 - A filter on a field value reads the whole table (up to `maxScan`). An index on field values comes later.
-- The file store (`agentic-tables/file-store`) keeps one JSON file. Use one process at a time. A CLI write while the MCP server runs is not seen by the server.
-- CSV export does not guard against spreadsheet formulas. Cells that start with `=` stay as they are.
+- The file store (`agentic-tables/file-store`) keeps one JSON file. The CLI and the MCP server can share it: each write takes a lock file, reads the file again, and renames a new file into place. Each call reads the whole file, so use it for local work. It needs one machine: it does not work on a network disk. If a process dies, its lock is taken over when the process is gone or the lock is 30 seconds old. A lock with unreadable content is never taken: remove `<db>.lock` by hand.
+- CSV export puts a `'` before any cell or header that starts with `=`, `+`, `-`, `@`, tab, or CR, so a spreadsheet shows it as text. Number and checkbox cells stay as they are. Import reads a guarded header back, but keeps a guarded cell as written, with the `'`.
 
 ## CLI
 
@@ -81,11 +81,11 @@ npx agentic-tables import Parts --file parts.csv --create
 
 Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
 
-CSV import checks every cell first. If one cell fails, no row is written, and the error names the line and field. `--create` makes the table and guesses a type for each column: number, checkbox, date, single select, long text, or text.
+CSV import checks every cell first. If one cell fails, no row is written, and the error names the line and field. `--create` makes the table and guesses a type for each column: number, checkbox, date, single select, long text, or text. A column is a number only if every value is a plain decimal. `00123`, `0x1F`, and `1e3` stay text.
 
 ## MCP server
 
-Run `npx agentic-tables mcp`. It reads the same database file as the CLI.
+Run `npx agentic-tables mcp`. It uses the same database file as the CLI, and a CLI write while it runs is kept.
 
 | Tool | Use it for |
 | --- | --- |

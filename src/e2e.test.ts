@@ -1,10 +1,11 @@
 // End to end: the real CLI and the real MCP server, as child processes over
 // stdio. Needs a build first (`npm run build`). `npm run ci:local` does both.
 // The run writes a JSON record of each step to $TMPDIR/agentic-tables-e2e.json.
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -104,4 +105,32 @@ describe("mcp", () => {
       await client.close();
     }
   });
+});
+
+describe("one file, many processes", () => {
+  test("a CLI write while the MCP server runs is never lost, and parallel CLI writes all land", async () => {
+    const shared = mkdtempSync(join(tmpdir(), "tables-shared-"));
+    const sharedEnv = { ...process.env, AGENTIC_TABLES_DB: join(shared, "db.json") } as Record<string, string>;
+    const cliRun = (args: string[]) => spawnSync("node", [cli, ...args], { env: sharedEnv, encoding: "utf8" });
+    const client = new Client({ name: "e2e-shared", version: "0.0.0" });
+    try {
+      expect(cliRun(["new", "Log", "--field", "Msg:text"]).status).toBe(0);
+      await client.connect(new StdioClientTransport({ command: "node", args: [cli, "mcp"], env: { ...sharedEnv, AGENTIC_TABLES_ACTOR: "agent:mcp" } }));
+      // The server has loaded the file. Now the CLI writes, then the server writes.
+      expect(cliRun(["insert", "Log", "--json", '{"Msg":"from cli"}']).status).toBe(0);
+      const viaMcp = (await client.callTool({ name: "insert_rows", arguments: { table: "Log", rows: [{ Msg: "from mcp" }] } })) as { isError?: boolean };
+      expect(viaMcp.isError).toBeFalsy();
+      steps.push({ step: "cli insert then mcp insert on one file", ok: true });
+
+      const run = promisify(execFile);
+      const parallel = await Promise.all(Array.from({ length: 8 }, (_, i) => run("node", [cli, "insert", "Log", "--json", JSON.stringify({ Msg: `p${i}` })], { env: sharedEnv })));
+      expect(parallel).toHaveLength(8);
+      const rows = JSON.parse(cliRun(["query", "Log", "--limit", "100"]).stdout).items.map((r: any) => r.values.Msg).sort();
+      expect(rows).toEqual(["from cli", "from mcp", ...Array.from({ length: 8 }, (_, i) => `p${i}`)].sort());
+      steps.push({ step: "8 parallel cli inserts on one file", ok: true });
+    } finally {
+      await client.close();
+      rmSync(shared, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
