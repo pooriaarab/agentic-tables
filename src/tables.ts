@@ -13,9 +13,11 @@ import {
   type Issue,
   type Row,
   type Table,
+  TablesError,
   type Values,
 } from "./model.js";
-import type { Doc, Json, Page, Store, StoreOps } from "./store.js";
+import { compareKeys, matches, resolveFilter, resolveSort, sortKey, type Filter, type Sort, type SortSpec } from "./query.js";
+import { decode, encode, type Doc, type Json, type Page, type Store, type StoreOps } from "./store.js";
 
 export interface Base {
   id: string;
@@ -24,6 +26,8 @@ export interface Base {
 }
 
 export interface TablesOptions {
+  /** The most rows a filtered or field-sorted query may read. A larger table fails the query. Defaults to 10000. */
+  maxScan?: number;
   /** Clock in epoch milliseconds. Tests set it. */
   now?: () => number;
   /** Id source. Defaults to a random id with the prefix. */
@@ -44,6 +48,47 @@ export interface ChangeTypeOptions {
   onFailure?: "abort" | "clear";
   dryRun?: boolean;
 }
+
+export interface RowQuery {
+  filter?: Filter;
+  sort?: Sort;
+  /** 1 to 1000. Defaults to 100. */
+  limit?: number;
+  cursor?: string;
+}
+
+export interface RowPage {
+  items: Row[];
+  nextCursor?: string;
+  /** "store": the store ran the whole query. "memory": rows were read, then filtered and sorted here. */
+  plan: "store" | "memory";
+}
+
+export type ViewKind = "grid" | "board";
+
+export interface ViewInput {
+  name: string;
+  kind: ViewKind;
+  filter?: Filter;
+  sort?: Sort;
+  /** Board only. A single select field. */
+  groupBy?: string;
+}
+
+export interface View {
+  id: string;
+  tableId: string;
+  name: string;
+  kind: ViewKind;
+  /** Field ids, so a rename keeps the view working. */
+  filter?: Filter;
+  sort?: Sort;
+  groupBy?: string;
+}
+
+export type ViewRun =
+  | ({ kind: "grid" } & RowPage)
+  | { kind: "board"; groupBy: string; groups: { value: string | null; count: number; rows: Row[] }[] };
 
 export interface ListRowsOptions {
   limit?: number;
@@ -71,16 +116,21 @@ interface RowDoc {
 const read = async <T>(ops: StoreOps, collection: string, id: string): Promise<T | null> => (await ops.get(collection, id)) as unknown as T | null;
 const write = (ops: StoreOps, collection: string, id: string, doc: object): Promise<void> => ops.put(collection, id, doc as Doc);
 
-async function all<T>(ops: StoreOps, collection: string, where: Record<string, string>, orderField: string): Promise<{ id: string; data: T }[]> {
+async function all<T>(ops: StoreOps, collection: string, where: Record<string, string>, orderField: string, max = Infinity): Promise<{ id: string; data: T }[]> {
   const out: { id: string; data: T }[] = [];
   let cursor: string | undefined;
   do {
     const page: Page = await ops.query(collection, { where, orderBy: { field: orderField }, limit: 500, cursor });
     out.push(...page.items.map((e) => ({ id: e.id, data: e.data as unknown as T })));
+    if (out.length > max) throw new TablesError("SCAN_LIMIT", `the query needs more than ${max} rows. Narrow the table or raise maxScan`);
     cursor = page.nextCursor;
   } while (cursor !== undefined);
   return out;
 }
+
+const checkDirection = (sort: Sort | undefined, issues: Issue[]): void => {
+  if (sort?.direction !== undefined && sort.direction !== "asc" && sort.direction !== "desc") issues.push({ field: "direction", code: "type", message: 'must be "asc" or "desc"' });
+};
 
 const findField = (table: TableDoc, ref: string): Field => {
   const field = table.fields.find((f) => f.id === ref) ?? table.fields.find((f) => f.name === ref);
@@ -186,6 +236,14 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     field: field.name, from: field.type, to, total: rows.length, empty: rows.filter((r) => isEmpty(r.value)).length, converted: 0, failures: [], droppedOptions: [], applied: false,
   });
 
+  const scanRows = async (table: Table, filter: Filter | undefined, spec: SortSpec | undefined, direction: "asc" | "desc") => {
+    const rows = await all<RowDoc>(store, "rows", { tableId: table.id }, "createdAt", options.maxScan ?? 10_000);
+    return rows
+      .filter((r) => !filter || matches(table, filter, r.data.values))
+      .map((r) => ({ ...r, k: sortKey(spec ?? { system: "createdAt" }, r.data), at: r.data.createdAt }))
+      .sort((a, b) => compareKeys(a, b, direction));
+  };
+
   return {
     async createBase(name: string): Promise<Base> {
       if (name.trim() === "") throw new Error("base needs a name");
@@ -250,6 +308,102 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       const page = await store.query("rows", { where: { tableId }, orderBy: { field: "createdAt" }, ...listOptions });
       return { items: page.items.map((e) => rowView(table, e.id, e.data as unknown as RowDoc)), ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) };
     },
+    /**
+     * Filter, sort, and page rows. With no filter and no field sort, the store runs the whole query:
+     * an equality filter on the table, one orderBy on createdAt or updatedAt, limit, and cursor.
+     * Otherwise the rows of the table are read (up to maxScan), then filtered and sorted in memory.
+     */
+    async queryRows(tableId: string, q: RowQuery = {}): Promise<RowPage> {
+      const limit = q.limit ?? 100;
+      if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new TablesError("INVALID_QUERY", "limit must be an integer from 1 to 1000");
+      const doc = await loadTable(store, tableId);
+      const table = tableView(tableId, doc);
+      const issues: Issue[] = [];
+      const filter = q.filter ? resolveFilter(table, q.filter, issues) : undefined;
+      const spec = q.sort ? resolveSort(table, q.sort, issues) : undefined;
+      checkDirection(q.sort, issues);
+      if (issues.length > 0) throw new ValidationError(issues);
+      const direction = q.sort?.direction ?? "asc";
+      if (!filter && (!spec || "system" in spec)) {
+        const page = await store.query("rows", { where: { tableId }, orderBy: { field: spec ? spec.system : "createdAt", direction }, limit, cursor: q.cursor });
+        return { items: page.items.map((e) => rowView(doc, e.id, e.data as unknown as RowDoc)), ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}), plan: "store" };
+      }
+      const rows = await scanRows(table, filter, spec, direction);
+      let start = 0;
+      if (q.cursor !== undefined) {
+        let after: [string | number | null, string, string];
+        try {
+          after = decode(q.cursor) as typeof after;
+          if (!Array.isArray(after) || typeof after[2] !== "string") throw new Error();
+        } catch {
+          throw new TablesError("INVALID_CURSOR", "invalid cursor");
+        }
+        const at = rows.findIndex((r) => compareKeys(r, { k: after[0], at: after[1], id: after[2] }, direction) > 0);
+        start = at === -1 ? rows.length : at;
+      }
+      const page = rows.slice(start, start + limit);
+      const last = page[page.length - 1];
+      return {
+        items: page.map((r) => rowView(doc, r.id, r.data)),
+        ...(start + limit < rows.length && last ? { nextCursor: encode([last.k, last.at, last.id]) } : {}),
+        plan: "memory",
+      };
+    },
+
+    async createView(tableId: string, input: ViewInput): Promise<View> {
+      const table = tableView(tableId, await loadTable(store, tableId));
+      const issues: Issue[] = [];
+      const filter = input.filter ? resolveFilter(table, input.filter, issues) : undefined;
+      const spec = input.sort ? resolveSort(table, input.sort, issues) : undefined;
+      const group = input.groupBy ? table.fields.find((f) => f.id === input.groupBy || f.name === input.groupBy) : undefined;
+      if (input.kind === "board" && group?.type !== "single_select") issues.push({ field: input.groupBy ?? "groupBy", code: "type", message: "a board needs groupBy set to a single select field" });
+      if (input.name.trim() === "") issues.push({ field: "name", code: "type", message: "needs a name" });
+      if (input.kind !== "grid" && input.kind !== "board") issues.push({ field: "kind", code: "type", message: 'must be "grid" or "board"' });
+      checkDirection(input.sort, issues);
+      if (issues.length > 0) throw new ValidationError(issues);
+      const view: View = {
+        id: newId("view"), tableId, name: input.name.trim(), kind: input.kind,
+        ...(filter ? { filter } : {}),
+        ...(input.sort ? { sort: { field: spec && "field" in spec ? spec.field.id : input.sort.field, direction: input.sort.direction ?? "asc" } } : {}),
+        ...(group ? { groupBy: group.id } : {}),
+      };
+      const { id, ...rest } = view;
+      await write(store, "views", id, { ...rest, createdAt: stamp() });
+      return view;
+    },
+    async listViews(tableId: string): Promise<View[]> {
+      return (await all<Omit<View, "id">>(store, "views", { tableId }, "createdAt")).map((e) => ({ id: e.id, ...e.data }));
+    },
+    async deleteView(viewId: string): Promise<void> {
+      await store.delete("views", viewId);
+    },
+    /** Run a saved view. A grid returns a page. A board returns the rows of each option, with a group for no value. */
+    async runView(viewId: string, run: { limit?: number; cursor?: string } = {}): Promise<ViewRun> {
+      const view = await read<Omit<View, "id">>(store, "views", viewId);
+      if (!view) throw new NotFoundError(`view "${viewId}"`);
+      if (view.kind === "grid") return { kind: "grid", ...(await this.queryRows(view.tableId, { filter: view.filter, sort: view.sort, ...run })) };
+      const doc = await loadTable(store, view.tableId);
+      const table = tableView(view.tableId, doc);
+      const issues: Issue[] = [];
+      const filter = view.filter ? resolveFilter(table, view.filter, issues) : undefined;
+      const spec = view.sort ? resolveSort(table, view.sort, issues) : undefined;
+      const group = table.fields.find((f) => f.id === view.groupBy);
+      if (!group) issues.push({ field: String(view.groupBy), code: "unknown_field", message: "no such field" });
+      if (group && group.type !== "single_select") issues.push({ field: group.name, code: "type", message: `a board needs a single select field, and this one is now ${group.type}. Create a new view` });
+      if (issues.length > 0 || !group) throw new ValidationError(issues);
+      const rows = await scanRows(table, filter, spec, view.sort?.direction ?? "asc");
+      const perGroup = run.limit ?? 50;
+      const values: (string | null)[] = [...(group.options ?? []), null];
+      return {
+        kind: "board",
+        groupBy: group.name,
+        groups: values.map((value) => {
+          const inGroup = rows.filter((r) => (r.data.values[group.id] ?? null) === value);
+          return { value, count: inGroup.length, rows: inGroup.slice(0, perGroup).map((r) => rowView(doc, r.id, r.data)) };
+        }),
+      };
+    },
+
     /** Delete a row and remove its id from every link that points at it. Cost grows with the rows of the tables that link here. */
     async deleteRow(rowId: string): Promise<void> {
       await store.transaction(async (ops) => {

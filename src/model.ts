@@ -66,7 +66,7 @@ export interface Row {
 
 export interface Issue {
   field: string;
-  code: "type" | "required" | "option" | "duplicate" | "unknown_field" | "link_missing" | "duplicate_field";
+  code: "type" | "required" | "option" | "duplicate" | "unknown_field" | "link_missing" | "duplicate_field" | "operator";
   message: string;
 }
 
