@@ -7,12 +7,16 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: in development. The package exports `VERSION` only. It is not on npm
-> yet, and none of the features below work yet.
+> Status: in development. Not on npm yet.
+>
+> **Warning: the HTTP API has no authentication yet.** It reads the caller from
+> two headers and does not check them. The Worker refuses every request with
+> `503` until you set `AGENTIC_TABLES_UNSAFE_NO_AUTH=1`. Use that for local work
+> only. Do not put the Worker on the public internet.
 
 ## What works
 
-The library, the CLI, and the MCP server work. The HTTP API and web UI are planned.
+The library, the CLI, the MCP server, and the HTTP API work. The web UI is planned.
 
 A base holds tables. A table has typed fields and rows. The library checks each
 row against the schema before it writes.
@@ -55,6 +59,29 @@ The `Store` port has equality filters, one `orderBy`, a limit, and a cursor. Fie
 A memory query reads at most `maxScan` rows (10,000 by default). A larger table fails the query with `SCAN_LIMIT`. It never returns a partial answer. Empty values sort last in both directions.
 
 Operators by type: text `eq neq contains starts_with is_empty not_empty`; number and date `eq neq gt gte lt lte is_empty not_empty`; checkbox `eq neq`; single select `eq neq in is_empty not_empty`; multi select `has has_any has_all is_empty not_empty`; link `has is_empty not_empty`; file `is_empty not_empty`.
+
+## HTTP API
+
+A Cloudflare Worker (Hono) serves `/api/v1/tables`. The store is in memory, so state lasts as long as one Worker instance.
+
+```sh
+npx wrangler dev --var AGENTIC_TABLES_UNSAFE_NO_AUTH:1
+curl -X POST localhost:8787/api/v1/tables/bases -H 'x-principal-id: ada' -H 'x-principal-kind: human' -d '{"name":"Crm"}'
+```
+
+Writes need `x-principal-id` and `x-principal-kind` (one of `human`, `agent_of_human`, `agent_of_agent`, `agent`, `user_token`). A missing or unknown kind returns `401`. The kind is kept on every row, so an agent write stays labeled.
+
+| Route | Use it for |
+| --- | --- |
+| `POST /bases`, `GET /bases` | Create and list bases. |
+| `POST /bases/:baseId/tables`, `GET /bases/:baseId/tables`, `GET /tables/:tableId` | Create, list, and read tables. |
+| `POST /tables/:tableId/fields`, `PATCH` and `DELETE /tables/:tableId/fields/:field`, `POST /tables/:tableId/fields/:field/type` | Add, rename, delete, and retype a field. The retype body takes `dryRun` and `onFailure`. |
+| `POST /tables/:tableId/rows` | Insert `{values}` or an all-or-nothing `{rows: [...]}`. |
+| `GET /tables/:tableId/rows?filter=<json>&sort=Field:desc&limit=&cursor=` | Filter, sort, and page rows. |
+| `GET`, `PATCH`, `DELETE /rows/:rowId` | Read, change, and delete a row. |
+| `POST` and `GET /tables/:tableId/views`, `GET /views/:viewId/rows`, `DELETE /views/:viewId` | Saved views. |
+
+A failure returns `{"error":{"code","message","issues"}}`: `422` for a validation failure, `409` for a migration that would lose data (the body holds the report), `404`, `400`, or `401`.
 
 ## Limits
 
@@ -100,7 +127,7 @@ A failed call returns `isError` with a `code` and the `issues`. Rows written ove
 
 ## Planned surfaces
 
-- **HTTP API**: a Cloudflare Worker you deploy to your own account.
+- **Durable storage for the Worker**: a D1 adapter.
 - **Web UI**: a small app served by the same Worker.
 
 ## Develop

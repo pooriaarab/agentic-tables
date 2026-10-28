@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { csvToValues, inferFields, parseCsv, toCsv } from "./csv.js";
-import { errorBody, openContext, type Context } from "./context.js";
+import { openContext, type Context } from "./context.js";
+import { errorBody } from "./errors.js";
 import { FIELD_TYPES, TablesError, type FieldInput, type FieldType, type Row, type Values } from "./model.js";
 import type { Json } from "./store.js";
 import { VERSION } from "./version.js";

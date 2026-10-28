@@ -1,5 +1,4 @@
-import { MigrationError } from "./migrate.js";
-import { NotFoundError, PRINCIPAL_KINDS, TablesError, ValidationError, type Actor, type PrincipalKind, type Table } from "./model.js";
+import { NotFoundError, PRINCIPAL_KINDS, TablesError, type Actor, type PrincipalKind, type Table } from "./model.js";
 import { createFileStore } from "./store-file.js";
 import { createTables, type Tables } from "./tables.js";
 
@@ -40,12 +39,4 @@ export function openContext(env: Record<string, string | undefined>, defaultActo
       return found;
     },
   };
-}
-
-/** The JSON body for a failed call. It holds codes and field names, never row content. */
-export function errorBody(error: unknown): { error: { code: string; message: string; issues?: unknown; report?: unknown } } {
-  if (error instanceof ValidationError) return { error: { code: error.code, message: error.message, issues: error.issues } };
-  if (error instanceof MigrationError) return { error: { code: error.code, message: error.message, report: error.report } };
-  if (error instanceof TablesError) return { error: { code: error.code, message: error.message } };
-  return { error: { code: "ERROR", message: error instanceof Error ? error.message : String(error) } };
 }

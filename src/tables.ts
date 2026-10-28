@@ -348,7 +348,11 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       if (issues.length > 0) throw new ValidationError(issues);
       const direction = q.sort?.direction ?? "asc";
       if (!filter && (!spec || "system" in spec)) {
-        const page = await store.query("rows", { where: { tableId }, orderBy: { field: spec ? spec.system : "createdAt", direction }, limit, cursor: q.cursor });
+        const page = await store
+          .query("rows", { where: { tableId }, orderBy: { field: spec ? spec.system : "createdAt", direction }, limit, cursor: q.cursor })
+          .catch((error: unknown) => {
+            throw q.cursor !== undefined && error instanceof Error && error.message === "invalid cursor" ? new TablesError("INVALID_CURSOR", "invalid cursor") : error;
+          });
         return { items: page.items.map((e) => rowView(doc, e.id, e.data as unknown as RowDoc)), ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}), plan: "store" };
       }
       const rows = await scanRows(table, filter, spec, direction);
@@ -416,6 +420,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       if (issues.length > 0 || !group) throw new ValidationError(issues);
       const rows = await scanRows(table, filter, spec, view.sort?.direction ?? "asc");
       const perGroup = run.limit ?? 50;
+      if (!Number.isInteger(perGroup) || perGroup < 1 || perGroup > 1000) throw new TablesError("INVALID_QUERY", "limit must be an integer from 1 to 1000");
       const values: (string | null)[] = [...(group.options ?? []), null];
       return {
         kind: "board",
