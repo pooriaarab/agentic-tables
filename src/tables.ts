@@ -1,3 +1,4 @@
+import { deriveOptions, MigrationError, planConversion, type MigrationReport } from "./migrate.js";
 import {
   checkValue,
   isEmpty,
@@ -8,6 +9,7 @@ import {
   type Actor,
   type Field,
   type FieldInput,
+  type FieldType,
   type Issue,
   type Row,
   type Table,
@@ -26,6 +28,21 @@ export interface TablesOptions {
   now?: () => number;
   /** Id source. Defaults to a random id with the prefix. */
   newId?: (prefix: string) => string;
+}
+
+export interface AddFieldInput extends FieldInput {
+  /** Backfills existing rows. A required field needs it when rows exist. */
+  default?: Json;
+}
+
+export interface ChangeTypeOptions {
+  to: FieldType;
+  /** Select targets. Defaults to the distinct stored values. */
+  options?: string[];
+  linkTable?: string;
+  /** "abort" (default) changes nothing when a value fails. "clear" empties failed values. */
+  onFailure?: "abort" | "clear";
+  dryRun?: boolean;
 }
 
 export interface ListRowsOptions {
@@ -155,12 +172,19 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     return merged;
   };
 
+  const requiredNoClear = (field: Field): Issue => ({ field: field.name, code: "required", message: "is required, so a value cannot be cleared. Make the field optional first" });
+
   const rewriteRows = async (ops: StoreOps, tableId: string, change: (doc: RowDoc, id: string) => Record<string, Json> | null): Promise<void> => {
     for (const { id, data } of await all<RowDoc>(ops, "rows", { tableId }, "createdAt")) {
       const values = change(data, id);
       if (values) await write(ops, "rows", id, { ...data, values });
     }
   };
+  const saveTable = (ops: StoreOps, id: string, table: TableDoc, fields: Field[]): Promise<void> => write(ops, "tables", id, { ...table, fields, updatedAt: stamp() });
+
+  const report = (field: Field, to: FieldType, rows: { id: string; value: Json | undefined }[]): MigrationReport => ({
+    field: field.name, from: field.type, to, total: rows.length, empty: rows.filter((r) => isEmpty(r.value)).length, converted: 0, failures: [], droppedOptions: [], applied: false,
+  });
 
   return {
     async createBase(name: string): Promise<Base> {
@@ -240,6 +264,113 @@ export function createTables(store: Store, options: TablesOptions = {}) {
           });
         }
         await ops.delete("rows", rowId);
+      });
+    },
+
+    async addField(tableId: string, input: AddFieldInput): Promise<Table> {
+      return store.transaction(async (ops) => {
+        const table = await loadTable(ops, tableId);
+        const issues: Issue[] = [];
+        checkFields([input], table.fields.map((f) => f.name), issues);
+        await checkLinkTables(ops, table.baseId, [input], issues);
+        const field = toField(input);
+        const rows = await all<RowDoc>(ops, "rows", { tableId }, "createdAt");
+        const fill = input.default;
+        if (!isEmpty(fill)) {
+          const bad = checkValue(field, fill);
+          if (bad) issues.push({ field: field.name, ...bad });
+        } else if (field.required && rows.length > 0) {
+          issues.push({ field: field.name, code: "required", message: `is required and ${rows.length} rows exist: pass a default` });
+        }
+        if (issues.length > 0) throw new ValidationError(issues);
+        if (!isEmpty(fill)) await rewriteRows(ops, tableId, (doc) => ({ ...doc.values, [field.id]: fill as Json }));
+        await saveTable(ops, tableId, table, [...table.fields, field]);
+        return tableView(tableId, await loadTable(ops, tableId));
+      });
+    },
+    async renameField(tableId: string, ref: string, name: string): Promise<Table> {
+      return store.transaction(async (ops) => {
+        const table = await loadTable(ops, tableId);
+        const field = findField(table, ref);
+        const issues: Issue[] = [];
+        checkFields([{ name, type: field.type, options: field.options, linkTable: field.linkTable }], table.fields.filter((f) => f !== field).map((f) => f.name), issues);
+        if (issues.length > 0) throw new ValidationError(issues);
+        await saveTable(ops, tableId, table, table.fields.map((f) => (f === field ? { ...f, name: name.trim() } : f)));
+        return tableView(tableId, await loadTable(ops, tableId));
+      });
+    },
+    async deleteField(tableId: string, ref: string): Promise<Table> {
+      return store.transaction(async (ops) => {
+        const table = await loadTable(ops, tableId);
+        const field = findField(table, ref);
+        await rewriteRows(ops, tableId, (doc) => {
+          if (!(field.id in doc.values)) return null;
+          const { [field.id]: _gone, ...rest } = doc.values;
+          return rest;
+        });
+        await saveTable(ops, tableId, table, table.fields.filter((f) => f !== field));
+        return tableView(tableId, await loadTable(ops, tableId));
+      });
+    },
+
+    /** Change a field type. Every value converts or the change aborts. The report lists each row that fails. */
+    async changeFieldType(tableId: string, ref: string, change: ChangeTypeOptions): Promise<MigrationReport> {
+      return store.transaction(async (ops) => {
+        const table = await loadTable(ops, tableId);
+        const from = findField(table, ref);
+        const rows = await all<RowDoc>(ops, "rows", { tableId }, "createdAt");
+        const cells = rows.map((r) => ({ id: r.id, value: r.data.values[from.id] }));
+        const select = change.to === "single_select" || change.to === "multi_select";
+        const to: Field = {
+          id: from.id, name: from.name, type: change.to, required: from.required,
+          ...(select ? { options: change.options ?? deriveOptions([...(from.options ?? []), ...cells.map((c) => c.value).filter((v): v is Json => !isEmpty(v))], change.to) } : {}),
+          ...(change.to === "link" && change.linkTable ? { linkTable: change.linkTable } : {}),
+        };
+        const issues: Issue[] = [];
+        checkFields([to], [], issues);
+        await checkLinkTables(ops, table.baseId, [to], issues);
+        if (from.type === "link" && to.type === "link" && to.linkTable !== from.linkTable)
+          issues.push({ field: from.name, code: "type", message: "cannot point a link at another table: the stored row ids belong to the old one. Add a new link field instead" });
+        if (issues.length > 0) throw new ValidationError(issues);
+        const plan = planConversion(cells, from, to);
+        const clear = change.onFailure === "clear";
+        if (plan.report.failures.length > 0 && !clear && !change.dryRun) throw new MigrationError(plan.report);
+        if (change.dryRun) return plan.report;
+        if (from.required && [...plan.next.values()].some(isEmpty)) throw new ValidationError([requiredNoClear(from)]);
+        await rewriteRows(ops, tableId, (doc, id) => (plan.next.has(id) ? { ...doc.values, [from.id]: plan.next.get(id) as Json } : null));
+        await saveTable(ops, tableId, table, table.fields.map((f) => (f === from ? to : f)));
+        return { ...plan.report, applied: true };
+      });
+    },
+    /** Replace the options of a select field. Rows that use a removed option abort the change, or lose that value. */
+    async setOptions(tableId: string, ref: string, optionList: string[], opts: { onInUse?: "abort" | "clear" } = {}): Promise<MigrationReport> {
+      return store.transaction(async (ops) => {
+        const table = await loadTable(ops, tableId);
+        const from = findField(table, ref);
+        if (from.type !== "single_select" && from.type !== "multi_select") throw new ValidationError([{ field: from.name, code: "type", message: "is not a select field" }]);
+        const to = { ...from, options: optionList };
+        const issues: Issue[] = [];
+        checkFields([to], [], issues);
+        if (issues.length > 0) throw new ValidationError(issues);
+        const rows = await all<RowDoc>(ops, "rows", { tableId }, "createdAt");
+        const out = report(from, from.type, rows.map((r) => ({ id: r.id, value: r.data.values[from.id] })));
+        const next = new Map<string, Json>();
+        for (const { id, data } of rows) {
+          const value = data.values[from.id];
+          if (isEmpty(value)) continue;
+          const kept = Array.isArray(value) ? (value as string[]).filter((o) => optionList.includes(o)) : optionList.includes(value as string) ? value : null;
+          if (JSON.stringify(kept) === JSON.stringify(value)) out.converted += 1;
+          else {
+            out.failures.push({ rowId: id, value: value as Json, reason: "uses a removed option" });
+            next.set(id, kept as Json);
+          }
+        }
+        out.droppedOptions = (from.options ?? []).filter((o) => !optionList.includes(o));
+        if (out.failures.length > 0 && opts.onInUse !== "clear") throw new MigrationError(out);
+        if (from.required && [...next.values()].some(isEmpty)) throw new ValidationError([requiredNoClear(from)]);
+        await rewriteRows(ops, tableId, (doc, id) => (next.has(id) ? { ...doc.values, [from.id]: next.get(id) as Json } : null));
+        await saveTable(ops, tableId, table, table.fields.map((f) => (f === from ? to : f)));
+        return { ...out, applied: true };
       });
     },
   };
