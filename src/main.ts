@@ -23,6 +23,8 @@ Commands:
   import <table> --file <csv> [--create]
   required <table> <field> <true|false> [--dry-run]
   delete-table <table> --yes          Delete a table with its rows and views.
+  export-data                         Print every base the actor owns, as JSON.
+  erase-data --yes                    Hard delete every base the actor owns.
   mcp                                 Start the MCP server on stdio.
 
 A field spec is Name:type[!][=arg]. "!" means required. A select takes its
@@ -130,6 +132,11 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
       if (flag("yes") === undefined) throw new UsageError(`delete-table removes "${table.name}" with all its rows. Add --yes to confirm`);
       return ctx.tables.deleteTable(table.id);
     }
+    case "export-data":
+      return ctx.tables.exportOwnerData(ctx.actor.id);
+    case "erase-data":
+      if (flag("yes") === undefined) throw new UsageError(`erase-data deletes every base owned by "${ctx.actor.id}". Add --yes to confirm`);
+      return ctx.tables.eraseOwnerData(ctx.actor.id);
     case "export": {
       const table = await ctx.table(need(0, "a table"));
       const rows: Row[] = [];

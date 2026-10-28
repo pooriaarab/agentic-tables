@@ -23,7 +23,7 @@ let tableId: string;
 
 async function seed(maxScan?: number) {
   t = createTables(createMemoryStore(), { maxScan });
-  const base = await t.createBase("Crm");
+  const base = await t.createBase("Crm", human);
   const table = await t.createTable(base.id, "People", [
     { name: "Name", type: "text" },
     { name: "Age", type: "number" },

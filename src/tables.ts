@@ -22,7 +22,25 @@ import { decode, encode, type Doc, type Json, type Page, type Store, type StoreO
 export interface Base {
   id: string;
   name: string;
+  /** The id of the principal that owns the base. Export and erase work by this id. */
+  ownerId: string;
   createdAt: string;
+}
+
+/** Everything one owner holds, as JSON. Row values are keyed by field name. */
+export interface OwnerExport {
+  format: "agentic-tables-export";
+  version: 1;
+  exportedAt: string;
+  ownerId: string;
+  bases: { base: Base; tables: Table[]; views: View[]; rows: Row[] }[];
+}
+
+export interface EraseSummary {
+  bases: number;
+  tables: number;
+  rows: number;
+  views: number;
 }
 
 export interface TablesOptions {
@@ -132,6 +150,10 @@ const checkDirection = (sort: Sort | undefined, issues: Issue[]): void => {
   if (sort?.direction !== undefined && sort.direction !== "asc" && sort.direction !== "desc") issues.push({ field: "direction", code: "type", message: 'must be "asc" or "desc"' });
 };
 
+const assertOwnerId = (ownerId: unknown): void => {
+  if (typeof ownerId !== "string" || ownerId === "") throw new TablesError("BAD_REQUEST", "an owner id is required");
+};
+
 const findField = (table: TableDoc, ref: string): Field => {
   const field = table.fields.find((f) => f.id === ref) ?? table.fields.find((f) => f.name === ref);
   if (!field) throw new NotFoundError(`field "${ref}"`);
@@ -238,6 +260,17 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     await ops.delete("tables", tableId);
     return { rows: rows.length, views: views.length };
   };
+  const dropBase = async (ops: StoreOps, baseId: string): Promise<EraseSummary> => {
+    const total: EraseSummary = { bases: 1, tables: 0, rows: 0, views: 0 };
+    for (const { id } of await all<TableDoc>(ops, "tables", { baseId }, "createdAt")) {
+      const gone = await dropTable(ops, id);
+      total.tables += 1;
+      total.rows += gone.rows;
+      total.views += gone.views;
+    }
+    await ops.delete("bases", baseId);
+    return total;
+  };
   const saveTable = (ops: StoreOps, id: string, table: TableDoc, fields: Field[]): Promise<void> => write(ops, "tables", id, { ...table, fields, updatedAt: stamp() });
 
   const report = (field: Field, to: FieldType, rows: { id: string; value: Json | undefined }[]): MigrationReport => ({
@@ -253,14 +286,48 @@ export function createTables(store: Store, options: TablesOptions = {}) {
   };
 
   return {
-    async createBase(name: string): Promise<Base> {
+    async createBase(name: string, owner: Actor): Promise<Base> {
+      assertActor(owner);
       if (name.trim() === "") throw new Error("base needs a name");
-      const base = { id: newId("base"), name: name.trim(), createdAt: stamp() };
-      await write(store, "bases", base.id, { name: base.name, createdAt: base.createdAt });
+      const base = { id: newId("base"), name: name.trim(), ownerId: owner.id, createdAt: stamp() };
+      await write(store, "bases", base.id, { name: base.name, ownerId: base.ownerId, createdAt: base.createdAt });
       return base;
     },
     async listBases(): Promise<Base[]> {
       return (await all<Omit<Base, "id">>(store, "bases", {}, "createdAt")).map((e) => ({ id: e.id, ...e.data }));
+    },
+
+    /** Export every base the owner holds, with its tables, views, and rows, in one consistent read. Memory grows with the data. */
+    async exportOwnerData(ownerId: string): Promise<OwnerExport> {
+      assertOwnerId(ownerId);
+      return store.transaction(async (ops) => {
+        const bases: OwnerExport["bases"] = [];
+        for (const owned of await all<Omit<Base, "id">>(ops, "bases", { ownerId }, "createdAt")) {
+          const out: OwnerExport["bases"][number] = { base: { id: owned.id, ...owned.data }, tables: [], views: [], rows: [] };
+          for (const { id, data } of await all<TableDoc>(ops, "tables", { baseId: owned.id }, "createdAt")) {
+            out.tables.push(tableView(id, data));
+            for (const r of await all<RowDoc>(ops, "rows", { tableId: id }, "createdAt")) out.rows.push(rowView(data, r.id, r.data));
+            for (const v of await all<Omit<View, "id">>(ops, "views", { tableId: id }, "createdAt")) out.views.push({ id: v.id, ...v.data });
+          }
+          bases.push(out);
+        }
+        return { format: "agentic-tables-export", version: 1, exportedAt: stamp(), ownerId, bases };
+      });
+    },
+    /** Hard delete every base the owner holds. No copy stays in the store. Rows the owner wrote in bases of others stay. */
+    async eraseOwnerData(ownerId: string): Promise<EraseSummary> {
+      assertOwnerId(ownerId);
+      return store.transaction(async (ops) => {
+        const total: EraseSummary = { bases: 0, tables: 0, rows: 0, views: 0 };
+        for (const { id } of await all<object>(ops, "bases", { ownerId }, "createdAt")) {
+          const gone = await dropBase(ops, id);
+          total.bases += 1;
+          total.tables += gone.tables;
+          total.rows += gone.rows;
+          total.views += gone.views;
+        }
+        return total;
+      });
     },
 
     async createTable(baseId: string, name: string, fields: FieldInput[] = []): Promise<Table> {
@@ -545,18 +612,11 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       });
     },
     /** Delete a base with all its tables, rows, and views. */
-    async deleteBase(baseId: string): Promise<{ tables: number; rows: number; views: number }> {
+    async deleteBase(baseId: string): Promise<Omit<EraseSummary, "bases">> {
       return store.transaction(async (ops) => {
         if (!(await read(ops, "bases", baseId))) throw new NotFoundError(`base "${baseId}"`);
-        const out = { tables: 0, rows: 0, views: 0 };
-        for (const { id } of await all<TableDoc>(ops, "tables", { baseId }, "createdAt")) {
-          const gone = await dropTable(ops, id);
-          out.tables += 1;
-          out.rows += gone.rows;
-          out.views += gone.views;
-        }
-        await ops.delete("bases", baseId);
-        return out;
+        const { tables, rows, views } = await dropBase(ops, baseId);
+        return { tables, rows, views };
       });
     },
     /**

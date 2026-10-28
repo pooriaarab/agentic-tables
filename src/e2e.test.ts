@@ -2,7 +2,7 @@
 // stdio. Needs a build first (`npm run build`). `npm run ci:local` does both.
 // The run writes a JSON record of each step to $TMPDIR/agentic-tables-e2e.json.
 import { execFile, execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -88,13 +88,50 @@ describe("required and delete over the CLI", () => {
   });
 });
 
+describe("data rights over the CLI and MCP", () => {
+  test("exports and erases only what the actor owns", async () => {
+    const dir2 = mkdtempSync(join(tmpdir(), "tables-gdpr-e2e-"));
+    const env2 = { ...process.env, AGENTIC_TABLES_DB: join(dir2, "db.json") } as Record<string, string>;
+    const cli2 = (args: string[], actor: string) => spawnSync("node", [cli, ...args], { env: { ...env2, AGENTIC_TABLES_ACTOR: actor }, encoding: "utf8" });
+    try {
+      expect(cli2(["new", "Mine", "--field", "Note:text"], "human:ada").status).toBe(0);
+      expect(cli2(["insert", "Mine", "--json", '{"Note":"ada-secret"}'], "human:ada").status).toBe(0);
+      const other = cli2(["export-data"], "human:eve");
+      expect(JSON.parse(other.stdout).bases).toEqual([]);
+      const own = JSON.parse(cli2(["export-data"], "human:ada").stdout);
+      expect(own.bases[0].rows[0].values.Note).toBe("ada-secret");
+      steps.push({ step: "cli export-data", ok: true });
+
+      const refused = cli2(["erase-data"], "human:ada");
+      expect(refused.status).toBe(2);
+      expect(JSON.parse(cli2(["erase-data", "--yes"], "human:eve").stdout)).toEqual({ bases: 0, tables: 0, rows: 0, views: 0 });
+      expect(cli2(["export-data"], "human:ada").stdout).toContain("ada-secret");
+
+      const client = new Client({ name: "e2e-gdpr", version: "0.0.0" });
+      await client.connect(new StdioClientTransport({ command: "node", args: [cli, "mcp"], env: { ...env2, AGENTIC_TABLES_ACTOR: "human:ada" } }));
+      try {
+        const exported = (await client.callTool({ name: "export_my_data", arguments: {} })) as { content: { text: string }[] };
+        expect(JSON.parse(exported.content[0]!.text).bases).toHaveLength(1);
+        const erased = (await client.callTool({ name: "erase_my_data", arguments: {} })) as { content: { text: string }[] };
+        expect(JSON.parse(erased.content[0]!.text)).toEqual({ bases: 1, tables: 1, rows: 1, views: 0 });
+        steps.push({ step: "mcp export_my_data and erase_my_data", ok: true });
+      } finally {
+        await client.close();
+      }
+      expect(readFileSync(join(dir2, "db.json"), "utf8")).not.toContain("ada-secret");
+    } finally {
+      rmSync(dir2, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
 describe("mcp", () => {
   test("describes the schema and does typed row CRUD over stdio", async () => {
     const client = new Client({ name: "e2e", version: "0.0.0" });
     await client.connect(new StdioClientTransport({ command: "node", args: [cli, "mcp"], env: { ...env, AGENTIC_TABLES_ACTOR: "agent:e2e" } as Record<string, string> }));
     try {
       const names = (await client.listTools()).tools.map((t) => t.name);
-      expect(names).toEqual(expect.arrayContaining(["list_tables", "describe_table", "create_table", "add_field", "insert_rows", "update_row", "delete_row", "get_row", "query_rows", "set_required", "delete_table"]));
+      expect(names).toEqual(expect.arrayContaining(["list_tables", "describe_table", "create_table", "add_field", "insert_rows", "update_row", "delete_row", "get_row", "query_rows", "set_required", "delete_table", "export_my_data", "erase_my_data"]));
       const call = async (name: string, args: Record<string, unknown>) => {
         const r = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { text: string }[] };
         steps.push({ step: `mcp ${name}`, ok: !r.isError });

@@ -50,7 +50,7 @@ let baseId: string;
 
 beforeEach(async () => {
   t = createTables(createMemoryStore());
-  baseId = (await t.createBase("Crm")).id;
+  baseId = (await t.createBase("Crm", human)).id;
 });
 
 async function people() {

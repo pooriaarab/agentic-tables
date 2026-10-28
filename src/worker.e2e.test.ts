@@ -141,6 +141,31 @@ describe("tables Worker over wrangler dev", () => {
     expect((await call("DELETE", `/bases/${base.id}`, HUMAN)).status).toBe(404);
   });
 
+  test("exports and hard deletes the data of the caller only", async () => {
+    const eve = { "x-principal-id": "eve", "x-principal-kind": "human" };
+    const mine = await makePeople();
+    await call("POST", `/tables/${mine.table.id}/rows`, BOT, { values: { Name: "Mine" } });
+    const theirs = (await call("POST", "/bases", eve, { name: "Eve" })).body;
+    await call("POST", `/bases/${theirs.id}/tables`, eve, { name: "Secret", fields: [{ name: "Note", type: "text" }] });
+
+    expect((await call("POST", "/bases", {}, { name: "x" })).status).toBe(401);
+    expect((await call("GET", "/me/export", {})).status).toBe(401);
+    expect((await call("DELETE", "/me/data", {})).status).toBe(401);
+
+    const exported = (await call("GET", "/me/export", eve)).body;
+    expect(exported).toMatchObject({ format: "agentic-tables-export", ownerId: "eve", bases: [{ base: { id: theirs.id }, tables: [{ name: "Secret" }] }] });
+    expect(JSON.stringify(exported)).not.toContain("Mine");
+    const adaExport = (await call("GET", "/me/export", HUMAN)).body;
+    expect(JSON.stringify(adaExport)).not.toContain("Secret");
+    expect(adaExport.bases.some((b: any) => b.base.id === mine.base.id && b.rows[0].values.Name === "Mine" && b.rows[0].createdBy.kind === "agent_of_human")).toBe(true);
+
+    const erased = await call("DELETE", "/me/data", eve);
+    expect(erased.body).toEqual({ bases: 1, tables: 1, rows: 0, views: 0 });
+    expect((await call("GET", "/me/export", eve)).body.bases).toEqual([]);
+    expect((await call("GET", `/bases/${theirs.id}/tables`)).body.items).toEqual([]);
+    expect((await call("GET", `/tables/${mine.table.id}`)).status).toBe(200);
+  });
+
   test("refuses to serve without the unsafe flag", async () => {
     for (const [method, path] of [["GET", "/bases"], ["POST", "/bases"]] as const) {
       const response = await fetch(`http://127.0.0.1:${PORT + 1}/api/v1/tables${path}`, { method, headers: HUMAN, body: method === "POST" ? "{}" : undefined });

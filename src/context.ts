@@ -27,10 +27,11 @@ export interface Context {
  */
 export function openContext(env: Record<string, string | undefined>, defaultActor: string): Context {
   const tables = createTables(createFileStore(env.AGENTIC_TABLES_DB ?? "agentic-tables.json"));
-  const baseId = async (): Promise<string> => (await tables.listBases())[0]?.id ?? (await tables.createBase("default")).id;
+  const actor = parseActor(env.AGENTIC_TABLES_ACTOR ?? defaultActor);
+  const baseId = async (): Promise<string> => (await tables.listBases())[0]?.id ?? (await tables.createBase("default", actor)).id;
   return {
     tables,
-    actor: parseActor(env.AGENTIC_TABLES_ACTOR ?? defaultActor),
+    actor,
     baseId,
     async table(ref) {
       const all = await tables.listTables(await baseId());

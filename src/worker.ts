@@ -59,7 +59,13 @@ export function createApp(tables: Tables) {
   });
   api.notFound((c) => c.json({ error: { code: "NOT_FOUND", message: "no such route" } }, 404));
 
-  api.post("/bases", async (c) => c.json(await tables.createBase(String((await jsonBody<{ name?: string }>(c)).name ?? "")), 201));
+  api.post("/bases", async (c) => {
+    const actor = actorOf(c);
+    return c.json(await tables.createBase(String((await jsonBody<{ name?: string }>(c)).name ?? ""), actor), 201);
+  });
+  // Data rights for the caller: export the bases the caller owns, or hard delete them.
+  api.get("/me/export", async (c) => c.json(await tables.exportOwnerData(actorOf(c).id)));
+  api.delete("/me/data", async (c) => c.json(await tables.eraseOwnerData(actorOf(c).id)));
   api.get("/bases", async (c) => c.json({ items: await tables.listBases() }));
 
   api.post("/bases/:baseId/tables", async (c) => {

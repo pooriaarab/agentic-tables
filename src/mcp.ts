@@ -57,6 +57,8 @@ export function createMcpServer(ctx: Context): McpServer {
     ctx.tables.setRequired((await ctx.table(table)).id, field, required, { dryRun }),
   );
   tool("delete_table", "Delete a table with all its rows and views. It fails while another table links to it.", { table: tableRef }, "delete", async ({ table }) => ctx.tables.deleteTable((await ctx.table(table)).id));
+  tool("export_my_data", "Export every base owned by the acting principal, with tables, views, and rows, as JSON.", {}, "read", async () => ctx.tables.exportOwnerData(ctx.actor.id));
+  tool("erase_my_data", "Hard delete every base owned by the acting principal. This cannot be undone.", {}, "delete", async () => ctx.tables.eraseOwnerData(ctx.actor.id));
   tool("insert_rows", "Insert rows. Keys are field names. All rows are checked first. If one fails, none is written, and the error names the row and field.", { table: tableRef, rows: z.array(z.record(z.any())).min(1).max(500) }, "write", async ({ table, rows }) => ({
     rows: await ctx.tables.insertRows((await ctx.table(table)).id, rows as Values[], ctx.actor),
   }));
