@@ -76,6 +76,8 @@ Writes need `x-principal-id` and `x-principal-kind` (one of `human`, `agent_of_h
 | `POST /bases`, `GET /bases` | Create and list bases. |
 | `POST /bases/:baseId/tables`, `GET /bases/:baseId/tables`, `GET /tables/:tableId` | Create, list, and read tables. |
 | `POST /tables/:tableId/fields`, `PATCH` and `DELETE /tables/:tableId/fields/:field`, `POST /tables/:tableId/fields/:field/type` | Add, rename, delete, and retype a field. The retype body takes `dryRun` and `onFailure`. |
+| `PUT /tables/:tableId/fields/:field/required` | Set `required`. A `409` lists the rows with no value. Add `dryRun` to only list them. |
+| `DELETE /tables/:tableId`, `DELETE /bases/:baseId` | Delete with all rows and views. A table that another table links to returns `422`. |
 | `POST /tables/:tableId/rows` | Insert `{values}` or an all-or-nothing `{rows: [...]}`. |
 | `GET /tables/:tableId/rows?filter=<json>&sort=Field:desc&limit=&cursor=` | Filter, sort, and page rows. |
 | `GET`, `PATCH`, `DELETE /rows/:rowId` | Read, change, and delete a row. |
@@ -86,8 +88,7 @@ A failure returns `{"error":{"code","message","issues"}}`: `422` for a validatio
 ## Limits
 
 - A schema change runs in one store transaction. A very large table can exceed the transaction size of a backend.
-- You cannot change `required` on an existing field yet.
-- You cannot delete a table or a base yet.
+- Deleting a table or a base runs in one store transaction. A very large one can exceed the transaction size of a backend. The CLI and MCP server cannot delete a base yet. The library and HTTP API can.
 - A filter on a field value reads the whole table (up to `maxScan`). An index on field values comes later.
 - The file store (`agentic-tables/file-store`) keeps one JSON file. The CLI and the MCP server can share it: each write takes a lock file, reads the file again, and renames a new file into place. Each call reads the whole file, so use it for local work. It needs one machine: it does not work on a network disk. If a process dies, its lock is taken over when the process is gone or the lock is 30 seconds old. A lock with unreadable content is never taken: remove `<db>.lock` by hand.
 - CSV export puts a `'` before any cell or header that starts with `=`, `+`, `-`, `@`, tab, or CR, so a spreadsheet shows it as text. Number and checkbox cells stay as they are. Import reads a guarded header back, but keeps a guarded cell as written, with the `'`.
@@ -102,11 +103,13 @@ npx agentic-tables new People --field "Name:text!" --field "Age:number" --field 
 npx agentic-tables insert People --json '{"Name":"Ada","Age":36,"Stage":"won"}'
 npx agentic-tables query People --filter '{"field":"Age","op":"gt","value":30}' --sort Name:desc
 npx agentic-tables schema People
+npx agentic-tables required People Age true --dry-run   # lists rows with no Age
+npx agentic-tables delete-table People --yes
 npx agentic-tables export People > people.csv
 npx agentic-tables import Parts --file parts.csv --create
 ```
 
-Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
+Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `delete-table`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
 
 CSV import checks every cell first. If one cell fails, no row is written, and the error names the line and field. `--create` makes the table and guesses a type for each column: number, checkbox, date, single select, long text, or text. A column is a number only if every value is a plain decimal. `00123`, `0x1F`, and `1e3` stay text.
 
@@ -119,6 +122,8 @@ Run `npx agentic-tables mcp`. It uses the same database file as the CLI, and a C
 | `list_tables` | List the tables with their fields. |
 | `describe_table` | Read one schema, with the filter operators each field supports. Call it before you write. |
 | `create_table`, `add_field` | Create a table. Add a field. |
+| `set_required` | Make a field required or optional. It lists the rows that block it. |
+| `delete_table` | Delete a table with its rows and views. |
 | `insert_rows` | Insert up to 500 rows at once. One bad row writes none. |
 | `update_row`, `delete_row`, `get_row` | Change, delete, or read one row. |
 | `query_rows` | Filter, sort, and page rows. |

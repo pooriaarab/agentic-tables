@@ -71,13 +71,30 @@ describe("cli", () => {
   });
 });
 
+describe("required and delete over the CLI", () => {
+  test("lists blocking rows, applies, and deletes only with --yes", () => {
+    ok(["new", "Notes", "--field", "Title:text", "--field", "Body:text"]);
+    ok(["insert", "Notes", "--json", '[{"Title":"a","Body":"x"},{"Title":"b"}]']);
+    const blocked = run(["required", "Notes", "Body", "true"]);
+    expect(blocked.code).toBe(1);
+    expect(JSON.parse(blocked.err).error).toMatchObject({ code: "MIGRATION_ABORTED", report: { failures: [{ reason: "has no value" }] } });
+    expect(ok(["required", "Notes", "Body", "true", "--dry-run"])).toMatchObject({ applied: false });
+    expect(ok(["required", "Notes", "Title", "true"])).toMatchObject({ applied: true });
+    expect(run(["required", "Notes", "Title", "maybe"]).code).toBe(2);
+    expect(run(["delete-table", "Notes"]).code).toBe(2);
+    expect(ok(["query", "Notes"]).items).toHaveLength(2);
+    expect(ok(["delete-table", "Notes", "--yes"])).toEqual({ rows: 2, views: 0 });
+    expect(run(["schema", "Notes"]).code).toBe(1);
+  });
+});
+
 describe("mcp", () => {
   test("describes the schema and does typed row CRUD over stdio", async () => {
     const client = new Client({ name: "e2e", version: "0.0.0" });
     await client.connect(new StdioClientTransport({ command: "node", args: [cli, "mcp"], env: { ...env, AGENTIC_TABLES_ACTOR: "agent:e2e" } as Record<string, string> }));
     try {
       const names = (await client.listTools()).tools.map((t) => t.name);
-      expect(names).toEqual(expect.arrayContaining(["list_tables", "describe_table", "create_table", "add_field", "insert_rows", "update_row", "delete_row", "get_row", "query_rows"]));
+      expect(names).toEqual(expect.arrayContaining(["list_tables", "describe_table", "create_table", "add_field", "insert_rows", "update_row", "delete_row", "get_row", "query_rows", "set_required", "delete_table"]));
       const call = async (name: string, args: Record<string, unknown>) => {
         const r = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { text: string }[] };
         steps.push({ step: `mcp ${name}`, ok: !r.isError });

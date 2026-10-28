@@ -81,6 +81,8 @@ export function createApp(tables: Tables) {
     return c.json(await tables.createTable(c.req.param("baseId"), body.name, (body.fields ?? []) as FieldInput[]), 201);
   });
   api.get("/bases/:baseId/tables", async (c) => c.json({ items: await tables.listTables(c.req.param("baseId")) }));
+  api.delete("/bases/:baseId", async (c) => (actorOf(c), c.json(await tables.deleteBase(c.req.param("baseId")))));
+  api.delete("/tables/:tableId", async (c) => (actorOf(c), c.json(await tables.deleteTable(c.req.param("tableId")))));
   api.get("/tables/:tableId", async (c) => c.json(await tables.getTable(c.req.param("tableId"))));
 
   api.post("/tables/:tableId/fields", async (c) => c.json(await tables.addField(c.req.param("tableId"), (await jsonBody(c, schemas.addField)) as AddFieldInput), 201));
@@ -88,6 +90,10 @@ export function createApp(tables: Tables) {
     c.json(await tables.renameField(c.req.param("tableId"), c.req.param("field"), (await jsonBody(c, schemas.renameField)).name)),
   );
   api.delete("/tables/:tableId/fields/:field", async (c) => c.json(await tables.deleteField(c.req.param("tableId"), c.req.param("field"))));
+  api.put("/tables/:tableId/fields/:field/required", async (c) => {
+    const body = await jsonBody(c, schemas.setRequired);
+    return c.json(await tables.setRequired(c.req.param("tableId"), c.req.param("field"), body.required, { dryRun: body.dryRun === true }));
+  });
   api.post("/tables/:tableId/fields/:field/type", async (c) =>
     c.json(await tables.changeFieldType(c.req.param("tableId"), c.req.param("field"), (await jsonBody(c, schemas.changeType)) as ChangeTypeOptions)),
   );
