@@ -22,7 +22,29 @@ import { decode, encode, type Doc, type Json, type Page, type Store, type StoreO
 export interface Base {
   id: string;
   name: string;
+  /** The id of the principal that owns the base. Export and erase work by this id. */
+  ownerId: string;
   createdAt: string;
+}
+
+/** Everything one owner holds, as JSON. Row values are keyed by field name. */
+export interface OwnerExport {
+  format: "agentic-tables-export";
+  version: 1;
+  exportedAt: string;
+  ownerId: string;
+  bases: { base: Base; tables: Table[]; views: View[]; rows: Row[] }[];
+  /** Rows this principal wrote in bases it does not own. */
+  authoredRows: Row[];
+}
+
+export interface EraseSummary {
+  bases: number;
+  tables: number;
+  rows: number;
+  views: number;
+  /** Rows this principal wrote in bases it does not own. They are not part of `rows`. */
+  authoredRows: number;
 }
 
 export interface TablesOptions {
@@ -132,6 +154,10 @@ const checkDirection = (sort: Sort | undefined, issues: Issue[]): void => {
   if (sort?.direction !== undefined && sort.direction !== "asc" && sort.direction !== "desc") issues.push({ field: "direction", code: "type", message: 'must be "asc" or "desc"' });
 };
 
+const assertOwnerId = (ownerId: unknown): void => {
+  if (typeof ownerId !== "string" || ownerId === "") throw new TablesError("BAD_REQUEST", "an owner id is required");
+};
+
 const findField = (table: TableDoc, ref: string): Field => {
   const field = table.fields.find((f) => f.id === ref) ?? table.fields.find((f) => f.name === ref);
   if (!field) throw new NotFoundError(`field "${ref}"`);
@@ -238,6 +264,40 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     await ops.delete("tables", tableId);
     return { rows: rows.length, views: views.length };
   };
+  /** Delete a row and remove its id from every link that points at it. */
+  const removeRow = async (ops: StoreOps, rowId: string, row: RowDoc): Promise<void> => {
+    for (const { id: tableId, data: table } of await all<TableDoc>(ops, "tables", { baseId: row.baseId }, "createdAt")) {
+      const links = table.fields.filter((f) => f.type === "link" && f.linkTable === row.tableId);
+      if (links.length === 0) continue;
+      await rewriteRows(ops, tableId, (doc) => {
+        const hit = links.filter((f) => (doc.values[f.id] as string[] | undefined)?.includes(rowId));
+        return hit.length === 0 ? null : { ...doc.values, ...Object.fromEntries(hit.map((f) => [f.id, (doc.values[f.id] as string[]).filter((id) => id !== rowId)])) };
+      });
+    }
+    await ops.delete("rows", rowId);
+  };
+  /** Rows the principal wrote in bases it does not own, with the table of each. */
+  const authoredElsewhere = async (ops: StoreOps, principalId: string): Promise<{ id: string; data: RowDoc; table: TableDoc }[]> => {
+    const found: { id: string; data: RowDoc; table: TableDoc }[] = [];
+    for (const base of await all<{ ownerId?: string }>(ops, "bases", {}, "createdAt")) {
+      if (base.data.ownerId === principalId) continue;
+      for (const { id: tableId, data: table } of await all<TableDoc>(ops, "tables", { baseId: base.id }, "createdAt")) {
+        for (const r of await all<RowDoc>(ops, "rows", { tableId }, "createdAt")) if (r.data.createdBy?.id === principalId) found.push({ ...r, table });
+      }
+    }
+    return found;
+  };
+  const dropBase = async (ops: StoreOps, baseId: string): Promise<EraseSummary> => {
+    const total: EraseSummary = { bases: 1, tables: 0, rows: 0, views: 0, authoredRows: 0 };
+    for (const { id } of await all<TableDoc>(ops, "tables", { baseId }, "createdAt")) {
+      const gone = await dropTable(ops, id);
+      total.tables += 1;
+      total.rows += gone.rows;
+      total.views += gone.views;
+    }
+    await ops.delete("bases", baseId);
+    return total;
+  };
   const saveTable = (ops: StoreOps, id: string, table: TableDoc, fields: Field[]): Promise<void> => write(ops, "tables", id, { ...table, fields, updatedAt: stamp() });
 
   const report = (field: Field, to: FieldType, rows: { id: string; value: Json | undefined }[]): MigrationReport => ({
@@ -253,14 +313,53 @@ export function createTables(store: Store, options: TablesOptions = {}) {
   };
 
   return {
-    async createBase(name: string): Promise<Base> {
+    async createBase(name: string, owner: Actor): Promise<Base> {
+      assertActor(owner);
       if (name.trim() === "") throw new Error("base needs a name");
-      const base = { id: newId("base"), name: name.trim(), createdAt: stamp() };
-      await write(store, "bases", base.id, { name: base.name, createdAt: base.createdAt });
+      const base = { id: newId("base"), name: name.trim(), ownerId: owner.id, createdAt: stamp() };
+      await write(store, "bases", base.id, { name: base.name, ownerId: base.ownerId, createdAt: base.createdAt });
       return base;
     },
     async listBases(): Promise<Base[]> {
       return (await all<Omit<Base, "id">>(store, "bases", {}, "createdAt")).map((e) => ({ id: e.id, ...e.data }));
+    },
+
+    /** Export every base the principal owns, and every row it wrote in other bases, in one consistent read. Memory grows with the data. */
+    async exportOwnerData(ownerId: string): Promise<OwnerExport> {
+      assertOwnerId(ownerId);
+      return store.transaction(async (ops) => {
+        const bases: OwnerExport["bases"] = [];
+        for (const owned of await all<Omit<Base, "id">>(ops, "bases", { ownerId }, "createdAt")) {
+          const out: OwnerExport["bases"][number] = { base: { id: owned.id, ...owned.data }, tables: [], views: [], rows: [] };
+          for (const { id, data } of await all<TableDoc>(ops, "tables", { baseId: owned.id }, "createdAt")) {
+            out.tables.push(tableView(id, data));
+            for (const r of await all<RowDoc>(ops, "rows", { tableId: id }, "createdAt")) out.rows.push(rowView(data, r.id, r.data));
+            for (const v of await all<Omit<View, "id">>(ops, "views", { tableId: id }, "createdAt")) out.views.push({ id: v.id, ...v.data });
+          }
+          bases.push(out);
+        }
+        const authoredRows = (await authoredElsewhere(ops, ownerId)).map((r) => rowView(r.table, r.id, r.data));
+        return { format: "agentic-tables-export", version: 1, exportedAt: stamp(), ownerId, bases, authoredRows };
+      });
+    },
+    /** Hard delete every base the principal owns and every row it wrote in other bases. No copy stays in the store. Other rows in those bases stay. */
+    async eraseOwnerData(ownerId: string): Promise<EraseSummary> {
+      assertOwnerId(ownerId);
+      return store.transaction(async (ops) => {
+        const total: EraseSummary = { bases: 0, tables: 0, rows: 0, views: 0, authoredRows: 0 };
+        for (const { id } of await all<object>(ops, "bases", { ownerId }, "createdAt")) {
+          const gone = await dropBase(ops, id);
+          total.bases += 1;
+          total.tables += gone.tables;
+          total.rows += gone.rows;
+          total.views += gone.views;
+        }
+        for (const r of await authoredElsewhere(ops, ownerId)) {
+          await removeRow(ops, r.id, r.data);
+          total.authoredRows += 1;
+        }
+        return total;
+      });
     },
 
     async createTable(baseId: string, name: string, fields: FieldInput[] = []): Promise<Table> {
@@ -445,15 +544,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       await store.transaction(async (ops) => {
         const row = await read<RowDoc>(ops, "rows", rowId);
         if (!row) throw new NotFoundError(`row "${rowId}"`);
-        for (const { id: tableId, data: table } of await all<TableDoc>(ops, "tables", { baseId: row.baseId }, "createdAt")) {
-          const links = table.fields.filter((f) => f.type === "link" && f.linkTable === row.tableId);
-          if (links.length === 0) continue;
-          await rewriteRows(ops, tableId, (doc) => {
-            const hit = links.filter((f) => (doc.values[f.id] as string[] | undefined)?.includes(rowId));
-            return hit.length === 0 ? null : { ...doc.values, ...Object.fromEntries(hit.map((f) => [f.id, (doc.values[f.id] as string[]).filter((id) => id !== rowId)])) };
-          });
-        }
-        await ops.delete("rows", rowId);
+        await removeRow(ops, rowId, row);
       });
     },
 
@@ -546,18 +637,11 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       });
     },
     /** Delete a base with all its tables, rows, and views. */
-    async deleteBase(baseId: string): Promise<{ tables: number; rows: number; views: number }> {
+    async deleteBase(baseId: string): Promise<Omit<EraseSummary, "bases" | "authoredRows">> {
       return store.transaction(async (ops) => {
         if (!(await read(ops, "bases", baseId))) throw new NotFoundError(`base "${baseId}"`);
-        const out = { tables: 0, rows: 0, views: 0 };
-        for (const { id } of await all<TableDoc>(ops, "tables", { baseId }, "createdAt")) {
-          const gone = await dropTable(ops, id);
-          out.tables += 1;
-          out.rows += gone.rows;
-          out.views += gone.views;
-        }
-        await ops.delete("bases", baseId);
-        return out;
+        const { tables, rows, views } = await dropBase(ops, baseId);
+        return { tables, rows, views };
       });
     },
     /**

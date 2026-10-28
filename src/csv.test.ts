@@ -26,7 +26,7 @@ describe("parseCsv", () => {
 describe("import", () => {
   async function table() {
     const t = createTables(createMemoryStore());
-    const base = await t.createBase("b");
+    const base = await t.createBase("b", human);
     const people = await t.createTable(base.id, "People", [
       { name: "Name", type: "text", required: true },
       { name: "Age", type: "number" },
@@ -72,7 +72,7 @@ describe("import", () => {
 describe("formula guard", () => {
   test("prefixes cells and headers that a spreadsheet would run", async () => {
     const t = createTables(createMemoryStore());
-    const base = await t.createBase("B");
+    const base = await t.createBase("B", human);
     const table = await t.createTable(base.id, "T", [
       { name: "=Name", type: "text" },
       { name: "Note", type: "long_text" },
@@ -98,14 +98,14 @@ describe("formula guard", () => {
 
   test("a guarded header imports into the same table", async () => {
     const t = createTables(createMemoryStore());
-    const base = await t.createBase("B");
+    const base = await t.createBase("B", human);
     const table = await t.createTable(base.id, "T", [{ name: "=Name", type: "text" }]);
     expect(csvToValues(table, ["'=Name"], [["x"]])).toEqual([{ "=Name": "x" }]);
   });
 
   test("a header that lists a field twice is refused", async () => {
     const t = createTables(createMemoryStore());
-    const base = await t.createBase("B");
+    const base = await t.createBase("B", human);
     const table = await t.createTable(base.id, "T", [{ name: "A", type: "text" }]);
     expect(() => csvToValues(table, ["A", "A"], [["1", "2"]])).toThrow(ValidationError);
   });

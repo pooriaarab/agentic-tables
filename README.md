@@ -25,7 +25,7 @@ row against the schema before it writes.
 import { createTables, createMemoryStore } from "agentic-tables";
 
 const tables = createTables(createMemoryStore());
-const base = await tables.createBase("Crm");
+const base = await tables.createBase("Crm", { id: "u1", kind: "human" });
 const people = await tables.createTable(base.id, "People", [
   { name: "Name", type: "text", required: true },
   { name: "Stage", type: "single_select", options: ["lead", "won"] },
@@ -78,12 +78,33 @@ Writes need `x-principal-id` and `x-principal-kind` (one of `human`, `agent_of_h
 | `POST /tables/:tableId/fields`, `PATCH` and `DELETE /tables/:tableId/fields/:field`, `POST /tables/:tableId/fields/:field/type` | Add, rename, delete, and retype a field. The retype body takes `dryRun` and `onFailure`. |
 | `PUT /tables/:tableId/fields/:field/required` | Set `required`. A `409` lists the rows with no value. Add `dryRun` to only list them. |
 | `DELETE /tables/:tableId`, `DELETE /bases/:baseId` | Delete with all rows and views. A table that another table links to returns `422`. |
+| `GET /me/export`, `DELETE /me/data` | Export or hard delete the bases the caller owns. |
 | `POST /tables/:tableId/rows` | Insert `{values}` or an all-or-nothing `{rows: [...]}`. |
 | `GET /tables/:tableId/rows?filter=<json>&sort=Field:desc&limit=&cursor=` | Filter, sort, and page rows. |
 | `GET`, `PATCH`, `DELETE /rows/:rowId` | Read, change, and delete a row. |
 | `POST` and `GET /tables/:tableId/views`, `GET /views/:viewId/rows`, `DELETE /views/:viewId` | Saved views. |
 
 A failure returns `{"error":{"code","message","issues"}}`: `422` for a validation failure, `409` for a migration that would lose data (the body holds the report), `404`, `400`, or `401`.
+
+## Your data (GDPR)
+
+A base has an owner, the id of the principal that created it. Two actions work by principal id:
+
+- **Export**: every base the principal owns, with its tables, views, and rows. It also lists `authoredRows`: the rows the principal wrote in bases it does not own. The output is one JSON object (`format: "agentic-tables-export"`, `version: 1`). Each row keeps the principal kind of its author.
+- **Hard delete**: every base the principal owns goes in one transaction, and so does every row the principal wrote in other bases. Links to a deleted row are removed. Other rows in those bases stay. The store keeps no copy and no marker. With the file store, the file is rewritten without the data.
+
+The result of a hard delete counts what it removed: `bases`, `tables`, `views`, `rows` (rows inside the owned bases), and `authoredRows` (rows in other bases).
+
+| Surface | Export | Hard delete |
+| --- | --- | --- |
+| Library | `exportOwnerData(principalId)` | `eraseOwnerData(principalId)` |
+| CLI | `export-data` | `erase-data --yes` |
+| MCP | `export_my_data` | `erase_my_data` |
+| HTTP | `GET /me/export` | `DELETE /me/data` |
+
+The CLI, MCP, and HTTP actions act for the actor of the call only. In the unsafe mode the HTTP actor comes from an unchecked header, so anyone can name any id. The CLI and MCP give each actor id its own default base, so two actors on one file never share data by accident. Set `AGENTIC_TABLES_BASE` to a base id to work in a shared base. A base made before owners existed has no owner. It is never exported and never erased as a whole, but rows that the principal wrote in it are.
+
+Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`) when another principal wrote them. File refs hold blob keys, and erase does not remove the blobs. A file store rewrite does not wipe old file blocks or backups. There is no audit log of access, and there is no retention setting. Agents that act for a person own data under their own id until the principal chain lands. The export holds all data in memory, so a very large export needs a streaming version later.
 
 ## Limits
 
@@ -98,6 +119,7 @@ A failure returns `{"error":{"code","message","issues"}}`: `422` for a validatio
 ```sh
 export AGENTIC_TABLES_DB=./crm.json            # default ./agentic-tables.json
 export AGENTIC_TABLES_ACTOR=agent:claude       # who writes, as kind:id. Default human:cli.
+export AGENTIC_TABLES_BASE=base_...            # optional. The base to work in. Default: one base per actor id.
 
 npx agentic-tables new People --field "Name:text!" --field "Age:number" --field "Stage:single_select=lead|won"
 npx agentic-tables insert People --json '{"Name":"Ada","Age":36,"Stage":"won"}'
@@ -109,7 +131,7 @@ npx agentic-tables export People > people.csv
 npx agentic-tables import Parts --file parts.csv --create
 ```
 
-Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `delete-table`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
+Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `delete-table`, `export-data`, `erase-data`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
 
 CSV import checks every cell first. If one cell fails, no row is written, and the error names the line and field. `--create` makes the table and guesses a type for each column: number, checkbox, date, single select, long text, or text. A column is a number only if every value is a plain decimal. `00123`, `0x1F`, and `1e3` stay text.
 
@@ -124,6 +146,7 @@ Run `npx agentic-tables mcp`. It uses the same database file as the CLI, and a C
 | `create_table`, `add_field` | Create a table. Add a field. |
 | `set_required` | Make a field required or optional. It lists the rows that block it. |
 | `delete_table` | Delete a table with its rows and views. |
+| `export_my_data`, `erase_my_data` | Export or hard delete the bases the acting principal owns. |
 | `insert_rows` | Insert up to 500 rows at once. One bad row writes none. |
 | `update_row`, `delete_row`, `get_row` | Change, delete, or read one row. |
 | `query_rows` | Filter, sort, and page rows. |
@@ -133,6 +156,7 @@ A failed call returns `isError` with a `code` and the `issues`. Rows written ove
 ## Planned surfaces
 
 - **Durable storage for the Worker**: a D1 adapter.
+- **Open formats**: ODS and XLSX export next to CSV. The plan is to write both with a small zip library under a permissive license, with every cell typed (string, number, boolean, date) and no formula cells, so no cell can run as a formula. A flat `.fods` file needs no zip.
 - **Web UI**: a small app served by the same Worker.
 
 ## Develop

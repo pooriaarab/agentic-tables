@@ -21,7 +21,7 @@ let baseId: string;
 
 beforeEach(async () => {
   t = createTables(createMemoryStore());
-  baseId = (await t.createBase("Crm")).id;
+  baseId = (await t.createBase("Crm", human)).id;
 });
 
 describe("delete table and base", () => {
@@ -55,7 +55,7 @@ describe("delete table and base", () => {
   });
 
   test("deleting a base removes everything in it and leaves another base", async () => {
-    const other = await t.createBase("Other");
+    const other = await t.createBase("Other", human);
     const a = await t.createTable(baseId, "A", [{ name: "Name", type: "text" }]);
     const o = await t.createTable(other.id, "O", [{ name: "Name", type: "text" }]);
     await t.insertRows(a.id, [{ Name: "1" }], human);

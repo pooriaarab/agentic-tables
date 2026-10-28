@@ -1,6 +1,6 @@
 export { VERSION } from "./version.js";
 export { createTables } from "./tables.js";
-export type { AddFieldInput, Base, ChangeTypeOptions, ListRowsOptions, Tables, TablesOptions } from "./tables.js";
+export type { AddFieldInput, Base, EraseSummary, OwnerExport, ChangeTypeOptions, ListRowsOptions, Tables, TablesOptions } from "./tables.js";
 export { checkValue, FIELD_TYPES, NotFoundError, PRINCIPAL_KINDS, TablesError, ValidationError } from "./model.js";
 export type { Actor, Field, FieldInput, FieldType, FileRef, Issue, PrincipalKind, Row, Table, Values } from "./model.js";
 export { MigrationError } from "./migrate.js";

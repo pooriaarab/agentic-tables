@@ -17,20 +17,30 @@ export interface Context {
   actor: Actor;
   /** Find a table in the default base by name or id. */
   table(ref: string): Promise<Table>;
-  /** Create the default base on first use. */
+  /** The base this actor works in. Create the actor's own default base on first use. */
   baseId(): Promise<string>;
 }
 
 /**
  * Open the database. `AGENTIC_TABLES_DB` is the file path (default `./agentic-tables.json`).
  * `AGENTIC_TABLES_ACTOR` is who writes, as "kind:id".
+ * `AGENTIC_TABLES_BASE` names the base to work in. Without it, each actor id gets its own default base,
+ * so two actors on one file never share data by accident.
  */
 export function openContext(env: Record<string, string | undefined>, defaultActor: string): Context {
   const tables = createTables(createFileStore(env.AGENTIC_TABLES_DB ?? "agentic-tables.json"));
-  const baseId = async (): Promise<string> => (await tables.listBases())[0]?.id ?? (await tables.createBase("default")).id;
+  const actor = parseActor(env.AGENTIC_TABLES_ACTOR ?? defaultActor);
+  const baseId = async (): Promise<string> => {
+    const bases = await tables.listBases();
+    if (env.AGENTIC_TABLES_BASE !== undefined) {
+      if (!bases.some((b) => b.id === env.AGENTIC_TABLES_BASE)) throw new NotFoundError(`base "${env.AGENTIC_TABLES_BASE}"`);
+      return env.AGENTIC_TABLES_BASE;
+    }
+    return bases.find((b) => b.ownerId === actor.id)?.id ?? (await tables.createBase("default", actor)).id;
+  };
   return {
     tables,
-    actor: parseActor(env.AGENTIC_TABLES_ACTOR ?? defaultActor),
+    actor,
     baseId,
     async table(ref) {
       const all = await tables.listTables(await baseId());
