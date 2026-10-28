@@ -10,14 +10,35 @@ Typed tables that agents read and write as rows.
 > Status: in development. The package exports `VERSION` only. It is not on npm
 > yet, and none of the features below work yet.
 
-## Planned features
+## What works
 
-- Tables with typed fields: text, number, date, select, link, and file.
-- Grid, board, and form views with filters and sorts.
-- Real-time editing.
-- Agent tools: query rows, insert rows, update rows, and change the schema.
-- Import and export CSV.
-- Share by invite or link, with roles.
+The library works. The CLI, MCP server, HTTP API, and web UI are planned.
+
+A base holds tables. A table has typed fields and rows. The library checks each
+row against the schema before it writes.
+
+```ts
+import { createTables, createMemoryStore } from "agentic-tables";
+
+const tables = createTables(createMemoryStore());
+const base = await tables.createBase("Crm");
+const people = await tables.createTable(base.id, "People", [
+  { name: "Name", type: "text", required: true },
+  { name: "Stage", type: "single_select", options: ["lead", "won"] },
+]);
+await tables.insertRow(people.id, { Name: "Ada", Stage: "lead" }, { id: "u1", kind: "human" });
+```
+
+- Field types: text, long text, number, checkbox, date, single select, multi select, link to another table, file ref.
+- Every row keeps who created it and who last changed it, with the principal kind. An agent edit is labeled as an agent edit.
+- Deleting a row removes it from the links that point at it.
+- Storage sits behind the `Store` interface from `agentic-identity`. An in-memory store ships now.
+
+## Limits
+
+- You cannot change a table schema after you create it yet.
+- You cannot delete a table or a base yet.
+- Data lives in memory and is lost on exit.
 
 ## Planned surfaces
 
