@@ -60,9 +60,9 @@ export function assertId(id: string): void {
 
 export type Collections = Map<string, Map<string, Doc>>;
 
-const encode = (value: unknown): string =>
+export const encode = (value: unknown): string =>
   btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-const decode = (text: string): unknown =>
+export const decode = (text: string): unknown =>
   JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0))));
 
 const compare = (a: Json, b: Json): number =>

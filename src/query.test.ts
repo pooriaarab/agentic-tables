@@ -31,13 +31,13 @@ async function seed(maxScan?: number) {
     { name: "Active", type: "checkbox" },
   ]);
   tableId = table.id;
-  const rows = [
+  const rows: Record<string, unknown>[] = [
     { Name: "Ada", Age: 36, Born: "1815-12-10", Stage: "won", Tags: ["a", "b"], Active: true },
     { Name: "Bob", Age: 20, Born: "2005-01-01T10:00:00Z", Stage: "lead", Tags: ["b"] },
     { Name: "Cy", Stage: "lead", Tags: [] },
     { Name: "Di", Age: 20, Stage: "lost", Tags: ["c"], Active: false },
   ];
-  for (const r of rows) await t.insertRow(tableId, r, human);
+  for (const r of rows) await t.insertRow(tableId, r as never, human);
 }
 const names = async (q: Parameters<Tables["queryRows"]>[1]) => (await t.queryRows(tableId, q)).items.map((r) => r.values.Name);
 const rejects = async (p: Promise<unknown>, code: string) => {
@@ -107,7 +107,7 @@ describe("sort and paging", () => {
   });
   test("a table over the scan cap fails instead of returning part", async () => {
     await seed(3);
-    await rejects(t.queryRows(tableId, { filter: { field: "Age", op: "gt", value: 0 } }).catch((e) => { throw new ValidationError([{ field: "x", code: "operator", message: e.code }]); }), "operator");
+    await expect(t.queryRows(tableId, { filter: { field: "Age", op: "gt", value: 0 } })).rejects.toMatchObject({ code: "SCAN_LIMIT" });
     await expect(t.queryRows(tableId, {})).resolves.toBeTruthy();
   });
 });
