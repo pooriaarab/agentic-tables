@@ -31,12 +31,14 @@ await tables.insertRow(people.id, { Name: "Ada", Stage: "lead" }, { id: "u1", ki
 
 - Field types: text, long text, number, checkbox, date, single select, multi select, link to another table, file ref.
 - Every row keeps who created it and who last changed it, with the principal kind. An agent edit is labeled as an agent edit.
+- Schema changes are safe. A rename keeps the values. A type change converts every value or changes nothing, and returns a report of the rows that fail. A dry run shows the report first. You can add and delete fields and change select options the same way.
 - Deleting a row removes it from the links that point at it.
 - Storage sits behind the `Store` interface from `agentic-identity`. An in-memory store ships now.
 
 ## Limits
 
-- You cannot change a table schema after you create it yet.
+- A schema change runs in one store transaction. A very large table can exceed the transaction size of a backend.
+- You cannot change `required` on an existing field yet.
 - You cannot delete a table or a base yet.
 - Data lives in memory and is lost on exit.
 
