@@ -12,7 +12,7 @@ Typed tables that agents read and write as rows.
 
 ## What works
 
-The library works. The CLI, MCP server, HTTP API, and web UI are planned.
+The library, the CLI, and the MCP server work. The HTTP API and web UI are planned.
 
 A base holds tables. A table has typed fields and rows. The library checks each
 row against the schema before it writes.
@@ -34,7 +34,7 @@ await tables.insertRow(people.id, { Name: "Ada", Stage: "lead" }, { id: "u1", ki
 - Schema changes are safe. A rename keeps the values. A type change converts every value or changes nothing, and returns a report of the rows that fail. A dry run shows the report first. You can add and delete fields and change select options the same way.
 - Queries: filters with `and` and `or`, per-type operators, one sort, `limit`, and a cursor. Saved views: a grid, and a board grouped by a single select field.
 - Deleting a row removes it from the links that point at it.
-- Storage sits behind the `Store` interface from `agentic-identity`. An in-memory store ships now.
+- Storage sits behind the `Store` interface from `agentic-identity`. An in-memory store and a local file store ship now.
 
 ## Queries
 
@@ -62,15 +62,44 @@ Operators by type: text `eq neq contains starts_with is_empty not_empty`; number
 - You cannot change `required` on an existing field yet.
 - You cannot delete a table or a base yet.
 - A filter on a field value reads the whole table (up to `maxScan`). An index on field values comes later.
-- Data lives in memory and is lost on exit.
+- The file store (`agentic-tables/file-store`) keeps one JSON file. Use one process at a time. A CLI write while the MCP server runs is not seen by the server.
+- CSV export does not guard against spreadsheet formulas. Cells that start with `=` stay as they are.
+
+## CLI
+
+```sh
+export AGENTIC_TABLES_DB=./crm.json            # default ./agentic-tables.json
+export AGENTIC_TABLES_ACTOR=agent:claude       # who writes, as kind:id. Default human:cli.
+
+npx agentic-tables new People --field "Name:text!" --field "Age:number" --field "Stage:single_select=lead|won"
+npx agentic-tables insert People --json '{"Name":"Ada","Age":36,"Stage":"won"}'
+npx agentic-tables query People --filter '{"field":"Age","op":"gt","value":30}' --sort Name:desc
+npx agentic-tables schema People
+npx agentic-tables export People > people.csv
+npx agentic-tables import Parts --file parts.csv --create
+```
+
+Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
+
+CSV import checks every cell first. If one cell fails, no row is written, and the error names the line and field. `--create` makes the table and guesses a type for each column: number, checkbox, date, single select, long text, or text.
+
+## MCP server
+
+Run `npx agentic-tables mcp`. It reads the same database file as the CLI.
+
+| Tool | Use it for |
+| --- | --- |
+| `list_tables` | List the tables with their fields. |
+| `describe_table` | Read one schema, with the filter operators each field supports. Call it before you write. |
+| `create_table`, `add_field` | Create a table. Add a field. |
+| `insert_rows` | Insert up to 500 rows at once. One bad row writes none. |
+| `update_row`, `delete_row`, `get_row` | Change, delete, or read one row. |
+| `query_rows` | Filter, sort, and page rows. |
+
+A failed call returns `isError` with a `code` and the `issues`. Rows written over MCP carry the actor from `AGENTIC_TABLES_ACTOR` (default `agent:mcp`).
 
 ## Planned surfaces
 
-One package gives you each way in:
-
-- **Library and SDK**: `import { ... } from "agentic-tables"`.
-- **CLI**: `npx agentic-tables`.
-- **MCP server**: `npx agentic-tables mcp`, for Claude Code and other MCP clients.
 - **HTTP API**: a Cloudflare Worker you deploy to your own account.
 - **Web UI**: a small app served by the same Worker.
 

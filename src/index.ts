@@ -7,5 +7,6 @@ export { MigrationError } from "./migrate.js";
 export type { Failure, MigrationReport } from "./migrate.js";
 export { createMemoryStore } from "./store.js";
 export type { Doc, Json, Page, Query, Region, Store, StoreOps } from "./store.js";
+export { csvToValues, inferFields, parseCsv, toCsv } from "./csv.js";
 export { OPERATORS } from "./query.js";
 export type { Condition, Filter, Op, Sort } from "./query.js";
