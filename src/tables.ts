@@ -520,7 +520,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       const doc = await loadTable(store, tableId);
       const table = tableView(tableId, doc);
       const issues: Issue[] = [];
-      const filter = q.filter ? resolveFilter(table, q.filter, issues) : undefined;
+      const filter = q.filter !== undefined ? resolveFilter(table, q.filter, issues) : undefined;
       const spec = q.sort ? resolveSort(table, q.sort, issues) : undefined;
       checkDirection(q.sort, issues);
       if (issues.length > 0) throw new ValidationError(issues);
@@ -560,7 +560,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         const doc = await loadTable(ops, tableId);
         const table = tableView(tableId, doc);
         const issues: Issue[] = [];
-        const filter = input.filter ? resolveFilter(table, input.filter, issues) : undefined;
+        const filter = input.filter !== undefined ? resolveFilter(table, input.filter, issues) : undefined;
         const spec = input.sort ? resolveSort(table, input.sort, issues) : undefined;
         const group = input.groupBy ? table.fields.find((f) => f.id === input.groupBy || f.name === input.groupBy) : undefined;
         if (input.kind === "board" && group?.type !== "single_select") issues.push({ field: input.groupBy ?? "groupBy", code: "type", message: "a board needs groupBy set to a single select field" });

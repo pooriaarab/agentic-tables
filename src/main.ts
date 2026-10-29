@@ -197,8 +197,9 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
       const kind = flag("kind");
       if (kind !== "grid" && kind !== "board") throw new UsageError("new-view needs --kind grid or board");
       const sort = flag("sort");
-      const [field = "", direction] = (sort ?? "").split(":");
-      if (sort !== undefined && field === "") throw new UsageError('new-view needs a field before the colon in --sort, as Name or Name:desc');
+      const parts = (sort ?? "").split(":");
+      const [field = "", direction] = parts;
+      if (sort !== undefined && (field === "" || parts.length > 2)) throw new UsageError('new-view needs --sort as Name or Name:asc or Name:desc');
       return ctx.tables.createView(table.id, {
         name: need(1, "a view name"),
         kind,

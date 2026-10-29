@@ -29,9 +29,7 @@ async function mcp<T>(db: Record<string, string>, fn: (call: (name: string, args
   try {
     return await fn(async (name, args = {}) => {
       const res = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { text: string }[] };
-      const text = res.content[0]!.text;
-      // The SDK sends an input the schema refuses as plain text, not JSON.
-      return { isError: res.isError === true, body: text.startsWith("MCP error") ? text : JSON.parse(text) };
+      return { isError: res.isError === true, body: JSON.parse(res.content[0]!.text) };
     });
   } finally {
     await client.close();
@@ -61,7 +59,14 @@ describe("views over the CLI", () => {
     expect(grid).toMatchObject({ name: "Big", kind: "grid" });
     const typo = run(db, ["new-view", "Deals", "Typo", "--kind", "grid", "--sort", "Amount:dsc"]);
     expect(typo.code).not.toBe(0);
+    expect(JSON.parse(typo.err).error).toMatchObject({ code: "VALIDATION_FAILED", issues: [{ field: "direction" }] });
     expect(run(db, ["new-view", "Deals", "NoField", "--kind", "grid", "--sort", ":desc"]).code).toBe(2);
+    expect(run(db, ["new-view", "Deals", "Extra", "--kind", "grid", "--sort", "Amount:desc:junk"]).code).toBe(2);
+    for (const filter of ["null", "false", "0", '"x"']) {
+        const refused = run(db, ["new-view", "Deals", "Bad", "--kind", "grid", "--filter", filter]);
+        expect(refused.code).not.toBe(0);
+        expect(JSON.parse(refused.err).error.code).toBe("VALIDATION_FAILED");
+    }
     expect(ok(db, ["views", "Deals"]).map((v: any) => v.name)).toEqual(["Big"]);
     const board = ok(db, ["new-view", "Deals", "By stage", "--kind", "board", "--group-by", "Stage"]);
     expect(ok(db, ["views", "Deals"]).map((v: any) => v.name)).toEqual(["Big", "By stage"]);
@@ -121,6 +126,8 @@ describe("views and CSV import over MCP", () => {
       expect((await call("run_view", { viewId: grid.id })).body.items.map((r: any) => r.values.Name)).toEqual(["c", "b"]);
       expect((await call("run_view", { viewId: board.id })).body.kind).toBe("board");
 
+      const nullFilter = await call("create_view", { table: "Deals", name: "X", kind: "grid", filter: null });
+      expect(nullFilter.body.code).toBe("VALIDATION_FAILED");
       const bad = await call("create_view", { table: "Deals", name: "X", kind: "board", groupBy: "Name" });
       expect(bad.isError).toBe(true);
       expect(bad.body.code).toBe("VALIDATION_FAILED");
@@ -149,7 +156,7 @@ describe("views and CSV import over MCP", () => {
       expect(big.body.code).toBe("PAYLOAD_TOO_LARGE");
       const wide = await call("import_csv", { table: "Parts", csv: `Item\n${"€".repeat(350_000)}\n` });
       expect(wide.isError).toBe(true);
-      expect(wide.body).toMatch(/at most 1048576 bytes/);
+      expect(wide.body.code).toBe("PAYLOAD_TOO_LARGE");
       expect((await call("query_rows", { table: "Parts" })).body.items).toHaveLength(2);
     });
   });
@@ -167,6 +174,7 @@ describe("views and CSV import over MCP", () => {
         ["create_view", { table: "Deals", name: "X", kind: "grid" }],
         ["delete_view", { viewId: view.id }],
         ["import_csv", { table: "Deals", csv: "Name\nz\n" }],
+        ["import_csv", { table: "Nope", csv: "A\n1\n", create: true }],
       ];
       for (const [name, args] of attempts) {
         const refused = await call(name, args);
