@@ -24,7 +24,7 @@ export interface TablesUiOptions {
   frame?: boolean;
   /** The base to open. Without it the app opens the base that holds `tableId`, or else the caller's first base. A base the caller cannot read shows an error. */
   baseId?: string;
-  /** The table to open, for a deep link or a search hit. A table in the URL hash (`#/t/<id>`) wins on mount. */
+  /** The table to open, for a deep link or a search hit. A table in the URL hash (`#/t/<id>`) wins on mount. Without `baseId`, the app asks each readable base for its tables to find the one that holds it, so pass `baseId` too when you know it. */
   tableId?: string;
   /** Show a list of every base the caller can read, shared ones too, to switch between them. Off by default. */
   baseSwitcher?: boolean;

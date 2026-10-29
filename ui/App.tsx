@@ -41,6 +41,10 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
       // The next read looks for the base of this table, so set the target before it runs.
       routeNow.current = tableId ?? null;
       setRoute(tableId ?? null);
+      // Keep the hash in step, so a click on the table that was open before still counts as a change. A deep link also
+      // leaves the base the person picked in the switcher.
+      location.hash = tableId ? `#/t/${tableId}` : "";
+      setChosen(baseId);
     }
     seen.current = { baseId, tableId };
   }, [baseId, tableId]);

@@ -2,7 +2,7 @@ import { PRINCIPAL_KINDS, type Json, type PrincipalKind } from "agentic-identity
 
 export { PRINCIPAL_KINDS, type PrincipalKind };
 
-/** The one emptiness rule: null, missing, an empty string, or an empty list. Queries and "required" both use it. */
+/** The one emptiness rule: null, missing, an empty string, or an empty list. Queries use it. "Required" uses `isBlank`. */
 export const isEmpty = (value: unknown): boolean => value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
 
 /** The rule for "required": empty, or a string of only whitespace. Queries keep `isEmpty`, which treats "  " as a value. */
