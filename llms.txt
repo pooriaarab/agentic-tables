@@ -10,6 +10,7 @@ Keywords: database,tables,airtable,rows,schema,agents,mcp,cli,structured-data.
 - MCP: run agentic-tables mcp, then call describe_table.
 - HTTP: Worker from agentic-tables/worker, under /api/v1/tables. It answers 503 until AGENTIC_TABLES_UNSAFE_NO_AUTH=1 is set. Local use only.
 - UI: a web app for tables. The Worker of the repository serves it at /. The npm package ships it as ui-dist. Your own Worker serves it with an assets setting that points at node_modules/agentic-tables/ui-dist and keeps /api/* on the Worker. Local use only, like the API.
+- UI component: mount(element, { baseUrl, getToken, principal }) from "agentic-tables/ui", with "agentic-tables/ui.css". It returns { update, unmount }. getToken is called before each request. React 19 is a peer dependency.
 
 ## Docs
 

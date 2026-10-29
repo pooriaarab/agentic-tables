@@ -133,6 +133,31 @@ They create a table, add a row, edit a cell, and reload to check that it stays. 
 
 Limits of the UI: it shows the first base only. Link and file cells show their value and cannot be edited. A column cannot be renamed or change type. Filters take one condition. It does not refresh when another caller writes: reload to see new rows.
 
+### Mount the UI in your app
+
+`agentic-tables/ui` renders the same app inside your own page. It needs no framework in your page. You give it an
+element, a base URL, and a callback that returns the token. `mount` returns a handle.
+
+```ts
+import { mount } from "agentic-tables/ui";
+import "agentic-design/styles.css";
+import "agentic-tables/ui.css";
+
+const tables = mount(document.getElementById("tables")!, {
+  baseUrl: "https://tables.example.com",
+  getToken: async () => session.token(),   // called before each request; return nothing to send no token
+  // principal: { id: "local-user", kind: "human" },   // principal headers, for a local Worker only
+});
+
+tables.update({ baseUrl: "https://other.example.com", getToken });  // use other options in the same place
+tables.unmount();                                                   // remove the app; a second call does nothing
+```
+
+A missing or blank `baseUrl`, or a `getToken` that is not a function, throws a `TypeError`. `getToken` runs on each
+request, so an expired token is replaced and the UI keeps none. If it throws, that request fails and the UI shows the
+error. The Worker does not read the bearer token yet. The UI uses the hash of the page address (`#/t/<id>`) to pick a
+table. `react` and `react-dom` (version 19) are peer dependencies. The web UI that the Worker serves renders the same app.
+
 ## HTTP API
 
 A Cloudflare Worker (Hono) serves `/api/v1/tables`. Data lives in D1, so it survives a restart and every Worker instance sees the same data.

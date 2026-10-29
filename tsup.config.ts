@@ -6,10 +6,21 @@ const pkg = JSON.parse(
 ) as { version: string };
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/cli.ts", "src/mcp-bin.ts", "src/store-file.ts", "src/worker.ts", "src/node.ts", "src/client.ts"],
+  // Named entries, so `ui/embed.tsx` lands next to the others as `dist/embed.js`.
+  entry: {
+    index: "src/index.ts",
+    cli: "src/cli.ts",
+    "mcp-bin": "src/mcp-bin.ts",
+    "store-file": "src/store-file.ts",
+    worker: "src/worker.ts",
+    node: "src/node.ts",
+    client: "src/client.ts",
+    embed: "ui/embed.tsx",
+  },
   format: ["esm"],
   dts: true,
   clean: true,
+  loader: { ".woff2": "file" },
   define: {
     __PACK_VERSION__: JSON.stringify(pkg.version),
   },

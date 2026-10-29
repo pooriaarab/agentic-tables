@@ -1,15 +1,5 @@
 import "agentic-design/styles.css";
-import "./app.css";
-import { ThemeProvider, ToastProvider, TooltipProvider } from "agentic-design/react";
-import { createRoot } from "react-dom/client";
-import { App } from "./App";
+import { mount } from "./embed";
 
-createRoot(document.getElementById("root")!).render(
-  <ThemeProvider>
-    <TooltipProvider>
-      <ToastProvider>
-        <App />
-      </ToastProvider>
-    </TooltipProvider>
-  </ThemeProvider>,
-);
+// The Worker reads the caller from headers and proves nothing yet, so this page is for a local Worker.
+mount(document.getElementById("root")!, { baseUrl: location.origin, principal: { id: "local-user", kind: "human" } });

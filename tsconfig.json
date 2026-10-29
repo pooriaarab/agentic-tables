@@ -10,7 +10,10 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "paths": { "agentic-tables/client": ["./src/client.ts"] }
   },
   "include": ["src", "e2e", "tsup.config.ts", "vitest.config.ts", "playwright.config.ts"]
 }

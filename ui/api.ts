@@ -1,7 +1,14 @@
-import { createClient, TablesClientError } from "agentic-tables/client";
+import { TablesClientError, type TablesClient } from "agentic-tables/client";
+import { createContext, useContext } from "react";
 
-// The Worker reads the caller from headers and proves nothing yet, so this UI is for a local Worker.
-export const client = createClient({ baseUrl: location.origin, principal: { id: "local-user", kind: "human" } });
+/** The client that the app calls. `App` gets it from its host: the page in `main.tsx`, or `mount` in `embed.tsx`. */
+export const ClientContext = createContext<TablesClient | null>(null);
+
+export function useClient(): TablesClient {
+  const client = useContext(ClientContext);
+  if (!client) throw new Error("The tables UI needs a client above it.");
+  return client;
+}
 
 /** The text to show for a failed call. Field issues come first: they say what to fix. */
 export function failure(error: unknown): string {

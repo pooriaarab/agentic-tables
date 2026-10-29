@@ -1,7 +1,7 @@
 import { AppShell, Button, EmptyState, PlusIcon, Select, SidebarNav, useTheme, type ThemePreference } from "agentic-design/react";
 import type { Base, Table } from "agentic-tables/client";
 import { useCallback, useEffect, useState } from "react";
-import { client, failure } from "./api";
+import { failure, useClient } from "./api";
 import { NewTableDialog } from "./Dialogs";
 import { TableView } from "./TableView";
 
@@ -12,6 +12,7 @@ type Load = { state: "loading" } | { state: "error"; message: string } | { state
 const routeId = () => /^#\/t\/(.+)$/.exec(location.hash)?.[1] ?? null;
 
 export function App() {
+  const client = useClient();
   const { preference, setPreference } = useTheme();
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [route, setRoute] = useState(routeId());
@@ -25,7 +26,7 @@ export function App() {
     } catch (error) {
       setLoad({ state: "error", message: failure(error) });
     }
-  }, []);
+  }, [client]);
   useEffect(() => { void read(); }, [read]);
   useEffect(() => {
     const on = () => setRoute(routeId());
