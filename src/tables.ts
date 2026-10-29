@@ -16,8 +16,8 @@ import {
   TablesError,
   type Values,
 } from "./model.js";
-import { compareKeys, matches, resolveFilter, resolveSort, sortKey, type Filter, type Sort, type SortSpec } from "./query.js";
-import { decode, encode, type Doc, type Json, type Page, type Store, type StoreOps } from "./store.js";
+import type { Doc, Json, Page, Store, StoreOps } from "agentic-identity";
+import { compareKeys, decodeCursor, encodeCursor, matches, resolveFilter, resolveSort, sortKey, type Filter, type Sort, type SortSpec } from "./query.js";
 
 export interface Base {
   id: string;
@@ -138,6 +138,15 @@ interface RowDoc {
 const read = async <T>(ops: StoreOps, collection: string, id: string): Promise<T | null> => (await ops.get(collection, id)) as unknown as T | null;
 const write = (ops: StoreOps, collection: string, id: string, doc: object): Promise<void> => ops.put(collection, id, doc as Doc);
 
+/**
+ * A write that waits. The Store port refuses a read after a write inside a transaction, so a change
+ * first reads everything and builds a list of these, then applies the list. A doc is null to delete.
+ */
+type Write = [collection: string, id: string, doc: object | null];
+const apply = async (ops: StoreOps, writes: Write[]): Promise<void> => {
+  for (const [collection, id, doc] of writes) await (doc === null ? ops.delete(collection, id) : write(ops, collection, id, doc));
+};
+
 async function all<T>(ops: StoreOps, collection: string, where: Record<string, string>, orderField: string, max = Infinity): Promise<{ id: string; data: T }[]> {
   const out: { id: string; data: T }[] = [];
   let cursor: string | undefined;
@@ -251,31 +260,39 @@ export function createTables(store: Store, options: TablesOptions = {}) {
 
   const requiredNoClear = (field: Field): Issue => ({ field: field.name, code: "required", message: "is required, so a value cannot be cleared. Make the field optional first" });
 
-  const rewriteRows = async (ops: StoreOps, tableId: string, change: (doc: RowDoc, id: string) => Record<string, Json> | null): Promise<void> => {
-    for (const { id, data } of await all<RowDoc>(ops, "rows", { tableId }, "createdAt")) {
+  const planRewrite = async (ops: StoreOps, tableId: string, change: (doc: RowDoc, id: string) => Record<string, Json> | null, rows?: { id: string; data: RowDoc }[]): Promise<Write[]> => {
+    const writes: Write[] = [];
+    for (const { id, data } of rows ?? (await all<RowDoc>(ops, "rows", { tableId }, "createdAt"))) {
       const values = change(data, id);
-      if (values) await write(ops, "rows", id, { ...data, values });
+      if (values) writes.push(["rows", id, { ...data, values }]);
     }
+    return writes;
   };
-  const dropTable = async (ops: StoreOps, tableId: string): Promise<{ rows: number; views: number }> => {
+  const planDropTable = async (ops: StoreOps, tableId: string): Promise<{ writes: Write[]; rows: number; views: number }> => {
     const rows = await all<RowDoc>(ops, "rows", { tableId }, "createdAt");
     const views = await all<object>(ops, "views", { tableId }, "createdAt");
-    for (const { id } of rows) await ops.delete("rows", id);
-    for (const { id } of views) await ops.delete("views", id);
-    await ops.delete("tables", tableId);
-    return { rows: rows.length, views: views.length };
+    const writes: Write[] = [...rows.map(({ id }): Write => ["rows", id, null]), ...views.map(({ id }): Write => ["views", id, null]), ["tables", tableId, null]];
+    return { writes, rows: rows.length, views: views.length };
   };
-  /** Delete a row and remove its id from every link that points at it. */
-  const removeRow = async (ops: StoreOps, rowId: string, row: RowDoc): Promise<void> => {
-    for (const { id: tableId, data: table } of await all<TableDoc>(ops, "tables", { baseId: row.baseId }, "createdAt")) {
-      const links = table.fields.filter((f) => f.type === "link" && f.linkTable === row.tableId);
-      if (links.length === 0) continue;
-      await rewriteRows(ops, tableId, (doc) => {
-        const hit = links.filter((f) => (doc.values[f.id] as string[] | undefined)?.includes(rowId));
-        return hit.length === 0 ? null : { ...doc.values, ...Object.fromEntries(hit.map((f) => [f.id, (doc.values[f.id] as string[]).filter((id) => id !== rowId)])) };
-      });
+  /** Delete rows and remove their ids from every link that points at them. One pass, so a deleted row is never rewritten. */
+  const planRemoveRows = async (ops: StoreOps, doomed: { id: string; data: RowDoc }[]): Promise<Write[]> => {
+    const gone = new Set(doomed.map((r) => r.id));
+    const writes: Write[] = [];
+    for (const baseId of new Set(doomed.map((r) => r.data.baseId))) {
+      const targets = new Set(doomed.filter((r) => r.data.baseId === baseId).map((r) => r.data.tableId));
+      for (const { id: tableId, data: table } of await all<TableDoc>(ops, "tables", { baseId }, "createdAt")) {
+        const links = table.fields.filter((f) => f.type === "link" && f.linkTable !== undefined && targets.has(f.linkTable));
+        if (links.length === 0) continue;
+        writes.push(
+          ...(await planRewrite(ops, tableId, (doc, id) => {
+            if (gone.has(id)) return null;
+            const hit = links.filter((f) => (doc.values[f.id] as string[] | undefined)?.some((x) => gone.has(x)));
+            return hit.length === 0 ? null : { ...doc.values, ...Object.fromEntries(hit.map((f) => [f.id, (doc.values[f.id] as string[]).filter((x) => !gone.has(x))])) };
+          })),
+        );
+      }
     }
-    await ops.delete("rows", rowId);
+    return [...writes, ...doomed.map((r): Write => ["rows", r.id, null])];
   };
   /** Rows the principal wrote in bases it does not own, with the table of each. */
   const authoredElsewhere = async (ops: StoreOps, principalId: string): Promise<{ id: string; data: RowDoc; table: TableDoc }[]> => {
@@ -288,18 +305,20 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     }
     return found;
   };
-  const dropBase = async (ops: StoreOps, baseId: string): Promise<EraseSummary> => {
-    const total: EraseSummary = { bases: 1, tables: 0, rows: 0, views: 0, authoredRows: 0 };
+  const planDropBase = async (ops: StoreOps, baseId: string): Promise<{ writes: Write[]; summary: EraseSummary }> => {
+    const summary: EraseSummary = { bases: 1, tables: 0, rows: 0, views: 0, authoredRows: 0 };
+    const writes: Write[] = [];
     for (const { id } of await all<TableDoc>(ops, "tables", { baseId }, "createdAt")) {
-      const gone = await dropTable(ops, id);
-      total.tables += 1;
-      total.rows += gone.rows;
-      total.views += gone.views;
+      const gone = await planDropTable(ops, id);
+      writes.push(...gone.writes);
+      summary.tables += 1;
+      summary.rows += gone.rows;
+      summary.views += gone.views;
     }
-    await ops.delete("bases", baseId);
-    return total;
+    return { writes: [...writes, ["bases", baseId, null]], summary };
   };
-  const saveTable = (ops: StoreOps, id: string, table: TableDoc, fields: Field[]): Promise<void> => write(ops, "tables", id, { ...table, fields, updatedAt: stamp() });
+  /** The table doc as it will be stored, with its new fields. */
+  const changed = (table: TableDoc, fields: Field[]): TableDoc => ({ ...table, fields, updatedAt: stamp() });
 
   const report = (field: Field, to: FieldType, rows: { id: string; value: Json | undefined }[]): MigrationReport => ({
     field: field.name, from: field.type, to, total: rows.length, empty: rows.filter((r) => isEmpty(r.value)).length, converted: 0, failures: [], droppedOptions: [], applied: false,
@@ -348,17 +367,19 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       assertOwnerId(ownerId);
       return store.transaction(async (ops) => {
         const total: EraseSummary = { bases: 0, tables: 0, rows: 0, views: 0, authoredRows: 0 };
+        const writes: Write[] = [];
         for (const { id } of await all<object>(ops, "bases", { ownerId }, "createdAt")) {
-          const gone = await dropBase(ops, id);
+          const gone = await planDropBase(ops, id);
+          writes.push(...gone.writes);
           total.bases += 1;
-          total.tables += gone.tables;
-          total.rows += gone.rows;
-          total.views += gone.views;
+          total.tables += gone.summary.tables;
+          total.rows += gone.summary.rows;
+          total.views += gone.summary.views;
         }
-        for (const r of await authoredElsewhere(ops, ownerId)) {
-          await removeRow(ops, r.id, r.data);
-          total.authoredRows += 1;
-        }
+        const authored = await authoredElsewhere(ops, ownerId);
+        writes.push(...(await planRemoveRows(ops, authored)));
+        total.authoredRows = authored.length;
+        await apply(ops, writes);
         return total;
       });
     },
@@ -400,7 +421,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       assertActor(actor);
       return store.transaction(async (ops) => {
         const table = await loadTable(ops, tableId);
-        const out: Row[] = [];
+        const docs: { id: string; doc: RowDoc }[] = [];
         for (const [i, values] of list.entries()) {
           const at = stamp();
           let merged: Record<string, Json>;
@@ -411,11 +432,10 @@ export function createTables(store: Store, options: TablesOptions = {}) {
             throw error;
           }
           const doc: RowDoc = { tableId, baseId: table.baseId, values: merged, createdAt: at, updatedAt: at, createdBy: actor, updatedBy: actor };
-          const id = newId("row");
-          await write(ops, "rows", id, doc);
-          out.push(rowView(table, id, doc));
+          docs.push({ id: newId("row"), doc });
         }
-        return out;
+        await apply(ops, docs.map(({ id, doc }): Write => ["rows", id, doc]));
+        return docs.map(({ id, doc }) => rowView(table, id, doc));
       });
     },
     async updateRow(rowId: string, values: Values, actor: Actor): Promise<Row> {
@@ -468,7 +488,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       if (q.cursor !== undefined) {
         let after: [string | number | null, string, string];
         try {
-          after = decode(q.cursor) as typeof after;
+          after = decodeCursor(q.cursor) as typeof after;
           if (!Array.isArray(after) || typeof after[2] !== "string") throw new Error();
         } catch {
           throw new TablesError("INVALID_CURSOR", "invalid cursor");
@@ -480,7 +500,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       const last = page[page.length - 1];
       return {
         items: page.map((r) => rowView(doc, r.id, r.data)),
-        ...(start + limit < rows.length && last ? { nextCursor: encode([last.k, last.at, last.id]) } : {}),
+        ...(start + limit < rows.length && last ? { nextCursor: encodeCursor([last.k, last.at, last.id]) } : {}),
         plan: "memory",
       };
     },
@@ -545,7 +565,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       await store.transaction(async (ops) => {
         const row = await read<RowDoc>(ops, "rows", rowId);
         if (!row) throw new NotFoundError(`row "${rowId}"`);
-        await removeRow(ops, rowId, row);
+        await apply(ops, await planRemoveRows(ops, [{ id: rowId, data: row }]));
       });
     },
 
@@ -565,9 +585,9 @@ export function createTables(store: Store, options: TablesOptions = {}) {
           issues.push({ field: field.name, code: "required", message: `is required and ${rows.length} rows exist: pass a default` });
         }
         if (issues.length > 0) throw new ValidationError(issues);
-        if (!isEmpty(fill)) await rewriteRows(ops, tableId, (doc) => ({ ...doc.values, [field.id]: fill as Json }));
-        await saveTable(ops, tableId, table, [...table.fields, field]);
-        return tableView(tableId, await loadTable(ops, tableId));
+        const next = changed(table, [...table.fields, field]);
+        await apply(ops, [...(isEmpty(fill) ? [] : await planRewrite(ops, tableId, (doc) => ({ ...doc.values, [field.id]: fill as Json }), rows)), ["tables", tableId, next]]);
+        return tableView(tableId, next);
       });
     },
     async renameField(tableId: string, ref: string, name: string): Promise<Table> {
@@ -577,21 +597,23 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         const issues: Issue[] = [];
         checkFields([{ name, type: field.type, options: field.options, linkTable: field.linkTable }], table.fields.filter((f) => f !== field).map((f) => f.name), issues);
         if (issues.length > 0) throw new ValidationError(issues);
-        await saveTable(ops, tableId, table, table.fields.map((f) => (f === field ? { ...f, name: name.trim() } : f)));
-        return tableView(tableId, await loadTable(ops, tableId));
+        const next = changed(table, table.fields.map((f) => (f === field ? { ...f, name: name.trim() } : f)));
+        await write(ops, "tables", tableId, next);
+        return tableView(tableId, next);
       });
     },
     async deleteField(tableId: string, ref: string): Promise<Table> {
       return store.transaction(async (ops) => {
         const table = await loadTable(ops, tableId);
         const field = findField(table, ref);
-        await rewriteRows(ops, tableId, (doc) => {
+        const rewrites = await planRewrite(ops, tableId, (doc) => {
           if (!(field.id in doc.values)) return null;
           const { [field.id]: _gone, ...rest } = doc.values;
           return rest;
         });
-        await saveTable(ops, tableId, table, table.fields.filter((f) => f !== field));
-        return tableView(tableId, await loadTable(ops, tableId));
+        const next = changed(table, table.fields.filter((f) => f !== field));
+        await apply(ops, [...rewrites, ["tables", tableId, next]]);
+        return tableView(tableId, next);
       });
     },
 
@@ -619,8 +641,8 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         if (plan.report.failures.length > 0 && !clear && !change.dryRun) throw new MigrationError(plan.report);
         if (change.dryRun) return plan.report;
         if (from.required && [...plan.next.values()].some(isEmpty)) throw new ValidationError([requiredNoClear(from)]);
-        await rewriteRows(ops, tableId, (doc, id) => (plan.next.has(id) ? { ...doc.values, [from.id]: plan.next.get(id) as Json } : null));
-        await saveTable(ops, tableId, table, table.fields.map((f) => (f === from ? to : f)));
+        const rewrites = await planRewrite(ops, tableId, (doc, id) => (plan.next.has(id) ? { ...doc.values, [from.id]: plan.next.get(id) as Json } : null), rows);
+        await apply(ops, [...rewrites, ["tables", tableId, changed(table, table.fields.map((f) => (f === from ? to : f)))]]);
         return { ...plan.report, applied: true };
       });
     },
@@ -634,15 +656,18 @@ export function createTables(store: Store, options: TablesOptions = {}) {
           for (const f of data.fields) if (f.type === "link" && f.linkTable === tableId) issues.push({ field: `${data.name}.${f.name}`, code: "type", message: "links to this table. Delete that field first" });
         }
         if (issues.length > 0) throw new ValidationError(issues);
-        return dropTable(ops, tableId);
+        const { writes, rows, views } = await planDropTable(ops, tableId);
+        await apply(ops, writes);
+        return { rows, views };
       });
     },
     /** Delete a base with all its tables, rows, and views. */
     async deleteBase(baseId: string): Promise<Omit<EraseSummary, "bases" | "authoredRows">> {
       return store.transaction(async (ops) => {
         if (!(await read(ops, "bases", baseId))) throw new NotFoundError(`base "${baseId}"`);
-        const { tables, rows, views } = await dropBase(ops, baseId);
-        return { tables, rows, views };
+        const { writes, summary } = await planDropBase(ops, baseId);
+        await apply(ops, writes);
+        return { tables: summary.tables, rows: summary.rows, views: summary.views };
       });
     },
     /**
@@ -662,7 +687,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         out.converted = out.total - out.failures.length;
         if (opts.dryRun) return out;
         if (out.failures.length > 0) throw new MigrationError(out);
-        if (field.required !== required) await saveTable(ops, tableId, table, table.fields.map((f) => (f === field ? { ...f, required } : f)));
+        if (field.required !== required) await write(ops, "tables", tableId, changed(table, table.fields.map((f) => (f === field ? { ...f, required } : f))));
         return { ...out, applied: true };
       });
     },
@@ -693,8 +718,8 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         out.droppedOptions = (from.options ?? []).filter((o) => !optionList.includes(o));
         if (out.failures.length > 0 && opts.onInUse !== "clear") throw new MigrationError(out);
         if (from.required && [...next.values()].some(isEmpty)) throw new ValidationError([requiredNoClear(from)]);
-        await rewriteRows(ops, tableId, (doc, id) => (next.has(id) ? { ...doc.values, [from.id]: next.get(id) as Json } : null));
-        await saveTable(ops, tableId, table, table.fields.map((f) => (f === from ? to : f)));
+        const rewrites = await planRewrite(ops, tableId, (doc, id) => (next.has(id) ? { ...doc.values, [from.id]: next.get(id) as Json } : null), rows);
+        await apply(ops, [...rewrites, ["tables", tableId, changed(table, table.fields.map((f) => (f === from ? to : f)))]]);
         return { ...out, applied: true };
       });
     },

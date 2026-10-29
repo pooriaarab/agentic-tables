@@ -1,8 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { link, open, readFile, rename, unlink } from "node:fs/promises";
-import { createMemoryStore, type AdapterOptions, type Doc, type Store } from "./store.js";
+import { assertCollection, assertId, createMemoryStore, parseRegion, type AdapterOptions, type Doc, type Query, type Store, type StoreOps } from "agentic-identity";
 
-type Snapshot = Record<string, Record<string, Doc>>;
+/** The file as it sits in memory: collection, then id. A Map, so an id such as "constructor" is plain data. */
+type Snapshot = Map<string, Map<string, Doc>>;
+type Change = [collection: string, id: string, doc: Doc | null];
+
+const MAX_TRANSACTION_RUNS = 50;
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 export interface FileStoreOptions extends AdapterOptions {
   /** How long a write waits for the lock before it fails. Defaults to 10000. */
@@ -41,14 +46,15 @@ function lockIsStale(text: string, staleAfterMs: number): boolean {
 }
 
 /**
- * A Store kept in one JSON file. Node only. Many processes may share the file, for example the CLI
+ * A Store kept in one JSON file. Node only. It is an adapter of the shared Store port and passes `runStoreContract`. Many processes may share the file, for example the CLI
  * and the MCP server. Each write takes a lock file, reads the file again, applies the change, and
  * replaces the file by an atomic rename. A read sees the last renamed file, so it takes no lock.
- * Each call reads the whole file, so cost grows with its size. Use it for local work, not for scale.
+ * Each call reads the whole file and loads the docs it needs into the shared memory adapter, which runs the
+ * queries and the transaction rules. Cost grows with the file. Use it for local work, not for scale.
  * The lock needs one machine: the process check and the clock do not work across hosts.
  */
 export function createFileStore(path: string, options: FileStoreOptions = {}): Store {
-  const region = options.region ?? "eu";
+  const region = parseRegion(options.region ?? "unknown");
   const lockPath = `${path}.lock`;
   const timeoutMs = options.lockTimeoutMs ?? 10_000;
   const staleAfterMs = options.staleAfterMs ?? 30_000;
@@ -59,13 +65,13 @@ export function createFileStore(path: string, options: FileStoreOptions = {}): S
     try {
       text = await readFile(path, "utf8");
     } catch (error) {
-      if (codeOf(error) === "ENOENT") return {};
+      if (codeOf(error) === "ENOENT") return new Map();
       throw error;
     }
     try {
       const data: unknown = JSON.parse(text);
       if (typeof data !== "object" || data === null || Array.isArray(data)) throw new Error();
-      return data as Snapshot;
+      return new Map(Object.entries(data).map(([name, docs]) => [name, new Map(Object.entries(docs as Record<string, Doc>))]));
     } catch {
       // Never replace a file that does not parse: that would erase data an operator may repair.
       throw new Error(`the database file ${path} is not valid JSON. Repair or remove it`);
@@ -73,11 +79,12 @@ export function createFileStore(path: string, options: FileStoreOptions = {}): S
   }
 
   async function save(snapshot: Snapshot): Promise<void> {
+    const text = JSON.stringify(Object.fromEntries([...snapshot].map(([name, docs]) => [name, Object.fromEntries(docs)])));
     const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
     try {
       const handle = await open(temp, "w");
       try {
-        await handle.writeFile(JSON.stringify(snapshot));
+        await handle.writeFile(text);
         await handle.sync();
       } finally {
         await handle.close();
@@ -135,15 +142,33 @@ export function createFileStore(path: string, options: FileStoreOptions = {}): S
     if (text.includes(`"token":"${token}"`)) await unlink(lockPath).catch(() => undefined);
   }
 
-  /** Run one change against a fresh copy of the file, under the lock, and save it if it wrote. */
-  const mutate = <R>(change: (store: Store) => Promise<R>): Promise<R> => {
+  /** A memory store that holds the named collections of the file, or all of them. */
+  async function memoryOf(snapshot: Snapshot, only?: string): Promise<Store> {
+    const memory = createMemoryStore({ region });
+    for (const [name, docs] of snapshot) if (only === undefined || only === name) for (const [id, doc] of docs) await memory.put(name, id, doc);
+    return memory;
+  }
+
+  /** Pass each write through to `inner`, which checks it, and keep it in `log`. */
+  const recording = (inner: StoreOps, log: Change[]): StoreOps => ({
+    get: (collection, id) => inner.get(collection, id),
+    query: (collection, query) => inner.query(collection, query),
+    put: async (collection, id, doc) => {
+      await inner.put(collection, id, doc);
+      log.push([collection, id, clone(doc)]);
+    },
+    delete: async (collection, id) => {
+      await inner.delete(collection, id);
+      log.push([collection, id, null]);
+    },
+  });
+
+  /** Run `body` with the lock held, one at a time in this process. */
+  const locked = <R>(body: () => Promise<R>): Promise<R> => {
     const run = queue.then(async () => {
       const token = await acquire();
       try {
-        let changed: Snapshot | undefined;
-        const result = await change(createMemoryStore({ region, initial: await load(), onChange: (snapshot) => (changed = snapshot) }));
-        if (changed) await save(changed);
-        return result;
+        return await body();
       } finally {
         await release(token);
       }
@@ -151,14 +176,80 @@ export function createFileStore(path: string, options: FileStoreOptions = {}): S
     queue = run.catch(() => undefined);
     return run;
   };
-  const view = async <R>(read: (store: Store) => Promise<R>): Promise<R> => read(createMemoryStore({ region, initial: await load() }));
+
+  /** Apply the writes to the file as it is now, and save it if anything changed. */
+  async function commit(snapshot: Snapshot, log: Change[]): Promise<void> {
+    for (const [name, id, doc] of log) {
+      if (doc === null) snapshot.get(name)?.delete(id);
+      else snapshot.set(name, (snapshot.get(name) ?? new Map()).set(id, doc));
+    }
+    if (log.length > 0) await save(snapshot);
+  }
+
+  /** One write: the empty memory store checks the names and the doc, then the file takes it under the lock. */
+  const writeOne = (write: (ops: StoreOps) => Promise<void>): Promise<void> =>
+    locked(async () => {
+      const log: Change[] = [];
+      await write(recording(createMemoryStore({ region }), log));
+      await commit(await load(), log);
+    });
+
+  /** Remember what a transaction read, as the doc text, so a commit can tell if another store changed it. */
+  const watching = (inner: StoreOps, seen: Map<string, string>): StoreOps => ({
+    ...inner,
+    async get(collection, id) {
+      const doc = await inner.get(collection, id);
+      if (!seen.has(`${collection}/${id}`)) seen.set(`${collection}/${id}`, JSON.stringify(doc));
+      return doc as never;
+    },
+    async query(collection, query) {
+      const page = await inner.query(collection, query);
+      for (const item of page.items) if (!seen.has(`${collection}/${item.id}`)) seen.set(`${collection}/${item.id}`, JSON.stringify(item.data));
+      return page as never;
+    },
+  });
+
+  const unchanged = (snapshot: Snapshot, seen: Map<string, string>): boolean =>
+    [...seen].every(([key, text]) => {
+      const slash = key.indexOf("/");
+      return JSON.stringify(snapshot.get(key.slice(0, slash))?.get(key.slice(slash + 1)) ?? null) === text;
+    });
 
   return {
     region,
-    get: (collection, id) => view((s) => s.get(collection, id)),
-    query: (collection, query) => view((s) => s.query(collection, query)),
-    put: (collection, id, doc) => mutate((s) => s.put(collection, id, doc)),
-    delete: (collection, id) => mutate((s) => s.delete(collection, id)),
-    transaction: (fn) => mutate((s) => s.transaction(fn)),
+    async get<T extends Doc>(collection: string, id: string) {
+      assertCollection(collection);
+      assertId(id);
+      const doc = (await load()).get(collection)?.get(id);
+      return doc ? (clone(doc) as T) : null;
+    },
+    async query<T extends Doc>(collection: string, query?: Query) {
+      assertCollection(collection);
+      return (await memoryOf(await load(), collection)).query<T>(collection, query);
+    },
+    put: (collection, id, doc) => writeOne((ops) => ops.put(collection, id, doc)),
+    delete: (collection, id) => writeOne((ops) => ops.delete(collection, id)),
+    // Optimistic, as the port requires: run on a copy of the file with no lock, then take the lock and commit
+    // only if every doc the run read is unchanged. Else run again. The memory adapter keeps the rule that
+    // every read comes before the first write.
+    async transaction(fn) {
+      for (let run = 0; run < MAX_TRANSACTION_RUNS; run++) {
+        const log: Change[] = [];
+        const seen = new Map<string, string>();
+        const result = await (await memoryOf(await load())).transaction(async (tx) => {
+          log.length = 0;
+          seen.clear();
+          return fn(watching(recording(tx, log), seen));
+        });
+        const done = log.length === 0 ? unchanged(await load(), seen) : await locked(async () => {
+          const current = await load();
+          if (!unchanged(current, seen)) return false;
+          await commit(current, log);
+          return true;
+        });
+        if (done) return result;
+      }
+      throw new Error("transaction kept conflicting");
+    },
   };
 }

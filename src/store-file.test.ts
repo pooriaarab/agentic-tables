@@ -109,11 +109,15 @@ describe("the lock", () => {
 
   test("an old owner does not remove the lock that replaced its own", async () => {
     const store = createFileStore(path);
-    await expect(
-      store.transaction(async () => {
-        writeFileSync(lock(), JSON.stringify({ pid: process.pid, at: Date.now(), token: "taker" }));
-      }),
-    ).resolves.toBeUndefined();
+    // A large doc keeps the write busy long enough to replace the lock while the owner still holds it.
+    const write = store.put("rows", "big", { text: "x".repeat(20_000_000) });
+    let settled = false;
+    void write.then(() => (settled = true));
+    // The lock file exists empty for an instant. Wait until its owner has written its token.
+    while (!(existsSync(lock()) && readFileSync(lock(), "utf8").includes('"token"'))) await new Promise((resolve) => setImmediate(resolve));
+    writeFileSync(lock(), JSON.stringify({ pid: process.pid, at: Date.now(), token: "taker" }));
+    expect(settled).toBe(false);
+    await write;
     expect(JSON.parse(readFileSync(lock(), "utf8")).token).toBe("taker");
   });
 });

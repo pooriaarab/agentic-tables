@@ -3,7 +3,7 @@ import { csvToValues, inferFields, parseCsv, toCsv } from "./csv.js";
 import { openContext, type Context } from "./context.js";
 import { errorBody } from "./errors.js";
 import { FIELD_TYPES, TablesError, type FieldInput, type FieldType, type Row, type Values } from "./model.js";
-import type { Json } from "./store.js";
+import type { Json } from "agentic-identity";
 import { VERSION } from "./version.js";
 
 const HELP = `agentic-tables ${VERSION}

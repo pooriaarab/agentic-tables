@@ -3,5 +3,7 @@
   // lasts only as long as one Worker instance does.
   "name": "agentic-tables",
   "main": "src/worker.ts",
-  "compatibility_date": "2026-01-01"
+  "compatibility_date": "2026-01-01",
+  // The memory store of agentic-identity uses Buffer.
+  "compatibility_flags": ["nodejs_compat"]
 }

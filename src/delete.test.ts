@@ -13,7 +13,8 @@
 //  9. Make a field optional: it applies, and later writes may leave it out.
 // 10. Change required on a field that does not exist: not found.
 import { beforeEach, describe, expect, test } from "vitest";
-import { createMemoryStore, createTables, MigrationError, NotFoundError, ValidationError, type Actor, type Tables } from "./index.js";
+import { createMemoryStore } from "agentic-identity";
+import { createTables, MigrationError, NotFoundError, ValidationError, type Actor, type Tables } from "./index.js";
 
 const human: Actor = { id: "u1", kind: "human" };
 let t: Tables;

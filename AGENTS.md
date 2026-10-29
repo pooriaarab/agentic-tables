@@ -4,7 +4,7 @@ Typed tables that agents read and write as rows.
 
 ## Faces
 
-- SDK: `import { createTables, createMemoryStore } from "agentic-tables"`.
+- SDK: `import { createTables } from "agentic-tables"`, with a `Store` from `agentic-identity` (`createMemoryStore`, `createD1Store`) or `createFileStore` from `agentic-tables/file-store`.
 - CLI: `npx agentic-tables --help`.
 - MCP: `npx agentic-tables mcp`.
 - HTTP: a Worker from `agentic-tables/worker`, under `/api/v1/tables`. It answers
@@ -27,7 +27,8 @@ Do not call a route that `src/worker.ts` does not define.
 
 ## Rules
 
-- Keep the domain logic behind the `Store` interface. Do not import Cloudflare or Firebase APIs in `src/`.
+- Keep the domain logic behind the `Store` port from `agentic-identity`. Do not import Cloudflare or Firebase APIs in `src/`.
+- In a transaction, read first and write after. A read after a write throws. Collect the writes, then apply them.
 - Write the list of failure cases before you write the code for a check.
 - Never log row content or an email address.
 - Report a failed call as a failure. Do not retry with changed values to get past a check.

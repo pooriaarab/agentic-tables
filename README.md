@@ -22,7 +22,8 @@ A base holds tables. A table has typed fields and rows. The library checks each
 row against the schema before it writes.
 
 ```ts
-import { createTables, createMemoryStore } from "agentic-tables";
+import { createMemoryStore } from "agentic-identity";
+import { createTables } from "agentic-tables";
 
 const tables = createTables(createMemoryStore());
 const base = await tables.createBase("Crm", { id: "u1", kind: "human" });
@@ -38,7 +39,8 @@ await tables.insertRow(people.id, { Name: "Ada", Stage: "lead" }, { id: "u1", ki
 - Schema changes are safe. A rename keeps the values. A type change converts every value or changes nothing, and returns a report of the rows that fail. A dry run shows the report first. You can add and delete fields and change select options the same way.
 - Queries: filters with `and` and `or`, per-type operators, one sort, `limit`, and a cursor. Saved views: a grid, and a board grouped by a single select field.
 - Deleting a row removes it from the links that point at it.
-- Storage sits behind the `Store` interface from `agentic-identity`. An in-memory store and a local file store ship now.
+- Storage sits behind the `Store` port from `agentic-identity`. Use its memory adapter in tests, its D1 adapter in a Worker, or the file store from `agentic-tables/file-store`. The file store passes the same contract suite (`runStoreContract`), so any adapter that passes it also works here.
+- Every change runs in one `Store` transaction that reads first and writes after. This is the shared port rule, and Firestore follows it.
 
 ## Queries
 
@@ -53,8 +55,12 @@ const page = await tables.queryRows(people.id, {
 
 The `Store` port has equality filters, one `orderBy`, a limit, and a cursor. Field values are not top-level fields, so the port cannot filter on them.
 
+The store runs only queries of this shape: `where` on a top-level id field (`tableId`, `baseId`, `ownerId`), and `orderBy` on `createdAt` or `updatedAt`. A Firestore adapter needs one composite index for each of those pairs.
+
 - **In the store** (`plan: "store"`): a query with no filter and no field sort. The store filters by table, orders by `createdAt` or `updatedAt`, and pages.
 - **In memory** (`plan: "memory"`): any filter, and any sort on a field. The library reads the rows of the table, then filters, sorts, and pages them.
+
+These also run in memory, because the port has no query for them: the export and the erase of one owner read every base, table, and row they touch, and a field-level filter or sort reads the whole table.
 
 A memory query reads at most `maxScan` rows (10,000 by default). A larger table fails the query with `SCAN_LIMIT`. It never returns a partial answer. Empty values sort last in both directions.
 

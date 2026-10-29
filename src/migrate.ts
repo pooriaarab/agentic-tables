@@ -1,5 +1,5 @@
 import { checkValue, isDate, isEmpty, TablesError, type Field, type FieldType } from "./model.js";
-import type { Json } from "./store.js";
+import type { Json } from "agentic-identity";
 
 export interface Failure {
   rowId: string;
