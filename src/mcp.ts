@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { ROLES, SUBJECT_KINDS } from "agentic-identity";
+import { MAX_AUDIT_PAGE, ROLES, SUBJECT_KINDS, type Role } from "agentic-identity";
 import { z } from "zod";
 import { type Context } from "./context.js";
 import { importCsv } from "./csv-import.js";
@@ -18,6 +18,7 @@ const fieldShape = z.object({
   linkTable: z.string().optional().describe("Link fields: the name or id of the table the rows are in."),
 });
 
+const INVITE_ROLES = ROLES.filter((r) => r !== "owner") as [Exclude<Role, "owner">, ...Exclude<Role, "owner">[]];
 const tableRef = z.string().describe("Table name or id.");
 const rowId = z.string().describe("Row id, from insert_rows or query_rows.");
 
@@ -107,6 +108,15 @@ export function createMcpServer(ctx: Context): McpServer {
     const resource = table === undefined ? { type: "base" as const, id: await ctx.baseId() } : { type: "table" as const, id: (await ctx.table(table)).id };
     await ctx.tables.revokeGrant(resource.type, resource.id, { kind, id: subject });
     return { resourceId: resource.id, subject, kind };
+  });
+  tool("list_shares", "List who holds a role on your base, or the roles given on one table. A role on the base also applies to its tables, so a table list does not show it. Only an owner can. Page on with nextCursor.", { table: tableRef.optional(), limit: z.number().int().min(1).max(MAX_AUDIT_PAGE).optional(), cursor: z.string().optional() }, "read", async ({ table, ...page }) => {
+    const resource = table === undefined ? { type: "base" as const, id: await ctx.baseId() } : { type: "table" as const, id: (await ctx.table(table)).id };
+    return ctx.tables.listGrants(resource.type, resource.id, page);
+  });
+  tool("create_invite", "Make an invite on your base, or on one table, for a person by email or an agent by handle. Give one of the two. The role is viewer, commenter, or editor: an owner is made with share. Only an owner can. The answer holds the invite id, never the email.", { role: z.enum(INVITE_ROLES), email: z.string().optional(), handle: z.string().optional(), expiresInMs: z.number().int().optional(), table: tableRef.optional() }, "write", async ({ role, email, handle, expiresInMs, table }) => {
+    if ((email === undefined) === (handle === undefined)) throw new TablesError("BAD_REQUEST", "give an email or a handle, not both");
+    const resource = table === undefined ? { type: "base" as const, id: await ctx.baseId() } : { type: "table" as const, id: (await ctx.table(table)).id };
+    return ctx.tables.createInvite(resource.type, resource.id, { role, ...(email === undefined ? { handle } : { email }), ...(expiresInMs === undefined ? {} : { expiresInMs }) });
   });
   tool("insert_rows", "Insert rows. Keys are field names. All rows are checked first. If one fails, none is written, and the error names the row and field.", { table: tableRef, rows: z.array(z.record(z.string(), z.any())).min(1).max(500) }, "write", async ({ table, rows }) => ({
     rows: await ctx.tables.insertRows((await ctx.table(table)).id, rows as Values[]),

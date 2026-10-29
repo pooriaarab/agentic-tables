@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.0
+
+No breaking changes.
+
+### Added
+
+- **List access and invites in the CLI and MCP server.** The CLI has `shares` and `invite`. The MCP server has `list_shares` and `create_invite`. `shares` lists who holds a role on a base or, with `--table`, the roles given on one table. A role on the base also applies to its tables, and a table list does not show it. `invite` makes an invite for a person by email or for an agent by handle, with an optional lifetime. Both need the owner role. The invite answer holds the invite id and never the email. Before, the CLI and MCP server could only grant and revoke.
+
+### Changed
+
+- The `agentic-identity` dependency is now `^0.8.0`.
+
 ## 0.10.0
 
 BREAKING: design class prefix is now agd-. The classes and custom properties of `agentic-design` that began with the old prefix now begin with `agd-` (for example `.agd-button` and `--agd-color-text`). Ad blockers hide the old class names, so the prefix changed. The `./ui` output changes. A host that styles those names must use the new ones. There are no aliases.
