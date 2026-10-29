@@ -312,6 +312,29 @@ Run `npx agentic-tables mcp`. It uses the same database file as the CLI, and a C
 
 A failed call returns `isError` with a `code` and the `issues`. Rows written over MCP carry the actor from `AGENTIC_TABLES_ACTOR` (default `agent:mcp`). The server checks roles as the HTTP API does, and a refusal returns `isError` with the code `FORBIDDEN` or `NOT_FOUND`.
 
+## Run on Firebase
+
+The domain logic takes any `Store` from `agentic-identity`, so the same API runs on Firestore. `agentic-tables/node` serves the HTTP API from a Node process over the store you pass. It holds no Cloudflare or Firebase code.
+
+```ts
+import { createFirestoreStore } from "agentic-identity/firestore";
+import { createNodeServer } from "agentic-tables/node";
+
+const store = createFirestoreStore({
+  projectId: "my-project",
+  fetch: globalThis.fetch,
+  token: () => getAccessToken(), // an OAuth token for the datastore scope
+  region: "eu",
+});
+const server = await createNodeServer({ store, unsafeNoAuth: true, port: 8787 });
+console.log(server.url); // http://127.0.0.1:8787/api/v1/tables
+```
+
+- Like the Worker, the server has no sign-in yet: the caller comes from headers. It refuses to start without `unsafeNoAuth: true`, and it binds `127.0.0.1` unless you pass `host`. Use it for local work.
+- Only `Store` is on Firestore. Pass `baseUrl: "http://127.0.0.1:8080"` and no `token` to use the emulator.
+- The HTTP end-to-end suite (`src/api-suite.ts`) runs on the Worker over D1 and on this server over the Firestore emulator. CI runs both. To run the Firestore one: `npm run test:firestore`. It needs Java 21 or later for the emulator.
+- The emulator hangs on a document read that carries `?transaction=`, which the Firestore adapter sends. `src/emulator-fetch.ts` rewrites that read to `batchGet` for the test run. Real Firestore needs no such change.
+
 ## Planned surfaces
 
 - **Open formats**: ODS and XLSX export next to CSV. The plan is to write both with a small zip library under a permissive license, with every cell typed (string, number, boolean, date) and no formula cells, so no cell can run as a formula. A flat `.fods` file needs no zip.
