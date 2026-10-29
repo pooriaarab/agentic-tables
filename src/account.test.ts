@@ -6,7 +6,9 @@
 //  4. Rows the subject wrote in a base it does not own are in `authored_rows`, not in `rows`.
 //  5. Erase counts match what export listed. After it, export is empty. A second erase counts zero.
 //  6. Erase removes nothing of another owner.
-//  7. The contract names stay stable: a rename of a collection fails here before it breaks a host.
+//  7. Counts equal the lengths of the export taken just before. Rows an agent wrote in another base are
+//     not exported for a person with the same id.
+//  8. The contract names stay stable: a rename of a collection fails here before it breaks a host.
 import { beforeEach, describe, expect, test } from "vitest";
 import { createMemoryStore } from "agentic-identity";
 import { createTables, tablesAccount, type Actor, type Tables } from "./index.js";
@@ -41,13 +43,16 @@ describe("exportAccount", () => {
   test("holds only the subject's data, as plain JSON, under stable collection names", async () => {
     await fill(ada, "ada");
     await fill(bob, "bob");
-    await fill(adaBot, "bot");
+    const botTable = await fill(adaBot, "bot");
+    await tables.insertRow(botTable.id, { Note: "bot-authored" }, ada);
+    await tables.insertRow((await fill(bob, "bob2")).id, { Note: "bot-elsewhere" }, adaBot);
     const out = await tablesAccount.exportAccount(ada, deps());
     expect(Object.keys(out)).toEqual(["bases", "tables", "views", "rows", "authored_rows"]);
     expect(out.bases).toMatchObject([{ name: "ada-base" }]);
     expect(out.rows).toMatchObject([{ values: { Note: "ada-value" }, createdBy: { id: "ada", kind: "human" } }]);
-    expect(JSON.stringify(out)).not.toMatch(/bob|bot-/);
-    expect(JSON.parse(JSON.stringify(out))).toEqual(out);
+    expect(out.authored_rows).toMatchObject([{ values: { Note: "bot-authored" } }]); // not the agent's row in bob's base
+    expect(JSON.stringify(out)).not.toMatch(/bob|bot-elsewhere/);
+    expect(JSON.parse(JSON.stringify(out))).toStrictEqual(out);
   });
 
   test("rows written in a base the subject does not own are authored rows", async () => {
@@ -65,7 +70,10 @@ describe("eraseAccount", () => {
     await fill(ada, "ada");
     const bobTable = await fill(bob, "bob");
     await tables.insertRow(bobTable.id, { Note: "from ada" }, ada);
-    expect(await tablesAccount.eraseAccount(ada, deps())).toEqual({ bases: 1, tables: 1, views: 1, rows: 1, authored_rows: 1 });
+    const listed = await tablesAccount.exportAccount(ada, deps());
+    const counts = await tablesAccount.eraseAccount(ada, deps());
+    expect(counts).toEqual({ bases: 1, tables: 1, views: 1, rows: 1, authored_rows: 1 });
+    expect(counts).toEqual(Object.fromEntries(Object.entries(listed).map(([name, list]) => [name, list.length])));
     const after = await tablesAccount.exportAccount(ada, deps());
     expect(Object.values(after).every((list) => list.length === 0)).toBe(true);
     expect(await tablesAccount.eraseAccount(ada, deps())).toEqual({ bases: 0, tables: 0, views: 0, rows: 0, authored_rows: 0 });

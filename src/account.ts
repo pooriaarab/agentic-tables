@@ -1,5 +1,6 @@
 // The package's side of the account contract: a host calls `exportAccount` and `eraseAccount`
-// and never reads the storage layout. The shape matches `AccountPackage` in `agentic-identity/account`.
+// and never reads the storage layout. The shape is provisional: it is the contract that the next
+// `agentic-identity` release adds to `agentic-identity/account` as `AccountPackage`. The released 0.7.x has no such type.
 import type { Json } from "agentic-identity";
 import type { Actor } from "./model.js";
 import type { Tables } from "./tables.js";
@@ -16,16 +17,19 @@ export interface TablesAccount {
   eraseAccount(subject: Actor, deps: TablesAccountDeps): Promise<Record<string, number>>;
 }
 
+// Through JSON, so the records are what a file would hold: a key with no value is dropped, not left as `undefined`.
+const plain = (value: unknown): Json[] => JSON.parse(JSON.stringify(value)) as Json[];
+
 export const tablesAccount: TablesAccount = {
   id: "tables",
   async exportAccount(subject, { tables }) {
     const out = await tables.exportOwnerData(subject);
     return {
-      bases: out.bases.map((b) => b.base as unknown as Json),
-      tables: out.bases.flatMap((b) => b.tables as unknown as Json[]),
-      views: out.bases.flatMap((b) => b.views as unknown as Json[]),
-      rows: out.bases.flatMap((b) => b.rows as unknown as Json[]),
-      authored_rows: out.authoredRows as unknown as Json[],
+      bases: plain(out.bases.map((b) => b.base)),
+      tables: plain(out.bases.flatMap((b) => b.tables)),
+      views: plain(out.bases.flatMap((b) => b.views)),
+      rows: plain(out.bases.flatMap((b) => b.rows)),
+      authored_rows: plain(out.authoredRows),
     };
   },
   async eraseAccount(subject, { tables }) {
