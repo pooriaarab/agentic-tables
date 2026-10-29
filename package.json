@@ -50,6 +50,10 @@
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js"
     },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
+    },
     "./file-store": {
       "types": "./dist/store-file.d.ts",
       "import": "./dist/store-file.js"
@@ -61,6 +65,7 @@
     "build:ui": "vite build --config ui/vite.config.ts",
     "dev:ui": "npm run build:ui && WRANGLER_SEND_METRICS=false wrangler dev --var AGENTIC_TABLES_UNSAFE_NO_AUTH:1 --var AGENTIC_TABLES_REGION:eu",
     "test:e2e": "playwright test",
+    "test:firestore": "npx -y firebase-tools@14 emulators:exec --only firestore --project agentic-tables-e2e \"vitest run src/node.e2e.test.ts\"",
     "typecheck": "tsc --noEmit && tsc -p ui",
     "test": "vitest run",
     "clean": "rm -rf dist ui-dist",
@@ -69,7 +74,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
-    "agentic-identity": "^0.4.0",
+    "agentic-identity": "^0.5.0",
     "hono": "^4.13.14",
     "zod": "^3.25.0"
   },

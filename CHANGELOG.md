@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Run on Firebase.** `agentic-tables/node` serves the HTTP API from Node over any `Store`. The HTTP end-to-end suite now runs on the Firestore emulator in CI, as well as on the Worker over D1.
+
+### Changed
+
+- The route code moved from `src/worker.ts` to `src/app.ts`, so the Node server does not load the D1 adapter. `createApp` is still exported from `agentic-tables/worker`.
+
 ## 0.5.0
 
 No breaking changes.
