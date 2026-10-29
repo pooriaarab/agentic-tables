@@ -180,6 +180,7 @@ test("filter, sort, delete a row and a column", async ({ page }) => {
   await page.getByRole("dialog").getByRole("button", { name: "Delete column" }).click();
   await expect(page.getByRole("columnheader", { name: /Points/ })).toHaveCount(0);
   await expect(page.getByLabel("Sort by")).toHaveValue("");
+  await expect(page.locator("#table-title")).toBeFocused();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByRole("grid", { name: "Tasks rows" })).toBeVisible();
 

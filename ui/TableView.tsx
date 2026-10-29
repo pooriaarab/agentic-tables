@@ -20,6 +20,8 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
   const [busy, setBusy] = useState(false);
   const loaded = useRef(0);
   const latest = useRef(0);
+  /** Set when a column delete changes the query. The title takes focus once that read lands. */
+  const focusTitleAfterRead = useRef(false);
   const close = (open: boolean) => open || setDialog(null);
   const reset = () => { setDraft(NO_FILTER); setApplied(NO_FILTER); setSort({ field: "", direction: "asc" }); };
   /** After a delete the control that had focus is gone. The title is the next sensible place. */
@@ -40,6 +42,10 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
         if (mine !== latest.current) return;
         loaded.current = (cursor ? loaded.current : 0) + page.items.length;
         setLoad((was) => ({ state: "ready", table, rows: cursor && was.state === "ready" ? [...was.rows, ...page.items] : page.items, next: page.nextCursor }));
+        if (focusTitleAfterRead.current) {
+          focusTitleAfterRead.current = false;
+          refocus();
+        }
       } catch (error) {
         if (mine === latest.current) setLoad({ state: "error", message: failure(error) });
       } finally {
@@ -179,8 +185,12 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
           if (applied.field === gone || draft.field === gone) { setDraft(NO_FILTER); setApplied(NO_FILTER); }
           if (sort.field === gone) setSort({ field: "", direction: "asc" });
           // A changed query reads again by itself. Otherwise read here.
-          if (!used) await read(undefined, true);
-          refocus();
+          // The header that had focus is still on screen until the read lands, so the title takes focus then.
+          if (used) focusTitleAfterRead.current = true;
+          else {
+            await read(undefined, true);
+            refocus();
+          }
           return null;
         }}
       />
