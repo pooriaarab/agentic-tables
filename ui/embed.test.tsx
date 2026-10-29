@@ -173,7 +173,7 @@ describe("mount", () => {
     await act(async () => void (mounted = mount(host, { baseUrl: "https://t.example", fetch: api.fetch, frame: false })));
     await settle();
     expect(host.querySelector("main, header, [role=main], [role=banner], aside, [role=complementary]")).toBeNull();
-    expect(host.querySelector('a[href^="#main"], .ad-skip-link')).toBeNull();
+    expect(host.querySelector('a[href^="#main"], .agd-skip-link')).toBeNull();
     expect(host.querySelector("nav")?.textContent).toContain("Tasks");
     expect([...host.querySelectorAll("button")].some((b) => b.textContent?.includes("New table"))).toBe(true);
     await act(async () => mounted!.update({ baseUrl: "https://t.example", fetch: api.fetch }));

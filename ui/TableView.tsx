@@ -72,7 +72,7 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
     }
   }
 
-  if (load.state === "loading") return <p role="status" className="status"><span className="ad-spinner" aria-hidden="true" /> Loading table…</p>;
+  if (load.state === "loading") return <p role="status" className="status"><span className="agd-spinner" aria-hidden="true" /> Loading table…</p>;
   if (load.state === "error")
     return <EmptyState title="The table did not load" description={<span role="alert">{load.message}</span>} action={<><Button onClick={() => { setLoad({ state: "loading" }); void read(); }}>Try again</Button><Button variant="secondary" onClick={reset}>Reset filter and sort</Button></>} />;
 

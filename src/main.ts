@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { ROLES, SUBJECT_KINDS, type Role, type SubjectKind } from "agentic-identity";
+import { MAX_AUDIT_PAGE, ROLES, SUBJECT_KINDS, type Role, type SubjectKind } from "agentic-identity";
 import { toCsv } from "./csv.js";
 import { importCsv } from "./csv-import.js";
 import { openContext, type Context } from "./context.js";
@@ -40,6 +40,9 @@ Commands:
   claim-base <baseId>                 Make a base from an earlier version usable. You must be its owner.
   share <subject> <role> --kind <human|agent> [--table <t>]  Give a person or agent a role (viewer, commenter, editor, owner) on the base, or on one table.
   unshare <subject> --kind <human|agent> [--table <t>]     Take the role back.
+  shares [--table <t>] [--limit <n>] [--cursor <c>]   Print who holds a role on the base, or the roles given on one table (roles on the base also apply to it). Owner only.
+  invite <viewer|commenter|editor> (--email <e> | --handle <h>) [--table <t>] [--expires-in-ms <n>]
+                                      Make an invite for a person (email) or an agent (handle). Prints the invite id, never the email. Owner only.
   export-data                         Print every base the actor owns, as JSON.
   erase-data --yes                    Hard delete every base the actor owns.
   mcp                                 Start the MCP server on stdio.
@@ -232,6 +235,22 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
       const role = need(1, "a role") as Role;
       if (!ROLES.includes(role)) throw new UsageError(`role must be one of ${ROLES.join(", ")}`);
       return (await ctx.tables.grant(type, resourceId, subject, role), { resourceId, subject, role });
+    }
+    case "shares": {
+      const table = flag("table") === undefined ? undefined : await ctx.table(flag("table")!);
+      const limit = flag("limit") === undefined ? undefined : Number(flag("limit"));
+      if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_AUDIT_PAGE)) throw new UsageError(`--limit must be a whole number from 1 to ${MAX_AUDIT_PAGE}`);
+      return ctx.tables.listGrants(table ? "table" : "base", table ? table.id : await ctx.baseId(), { limit, cursor: flag("cursor") });
+    }
+    case "invite": {
+      const role = need(0, "a role") as Role;
+      const invitable = ROLES.filter((r): r is Exclude<Role, "owner"> => r !== "owner");
+      if (!(invitable as Role[]).includes(role)) throw new UsageError(`role must be one of ${invitable.join(", ")}. Make an owner with share`);
+      if ((flag("email") === undefined) === (flag("handle") === undefined)) throw new UsageError("invite needs --email for a person or --handle for an agent, not both");
+      const expiresInMs = flag("expires-in-ms") === undefined ? undefined : Number(flag("expires-in-ms"));
+      if (expiresInMs !== undefined && !Number.isInteger(expiresInMs)) throw new UsageError("--expires-in-ms must be a whole number");
+      const table = flag("table") === undefined ? undefined : await ctx.table(flag("table")!);
+      return ctx.tables.createInvite(table ? "table" : "base", table ? table.id : await ctx.baseId(), { role: role as Exclude<Role, "owner">, ...(flag("email") === undefined ? { handle: flag("handle") } : { email: flag("email") }), ...(expiresInMs === undefined ? {} : { expiresInMs }) });
     }
     case "export-data":
       return ctx.tables.exportMyData();

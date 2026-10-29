@@ -158,13 +158,13 @@ export function Grid({ table, rows, more, onCommit, onDelete, header }: Props) {
           <tr>
             {fields.map((f) => (
               <th key={f.id} scope="col" className="grid__head">
-                <span>{f.name}{f.required ? <><span className="grid__req" aria-hidden="true"> *</span><span className="ad-sr-only"> (required)</span></> : null}</span>
+                <span>{f.name}{f.required ? <><span className="grid__req" aria-hidden="true"> *</span><span className="agd-sr-only"> (required)</span></> : null}</span>
                 <span className="grid__type">{f.type.replace("_", " ")}</span>
                 {header(f)}
               </th>
             ))}
             <th scope="col" className="grid__head">Last edit by</th>
-            <th scope="col" className="grid__head"><span className="ad-sr-only">Actions</span></th>
+            <th scope="col" className="grid__head"><span className="agd-sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
@@ -188,7 +188,7 @@ export function Grid({ table, rows, more, onCommit, onDelete, header }: Props) {
                 );
               })}
               <td {...cellProps(ri, fields.length)} className="grid__cell">
-                {machine(row.updatedBy.kind) ? <span className="ad-pill grid__agent"><BotIcon aria-hidden="true" width={14} height={14} /> {authorText(row.updatedBy.kind)}</span> : authorText(row.updatedBy.kind)}
+                {machine(row.updatedBy.kind) ? <span className="agd-pill grid__agent"><BotIcon aria-hidden="true" width={14} height={14} /> {authorText(row.updatedBy.kind)}</span> : authorText(row.updatedBy.kind)}
               </td>
               <td {...cellProps(ri, fields.length + 1)} className="grid__cell">
                 <Button size="sm" variant="ghost" tabIndex={-1} aria-label={`Delete row ${ri + 1}`} onClick={() => onDelete(row)}>Delete</Button>

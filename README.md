@@ -7,7 +7,7 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: release 0.9.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
+> Status: release 0.11.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
 >
 > **The Worker checks every request.** It needs `Authorization: Bearer <token>`, and `agentic-identity` verifies the
 > token against credentials in the same store. A request with no valid token gets `401`. A token without the scope
@@ -172,6 +172,8 @@ dependencies. The web UI that the Worker serves renders the same app.
 ## HTTP API
 
 A Cloudflare Worker (Hono) serves `/api/v1/tables`. Data lives in D1, so it survives a restart and every Worker instance sees the same data.
+
+`GET /health` answers `200` with `{ "ok": true, "name": "agentic-tables", "version": "<version in package.json>" }`. It needs no token and does not open the database.
 
 Create the database in the EU, put its id in `wrangler.jsonc`, and set `AGENTIC_TABLES_REGION` for each deploy. There is no default, so a deploy cannot claim a region you did not state.
 
@@ -344,6 +346,8 @@ npx agentic-tables schema People
 npx agentic-tables required People Age true --dry-run   # lists rows with no Age
 npx agentic-tables share claude editor --kind agent                  # a role on your base: viewer, commenter, editor, owner
 npx agentic-tables share claude viewer --kind agent --table People   # or on one table
+npx agentic-tables shares                                            # who holds a role on your base (--table People: roles given on that table only)
+npx agentic-tables invite viewer --handle claude                     # an invite for an agent; use --email for a person
 npx agentic-tables unshare claude --kind agent
 npx agentic-tables export People > people.csv
 npx agentic-tables import Copy --file people.csv --create
@@ -355,7 +359,7 @@ value such as `table:read,base:read` makes `new` fail with `FORBIDDEN`, and it b
 is optional too. Leave it unset to use the default base, one for each actor or for the person it acts for. Or set it to
 the id of a base that its owner shared with you.
 
-Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `rename-field`, `delete-field`, `change-type`, `delete-table`, `bases`, `new-base`, `delete-base`, `views`, `new-view`, `view`, `delete-view`, `claim-base`, `share`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON, except `export`, which prints CSV. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1. A bad command line prints `"code":"USAGE"`, then a hint line, and exits 2. A bad `AGENTIC_TABLES_ACTOR` also prints `USAGE`, but exits 1.
+Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `rename-field`, `delete-field`, `change-type`, `delete-table`, `bases`, `new-base`, `delete-base`, `views`, `new-view`, `view`, `delete-view`, `claim-base`, `share`, `shares`, `invite`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON, except `export`, which prints CSV. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1. A bad command line prints `"code":"USAGE"`, then a hint line, and exits 2. A bad `AGENTIC_TABLES_ACTOR` also prints `USAGE`, but exits 1.
 
 CSV import checks every cell first. If one cell fails, no row is written, and the error names the line and field. `--create` makes the table and guesses a type for each column: number, checkbox, date, single select, long text, or text. A column is a number only if every value is a plain decimal. `00123`, `0x1F`, and `1e3` stay text.
 
@@ -371,6 +375,8 @@ Run `npx agentic-tables mcp`. It uses the same database file as the CLI, and a C
 | `set_required` | Make a field required or optional. It lists the rows that block it. |
 | `delete_table` | Delete a table with its rows and views. |
 | `share`, `unshare` | Give or take back a role on your base or on one table. Only an owner can. |
+| `list_shares` | List who holds a role on your base, or the roles given on one table. A role on the base also applies to its tables. Only an owner can. |
+| `create_invite` | Make an invite for a person (email) or an agent (handle). The answer holds the invite id, never the email. Only an owner can. |
 | `claim_base` | Make a base from an earlier version usable. You must be its owner. |
 | `export_my_data`, `erase_my_data` | Export or hard delete the bases the acting principal owns. |
 | `insert_rows` | Insert up to 500 rows at once. One bad row writes none. |
