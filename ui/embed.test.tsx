@@ -292,6 +292,20 @@ describe("base and table options", () => {
     expect(navText()).toContain("Tasks");
   });
 
+  it("says so when no readable base holds tableId, and keeps the open table when update leaves tableId out", async () => {
+    await open({ tableId: "t-gone" });
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("not found");
+    await act(async () => mounted!.unmount());
+    mounted = undefined;
+    location.hash = "";
+    await open({ tableId: "t-Plans" });
+    location.hash = "#/t/t-Budget";
+    await act(async () => void window.dispatchEvent(new HashChangeEvent("hashchange")));
+    await act(async () => mounted!.update({ baseUrl: "https://t.example", fetch }));
+    await settle();
+    expect(location.hash).toBe("#/t/t-Budget");
+  });
+
   it("lets the hash win over tableId on mount", async () => {
     location.hash = "#/t/t-Budget";
     await open({ tableId: "t-Plans" });

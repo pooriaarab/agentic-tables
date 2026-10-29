@@ -2,7 +2,7 @@
 
 ## 0.11.0
 
-No breaking changes.
+No breaking changes to the API. One behavior change: see Fixed.
 
 ### Added
 
@@ -10,7 +10,7 @@ No breaking changes.
 
 ### Fixed
 
-- A required field now refuses a string of only whitespace, on insert, update, `add_field` defaults, `set_required`, and type changes. Before, `"   "` passed. Optional fields keep such a value. A row that was saved with `"   "` in a required field must get a real value before any other update to that row.
+- A required field now refuses a string of only whitespace, on insert, update, `add_field` defaults, `set_required`, and type changes. Before, `"   "` passed. Optional fields keep such a value. A row that was saved with `"   "` in a required field must get a real value before any other update to that row, which used to pass.
 
 ## 0.10.0
 

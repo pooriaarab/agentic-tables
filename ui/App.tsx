@@ -6,7 +6,7 @@ import { NewTableDialog } from "./Dialogs";
 import { TableView } from "./TableView";
 
 const DEFAULT_BASE = "My tables";
-type Load = { state: "loading" } | { state: "error"; message: string; bases: Base[] } | { state: "ready"; base: Base; bases: Base[]; tables: Table[] };
+type Load = { state: "loading" } | { state: "error"; message: string; bases: Base[] } | { state: "ready"; base: Base; bases: Base[]; tables: Table[]; notice?: string };
 
 /** The table id in the URL hash, as `#/t/<id>`. */
 const routeId = () => /^#\/t\/(.+)$/.exec(location.hash)?.[1] ?? null;
@@ -37,13 +37,13 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
   const seen = useRef({ baseId, tableId });
   useEffect(() => {
     if (seen.current.baseId !== baseId) setChosen(baseId);
-    if (seen.current.tableId !== tableId) {
+    if (seen.current.tableId !== tableId && tableId !== undefined) {
       // The next read looks for the base of this table, so set the target before it runs.
-      routeNow.current = tableId ?? null;
-      setRoute(tableId ?? null);
+      routeNow.current = tableId;
+      setRoute(tableId);
       // Keep the hash in step, so a click on the table that was open before still counts as a change. A deep link also
       // leaves the base the person picked in the switcher.
-      location.hash = tableId ? `#/t/${tableId}` : "";
+      location.hash = `#/t/${tableId}`;
       setChosen(baseId);
     }
     seen.current = { baseId, tableId };
@@ -58,6 +58,7 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
       bases = await client.listBases();
       let base: Base | undefined;
       let tables: Table[] | undefined;
+      let notice: string | undefined;
       if (chosen !== undefined) {
         // A named base that the caller cannot read is an error. It never falls back to another base.
         base = bases.find((b) => b.id === chosen);
@@ -71,12 +72,13 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
         }
       }
       if (!base) {
+        if (routeNow.current) notice = "That table was not found, or you cannot read it.";
         // The first visit makes a base to hold the tables. Later visits use the first base.
         base = bases[0];
         if (!base) { base = await client.createBase(DEFAULT_BASE); bases = [base]; }
       }
       tables ??= await client.listTables(base.id);
-      if (mine === latest.current) setLoad({ state: "ready", base, bases, tables });
+      if (mine === latest.current) setLoad({ state: "ready", base, bases, tables, notice });
     } catch (error) {
       if (mine === latest.current) setLoad({ state: "error", message: failure(error), bases });
     }
@@ -108,6 +110,7 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
   if (load.state === "loading") body = <p role="status" className="status"><span className="agd-spinner" aria-hidden="true" /> Loading tables…</p>;
   else if (load.state === "error")
     body = <EmptyState title="The tables did not load" description={<span role="alert">{load.message}</span>} action={<Button onClick={() => { setLoad({ state: "loading" }); void read(); }}>Try again</Button>} />;
+  else if (load.notice && !current) body = <EmptyState title="Table not found" description={<span role="alert">{load.notice}</span>} />;
   else if (current) body = <TableView key={current.id} tableId={current.id} onGone={() => { location.hash = ""; void read(); }} />;
   else if (tables.length === 0) body = <EmptyState title="No tables yet" description="Make a table, then add columns and rows." action={<Button onClick={() => setCreating(true)}>New table</Button>} />;
   else body = <EmptyState title="Pick a table" description="Choose a table in the list." />;
