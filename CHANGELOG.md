@@ -1,10 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.12.1 - 2026-10-29
+
+No breaking changes to the API.
 
 ### Added
 
 - `tablesAccount`: `exportAccount` and `eraseAccount` for a host that runs account export and erase across packages. They run on the guarded path and return plain JSON by collection and counts by collection, so the host does not read the table layout.
+
+### Changed
+
+- The `agentic-identity` dependency is now `^0.9.0`.
+- The `agentic-design` dependency is now `^0.5.0`. It has a calmer look in light and dark, with an indigo accent and softer borders. The token names and the `agd-` prefix do not change.
 
 ## 0.12.0
 
