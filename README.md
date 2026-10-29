@@ -56,7 +56,7 @@ await tables.insertRow(people.id, { Name: "Ada", Stage: "lead" }, { id: "u1", ki
 
 ```ts
 const page = await tables.queryRows(people.id, {
-  filter: { and: [{ field: "Stage", op: "eq", value: "lead" }, { field: "Age", op: "gte", value: 18 }] },
+  filter: { and: [{ field: "Stage", op: "eq", value: "lead" }, { field: "Name", op: "starts_with", value: "A" }] },
   sort: { field: "Name" },
   limit: 25,
 });
@@ -304,21 +304,23 @@ This builds the UI and deploys `wrangler.demo.jsonc`. No CI job deploys the demo
 export AGENTIC_TABLES_DB=./crm.json            # default ./agentic-tables.json
 export AGENTIC_TABLES_ACTOR=agent_of_human:claude   # who acts, as kind:id. Default human:cli (agent:mcp for the MCP server).
 export AGENTIC_TABLES_CHAIN=human:ada          # who an agent of a person acts for, root first. Needs agent_of_human, not agent.
-export AGENTIC_TABLES_SCOPES=table:read,base:read   # optional. Narrows what the actor may do. Default: everything.
-export AGENTIC_TABLES_BASE=base_...            # optional. The base to work in. Default: one base per actor id.
 
 npx agentic-tables new People --field "Name:text!" --field "Age:number" --field "Stage:single_select=lead|won"
 npx agentic-tables insert People --json '{"Name":"Ada","Age":36,"Stage":"won"}'
 npx agentic-tables query People --filter '{"field":"Age","op":"gt","value":30}' --sort Name:desc
 npx agentic-tables schema People
 npx agentic-tables required People Age true --dry-run   # lists rows with no Age
-npx agentic-tables delete-table People --yes
 npx agentic-tables share claude editor --kind agent                  # a role on your base: viewer, commenter, editor, owner
 npx agentic-tables share claude viewer --kind agent --table People   # or on one table
 npx agentic-tables unshare claude --kind agent
 npx agentic-tables export People > people.csv
 npx agentic-tables import Parts --file parts.csv --create
+npx agentic-tables delete-table People --yes                         # last: it removes People and its rows
 ```
+
+`AGENTIC_TABLES_SCOPES` is optional. It narrows what the actor may do. Set it after the table exists: a read-only
+value such as `table:read,base:read` makes `new` fail with `FORBIDDEN`, and `insert` fails the same way. `AGENTIC_TABLES_BASE`
+is optional too. Leave it unset to use the default base of the actor, or set it to the id of a base that you own.
 
 Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `delete-table`, `claim-base`, `share`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
 
