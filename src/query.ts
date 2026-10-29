@@ -1,5 +1,5 @@
 import { isDate, isEmpty, type Field, type FieldType, type Issue, type Table } from "./model.js";
-import type { Json } from "./store.js";
+import type { Json } from "agentic-identity";
 
 export type Op =
   | "eq" | "neq" | "contains" | "starts_with" | "gt" | "gte" | "lt" | "lte"
@@ -141,3 +141,9 @@ export function compareKeys(a: Keyed, b: Keyed, direction: "asc" | "desc"): numb
   const order = cmp(a.k, b.k);
   return (direction === "desc" ? -order : order) || ties;
 }
+
+/** Opaque cursor for the in-memory plan. Works in a Worker: no Buffer. */
+export const encodeCursor = (value: unknown): string =>
+  btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+export const decodeCursor = (text: string): unknown =>
+  JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0))));

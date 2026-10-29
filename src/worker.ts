@@ -1,8 +1,8 @@
+import { createMemoryStore } from "agentic-identity";
 import { Hono, type Context } from "hono";
 import { errorBody } from "./errors.js";
 import { PRINCIPAL_KINDS, TablesError, type Actor, type FieldInput, type PrincipalKind, type Values } from "./model.js";
 import { createTables, type AddFieldInput, type ChangeTypeOptions, type Tables, type ViewInput } from "./tables.js";
-import { createMemoryStore } from "./store.js";
 import { MAX_BODY_BYTES, schemas } from "./schemas.js";
 import type { ZodTypeAny, z } from "zod";
 

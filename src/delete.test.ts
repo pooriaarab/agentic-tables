@@ -13,7 +13,8 @@
 //  9. Make a field optional: it applies, and later writes may leave it out.
 // 10. Change required on a field that does not exist: not found.
 import { beforeEach, describe, expect, test } from "vitest";
-import { createMemoryStore, createTables, MigrationError, NotFoundError, ValidationError, type Actor, type Tables } from "./index.js";
+import { createMemoryStore } from "agentic-identity";
+import { createTables, MigrationError, NotFoundError, ValidationError, type Actor, type Tables } from "./index.js";
 
 const human: Actor = { id: "u1", kind: "human" };
 let t: Tables;
@@ -105,5 +106,13 @@ describe("change required", () => {
     expect(await t.setRequired(tbl.id, "Name", false)).toMatchObject({ applied: true });
     await t.insertRow(tbl.id, {}, human);
     await expect(t.setRequired(tbl.id, "Nope", true)).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("refuses a link default that points at no row of the linked table", async () => {
+    const other = await t.createTable(baseId, "Other", [{ name: "N", type: "text" }]);
+    const tbl = await t.createTable(baseId, "T", [{ name: "Name", type: "text" }]);
+    await t.insertRow(tbl.id, { Name: "x" }, human);
+    await expect(t.addField(tbl.id, { name: "L", type: "link", linkTable: other.id, default: ["row_missing"] })).rejects.toBeInstanceOf(ValidationError);
+    expect((await t.getTable(tbl.id)).fields).toHaveLength(1);
   });
 });

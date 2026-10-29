@@ -1,4 +1,6 @@
-import type { Json } from "./store.js";
+import { PRINCIPAL_KINDS, type Json, type PrincipalKind } from "agentic-identity";
+
+export { PRINCIPAL_KINDS, type PrincipalKind };
 
 /** The one emptiness rule: null, missing, an empty string, or an empty list. Queries and "required" both use it. */
 export const isEmpty = (value: unknown): boolean => value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
@@ -34,9 +36,6 @@ export interface Table {
   createdAt: string;
   updatedAt: string;
 }
-
-export const PRINCIPAL_KINDS = ["human", "agent_of_human", "agent_of_agent", "agent", "user_token"] as const;
-export type PrincipalKind = (typeof PRINCIPAL_KINDS)[number];
 
 /** Who wrote a row. The kind stays on every create and update, so agent edits are labeled. */
 export interface Actor {

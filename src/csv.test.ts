@@ -9,7 +9,8 @@
 //  6. A column of mixed numbers and words is text, not a number.
 //  7. A column with no values is text.
 import { describe, expect, test } from "vitest";
-import { createMemoryStore, createTables, ValidationError, type Actor } from "./index.js";
+import { createMemoryStore } from "agentic-identity";
+import { createTables, ValidationError, type Actor } from "./index.js";
 import { csvToValues, inferFields, parseCsv, toCsv } from "./csv.js";
 
 const human: Actor = { id: "u1", kind: "human" };

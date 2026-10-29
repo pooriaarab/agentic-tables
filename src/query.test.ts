@@ -15,7 +15,8 @@
 // 12. A board whose group field changed type: fail loudly, never lose rows.
 // 13. A sort direction or view kind that is not valid: refuse it.
 import { beforeEach, describe, expect, test } from "vitest";
-import { createMemoryStore, createTables, TablesError, ValidationError, type Actor, type Tables } from "./index.js";
+import { createMemoryStore } from "agentic-identity";
+import { createTables, TablesError, ValidationError, type Actor, type Tables } from "./index.js";
 
 const human: Actor = { id: "u1", kind: "human" };
 let t: Tables;

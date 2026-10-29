@@ -19,7 +19,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "vitest";
-import { createMemoryStore, createTables, TablesError, type Actor, type Tables } from "./index.js";
+import { createMemoryStore } from "agentic-identity";
+import { createTables, TablesError, type Actor, type Tables } from "./index.js";
 import { createFileStore } from "./store-file.js";
 
 const ada: Actor = { id: "ada", kind: "human" };
@@ -87,8 +88,24 @@ describe("erase", () => {
     expect(await t.eraseOwnerData("ada")).toEqual({ bases: 0, tables: 0, rows: 0, views: 0, authoredRows: 0 });
   });
 
+  // Two rows the erased principal wrote, each linking the other, in a base it does not own.
+  // Each is rewritten to drop the link and also deleted: the delete must win, in either order.
+  test("erases linked rows the principal wrote, and leaves no row behind", async () => {
+    const base = await t.createBase("shared", bob);
+    const table = await t.createTable(base.id, "T", [{ name: "Name", type: "text" }]);
+    await t.addField(table.id, { name: "Peer", type: "link", linkTable: table.id });
+    const [a, b] = await t.insertRows(table.id, [{ Name: "a" }, { Name: "b" }], ada);
+    const keep = await t.insertRow(table.id, { Name: "keep", Peer: [a!.id, b!.id] }, bob);
+    await t.updateRow(a!.id, { Peer: [b!.id] }, ada);
+    await t.updateRow(b!.id, { Peer: [a!.id] }, ada);
+    expect((await t.eraseOwnerData("ada")).authoredRows).toBe(2);
+    expect((await t.listRows(table.id)).items.map((r) => r.id)).toEqual([keep.id]);
+    expect((await t.getRow(keep.id)).values.Peer).toEqual([]);
+  });
+
   test("a base with no owner is never exported or erased", async () => {
-    const store = createMemoryStore({ initial: { bases: { base_old: { name: "old", createdAt: "2026-01-01T00:00:00.000Z" } } } });
+    const store = createMemoryStore();
+    await store.put("bases", "base_old", { name: "old", createdAt: "2026-01-01T00:00:00.000Z" });
     const old = createTables(store);
     expect((await old.exportOwnerData("ada")).bases).toEqual([]);
     expect((await old.eraseOwnerData("ada")).bases).toBe(0);

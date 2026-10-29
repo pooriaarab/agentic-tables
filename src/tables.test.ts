@@ -34,8 +34,8 @@
 // 25. A list call with extra options reads only the rows of its own table.
 // 26. Field names that differ only by surrounding spaces are duplicates.
 import { beforeEach, describe, expect, test } from "vitest";
+import { createMemoryStore } from "agentic-identity";
 import {
-  createMemoryStore,
   createTables,
   MigrationError,
   NotFoundError,
