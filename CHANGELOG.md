@@ -12,6 +12,7 @@
 ### Changed
 
 - Deleting a table or a base, and erasing your data, removes the sharing records (resource and grants) with `deleteResource`. Before, they stayed in the store. A repeat of a table or base delete finishes one that stopped after the data went. If an erase stops after the data went, it answers `409 ERASE_INCOMPLETE` and names the bases whose grants remain. `DELETE /bases/:id` finishes each one.
+- A table resource that 0.2.0 left behind after `deleteTable` still has its base as parent, and `deleteResource` refuses a base that has a child. Delete such a table record with `DELETE /tables/:id` before you delete its base, if you know its id.
 - `setLegacyBaseOwnerKind` on `createTables` succeeds when the base already has the same owner kind. Before, it threw `NotFoundError` for that case. It still throws `NotFoundError` when the base is missing, is not the owner's, or has a different kind. A duplicate claim that races the first one now succeeds. Code that calls this method directly must not expect the throw.
 
 ## 0.2.0

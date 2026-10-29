@@ -59,7 +59,8 @@ describe("grants by kind and id", () => {
   test("a subject kind is required, and must be human or agent", async () => {
     const { base } = await setup();
     for (const kind of ["user_token", "agent_of_human", "robot"]) {
-      expect((await call("PUT", `/bases/${base.id}/members/${kind}/sam`, ada, { role: "viewer" })).status).toBe(400);
+      const put = await call("PUT", `/bases/${base.id}/members/${kind}/sam`, ada, { role: "viewer" });
+      expect([put.status, put.body.error.message]).toEqual([400, "subject kind must be one of human, agent"]);
       expect((await call("DELETE", `/bases/${base.id}/members/${kind}/sam`, ada)).status).toBe(400);
     }
     // The old path with no kind is no route.
@@ -158,7 +159,7 @@ describe("a delete that stops half way", () => {
 test("an erase whose last step fails names the bases, and a base delete finishes them", async () => {
   const first = await setup();
   const second = await setup();
-  // A table resource made behind the erase: the base resource is refused while it has a child.
+  // The base resource delete fails after the data went, as a store outage would.
   const sharing = createSharing(store);
   const real = sharing.deleteResource.bind(sharing);
   const failing = createSharing(store);
