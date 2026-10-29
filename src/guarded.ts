@@ -1,4 +1,4 @@
-import { assertId, createSharing, EraseRefusedError, hasScope, SUBJECT_KINDS, type Action, type PrincipalContext, type Role, type Subject, type SubjectKind } from "agentic-identity";
+import { assertId, createSharing, EraseRefusedError, hasScope, MAX_OWNERS_ON_ERASE, SUBJECT_KINDS, type Action, type PrincipalContext, type Role, type Subject, type SubjectKind } from "agentic-identity";
 import { NotFoundError, TablesError, type Actor, type FieldInput, type Values } from "./model.js";
 import type { AddFieldInput, ChangeTypeOptions, ListRowsOptions, RowQuery, Tables, ViewInput } from "./tables.js";
 
@@ -59,6 +59,27 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
   }
 
   return (ctx: PrincipalContext) => {
+    /**
+     * Remove the grants of tables whose data goes. A table whose resource is already gone (an earlier call stopped, or a claim never
+     * registered it) is skipped: a missing resource denies the owner of its base. Every limit is checked before the first write, so a
+     * refusal leaves the tables as they were.
+     */
+    const dropTableGrants = async (tableIds: string[], baseIds: string[]) => {
+      if (tableIds.length > 0) scoped(ctx, "admin", "table");
+      const present: string[] = [];
+      for (const id of tableIds) if ((await sharing.can(ctx, "admin", id)).allowed) present.push(id);
+      for (const id of [...present, ...baseIds]) {
+        let owners = 0;
+        let cursor: string | undefined;
+        do {
+          const page = await shared(() => sharing.listGrants(ctx, id, { cursor }));
+          owners += page.grants.filter((g) => g.role === "owner").length;
+          cursor = page.nextCursor;
+        } while (cursor !== undefined && owners <= MAX_OWNERS_ON_ERASE);
+        if (owners > MAX_OWNERS_ON_ERASE) throw new TablesError("BAD_REQUEST", `a base or a table has more than ${MAX_OWNERS_ON_ERASE} owners. Take some back first`);
+      }
+      for (const id of present) await shared(() => sharing.deleteResource(ctx, id));
+    };
     // Roles belong to the root of the chain. The leaf is who acted, and it stays on every row.
     const root = ctx.chain[0]!;
     const owner: Actor = { id: root.id, kind: root.kind };
@@ -114,9 +135,7 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
       /** Delete the base, its tables, and every grant on them. A repeat call finishes a delete that stopped half way. */
       async deleteBase(baseId: string) {
         return onBase("admin", baseId, async () => {
-          const tableIds = (await tables.listTables(baseId)).map((t) => t.id);
-          if (tableIds.length > 0) scoped(ctx, "admin", "table");
-          for (const id of tableIds) await shared(() => sharing.deleteResource(ctx, id));
+          await dropTableGrants((await tables.listTables(baseId)).map((t) => t.id), [baseId]);
           const summary = await tables.deleteBase(baseId).catch(ignoreGone);
           await shared(() => sharing.deleteResource(ctx, baseId));
           return summary ?? { tables: 0, rows: 0, views: 0 };
@@ -244,8 +263,7 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
         // The grants go with the data. Each table first, since a resource with children cannot be deleted, then the data, then each base.
         const tableIds: string[] = [];
         for (const baseId of baseIds) for (const t of await tables.listTables(baseId)) tableIds.push(t.id);
-        if (tableIds.length > 0) scoped(ctx, "admin", "table");
-        for (const id of tableIds) await shared(() => sharing.deleteResource(ctx, id));
+        await dropTableGrants(tableIds, baseIds);
         const summary = await tables.eraseOwnerData(me, { baseIds });
         for (const id of baseIds) await shared(() => sharing.deleteResource(ctx, id));
         return summary;

@@ -6,6 +6,7 @@
 
 - **Needs `agentic-identity` ^0.4.0.** Grants are keyed on a principal kind and an id. A person and an agent with the same id no longer share a role.
 - **Sharing names the kind.** `grant` and `revokeGrant` on the guarded API take a subject `{ kind, id }`, where `kind` is `human` or `agent`. The routes are now `PUT` and `DELETE` on `/bases/:baseId/members/:kind/:subjectId` and `/tables/:tableId/members/:kind/:subjectId`. The old path with no kind answers `404`. The CLI `share` and `unshare` need `--kind human|agent`. The MCP tools `share` and `unshare` need `kind`. A missing or unknown kind is refused.
+- **Deleting a base that has tables, and erasing data, need the `table:admin` scope too.** Their grants are removed, so a credential with `base:admin` alone gets `403`. A base or a table with more than 100 owners is refused with `400` before anything is deleted.
 - **Grants from 0.2.0 stay under the old key.** `agentic-identity` 0.4 does not honor them. Run `migrateGrants(store)` from `agentic-identity` once before you serve.
 
 ### Changed

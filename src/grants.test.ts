@@ -2,7 +2,8 @@
 //  1. A person and an agent with one id share a role: a grant to the person gives the agent access, or a revoke of one removes the other.
 //  2. A share or unshare without a kind, or with an unknown kind, falls back to a default kind.
 //  3. Deleting a table, a base, or a person's data leaves grants (and resources) in the store.
-//  4. A delete that stopped after the data went cannot be repeated to remove the grants.
+//  4. A delete that stopped after the data went, or after some table grants went, cannot be repeated.
+//  5. A base or a table with too many owners fails after some grants are gone. A credential without table:admin fails after the same.
 import { createMemoryStore, createSharing } from "agentic-identity";
 import { beforeEach, describe, expect, test } from "vitest";
 import { resolveCaller } from "./caller.js";
@@ -111,5 +112,45 @@ describe("delete removes grants", () => {
     await createTables(store).deleteBase(base.id);
     expect((await call("DELETE", `/bases/${base.id}`, ada)).status).toBe(200);
     expect(await count("grants")).toBe(0);
+  });
+});
+
+describe("a delete that stops half way", () => {
+  test("can be repeated when a table grant went and its data did not", async () => {
+    const { base, table } = await setup();
+    const second = (await call("POST", `/bases/${base.id}/tables`, ada, { name: "U", fields: [{ name: "N", type: "text" }] })).body;
+    // What a crash leaves, or a claim that never registered a table: one table has no resource.
+    await createSharing(store).deleteResource(await resolveCaller({ id: "ada", kind: "human" }), table.id);
+    expect((await call("DELETE", `/bases/${base.id}`, ada)).status).toBe(200);
+    expect(await count("grants")).toBe(0);
+    expect(await count("resources")).toBe(0);
+    expect((await call("GET", `/tables/${second.id}`, ada)).status).toBe(404);
+
+    const again = await setup();
+    await createSharing(store).deleteResource(await resolveCaller({ id: "ada", kind: "human" }), again.table.id);
+    expect((await call("DELETE", "/me/data", ada)).body).toMatchObject({ bases: 1, tables: 1 });
+    expect(await count("grants")).toBe(0);
+  });
+
+  test("is refused before any grant goes when a table has too many owners", async () => {
+    const { base, table } = await setup();
+    const extra = (await call("POST", `/bases/${base.id}/tables`, ada, { name: "U", fields: [{ name: "N", type: "text" }] })).body;
+    for (let i = 0; i < 101; i++) await call("PUT", `/tables/${extra.id}/members/agent/o${i}`, ada, { role: "owner" });
+    const [grants, resources] = [await count("grants"), await count("resources")];
+    for (const attempt of [() => call("DELETE", `/bases/${base.id}`, ada), () => call("DELETE", "/me/data", ada)]) {
+      const refused = await attempt();
+      expect([refused.status, refused.body.error.code]).toEqual([400, "BAD_REQUEST"]);
+      expect([await count("grants"), await count("resources")]).toEqual([grants, resources]);
+    }
+    expect((await call("GET", `/tables/${table.id}`, ada)).status).toBe(200);
+  });
+
+  test("is refused before any grant goes for a credential without table:admin", async () => {
+    const { base } = await setup();
+    const narrow = { ...ada, "x-principal-scopes": "base:admin" };
+    const [grants, resources] = [await count("grants"), await count("resources")];
+    expect((await call("DELETE", `/bases/${base.id}`, narrow)).status).toBe(403);
+    expect((await call("DELETE", "/me/data", narrow)).status).toBe(403);
+    expect([await count("grants"), await count("resources")]).toEqual([grants, resources]);
   });
 });
