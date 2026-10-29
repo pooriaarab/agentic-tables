@@ -7,7 +7,7 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: release 0.11.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
+> Status: release 0.12.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
 >
 > **The Worker checks every request.** It needs `Authorization: Bearer <token>`, and `agentic-identity` verifies the
 > token against credentials in the same store. A request with no valid token gets `401`. A token without the scope
@@ -153,6 +153,9 @@ const tables = mount(document.getElementById("tables")!, {
   // getToken: () => "<token>",   // the Worker needs a token on every request
   // themePicker: true,                                 // show a theme control; the app then sets data-theme on the page
   // frame: false,                                      // no banner, main landmark, or skip link: for a page with its own landmarks
+  // baseId: "base_...",                                 // open this base (a shared one too). Without it: the base of tableId, else the first
+  // tableId: "tbl_...",                                 // open this table: a deep link or a search hit. The URL hash #/t/<id> wins on mount
+  // baseSwitcher: true,                                 // list every readable base, to switch between them
 });
 
 tables.update({ baseUrl: "https://other.example.com", getToken });  // use other options in the same place

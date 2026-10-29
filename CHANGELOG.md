@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.12.0
+
+No breaking changes to the API. One behavior change: see Fixed.
+
+### Added
+
+- `mount` in `agentic-tables/ui` takes `baseId`, `tableId`, and `baseSwitcher`. `baseId` opens that base (a shared one too). `tableId` opens that table, and opens the base that holds it when `baseId` is not set. `baseSwitcher` shows a list of every readable base. A table shared alone does not show its base. A base the caller cannot read shows an error, and the app never opens another base instead.
+
+### Fixed
+
+- A required field now refuses a string of only whitespace, on insert, update, `add_field` defaults, `set_required`, and type changes. Before, `"   "` passed. Optional fields keep such a value. A row that was saved with `"   "` in a required field must get a real value before any other update to that row, which used to pass.
+
 ## 0.11.0
 
 No breaking changes.

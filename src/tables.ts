@@ -1,6 +1,7 @@
 import { deriveOptions, MigrationError, planConversion, type MigrationReport } from "./migrate.js";
 import {
   checkValue,
+  isBlank,
   isEmpty,
   FIELD_TYPES,
   NotFoundError,
@@ -280,7 +281,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       merged[field.id] = value ?? null;
     }
     for (const field of table.fields) {
-      if (field.required && isEmpty(merged[field.id])) issues.push({ field: field.name, code: "required", message: "is required" });
+      if (field.required && isBlank(merged[field.id])) issues.push({ field: field.name, code: "required", message: "is required" });
     }
     if (issues.length > 0) throw new ValidationError(issues);
     return merged;
@@ -636,7 +637,8 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         const field = toField(input);
         const rows = await all<RowDoc>(ops, "rows", { tableId }, "createdAt");
         const fill = input.default;
-        if (!isEmpty(fill)) {
+        const filled = field.required ? !isBlank(fill) : !isEmpty(fill);
+        if (filled) {
           const bad = checkValue(field, fill);
           if (bad) issues.push({ field: field.name, ...bad });
           else if (field.type === "link" && Array.isArray(fill)) {
@@ -650,7 +652,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         }
         if (issues.length > 0) throw new ValidationError(issues);
         const next = changed(table, [...table.fields, field]);
-        await apply(ops, [...(isEmpty(fill) ? [] : await planRewrite(ops, tableId, (doc) => ({ ...doc.values, [field.id]: fill as Json }), rows)), ["tables", tableId, next]]);
+        await apply(ops, [...(!filled ? [] : await planRewrite(ops, tableId, (doc) => ({ ...doc.values, [field.id]: fill as Json }), rows)), ["tables", tableId, next]]);
         return tableView(tableId, next);
       });
     },
@@ -704,7 +706,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         const clear = change.onFailure === "clear";
         if (plan.report.failures.length > 0 && !clear && !change.dryRun) throw new MigrationError(plan.report);
         if (change.dryRun) return plan.report;
-        if (from.required && [...plan.next.values()].some(isEmpty)) throw new ValidationError([requiredNoClear(from)]);
+        if (from.required && [...plan.next.values()].some(isBlank)) throw new ValidationError([requiredNoClear(from)]);
         const rewrites = await planRewrite(ops, tableId, (doc, id) => (plan.next.has(id) ? { ...doc.values, [from.id]: plan.next.get(id) as Json } : null), rows);
         await apply(ops, [...rewrites, ["tables", tableId, changed(table, table.fields.map((f) => (f === from ? to : f)))]]);
         return { ...plan.report, applied: true };
@@ -747,7 +749,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         const out = report(field, field.type, rows.map((r) => ({ id: r.id, value: r.data.values[field.id] })));
         for (const { id, data } of rows) {
           const value = data.values[field.id];
-          if (required && isEmpty(value)) out.failures.push({ rowId: id, value: value ?? null, reason: "has no value" });
+          if (required && isBlank(value)) out.failures.push({ rowId: id, value: value ?? null, reason: "has no value" });
         }
         out.converted = out.total - out.failures.length;
         if (opts.dryRun) return out;
@@ -782,7 +784,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         }
         out.droppedOptions = (from.options ?? []).filter((o) => !optionList.includes(o));
         if (out.failures.length > 0 && opts.onInUse !== "clear") throw new MigrationError(out);
-        if (from.required && [...next.values()].some(isEmpty)) throw new ValidationError([requiredNoClear(from)]);
+        if (from.required && [...next.values()].some(isBlank)) throw new ValidationError([requiredNoClear(from)]);
         const rewrites = await planRewrite(ops, tableId, (doc, id) => (next.has(id) ? { ...doc.values, [from.id]: next.get(id) as Json } : null), rows);
         await apply(ops, [...rewrites, ["tables", tableId, changed(table, table.fields.map((f) => (f === from ? to : f)))]]);
         return { ...out, applied: true };
