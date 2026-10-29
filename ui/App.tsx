@@ -6,7 +6,7 @@ import { NewTableDialog } from "./Dialogs";
 import { TableView } from "./TableView";
 
 const DEFAULT_BASE = "My tables";
-type Load = { state: "loading" } | { state: "error"; message: string } | { state: "ready"; base: Base; bases: Base[]; tables: Table[] };
+type Load = { state: "loading" } | { state: "error"; message: string; bases: Base[] } | { state: "ready"; base: Base; bases: Base[]; tables: Table[] };
 
 /** The table id in the URL hash, as `#/t/<id>`. */
 const routeId = () => /^#\/t\/(.+)$/.exec(location.hash)?.[1] ?? null;
@@ -37,7 +37,11 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
   const seen = useRef({ baseId, tableId });
   useEffect(() => {
     if (seen.current.baseId !== baseId) setChosen(baseId);
-    if (seen.current.tableId !== tableId) setRoute(tableId ?? null);
+    if (seen.current.tableId !== tableId) {
+      // The next read looks for the base of this table, so set the target before it runs.
+      routeNow.current = tableId ?? null;
+      setRoute(tableId ?? null);
+    }
     seen.current = { baseId, tableId };
   }, [baseId, tableId]);
   const [creating, setCreating] = useState(false);
@@ -45,8 +49,9 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
   const latest = useRef(0);
   const read = useCallback(async () => {
     const mine = ++latest.current;
+    let bases: Base[] = [];
     try {
-      let bases = await client.listBases();
+      bases = await client.listBases();
       let base: Base | undefined;
       let tables: Table[] | undefined;
       if (chosen !== undefined) {
@@ -56,7 +61,8 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
       } else if (routeNow.current) {
         // A link to a table with no base: open the base that holds it.
         for (const b of bases) {
-          const list = await client.listTables(b.id);
+          // A base that fails to list (just unshared or deleted) is skipped, so one bad base does not hide the table.
+          const list = await client.listTables(b.id).catch(() => []);
           if (list.some((t) => t.id === routeNow.current)) { base = b; tables = list; break; }
         }
       }
@@ -68,9 +74,9 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
       tables ??= await client.listTables(base.id);
       if (mine === latest.current) setLoad({ state: "ready", base, bases, tables });
     } catch (error) {
-      if (mine === latest.current) setLoad({ state: "error", message: failure(error) });
+      if (mine === latest.current) setLoad({ state: "error", message: failure(error), bases });
     }
-  }, [client, chosen]);
+  }, [client, chosen, tableId]);
   useEffect(() => { void read(); }, [read]);
   useEffect(() => {
     const on = () => setRoute(routeId());
@@ -82,8 +88,10 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
   const current = tables.find((t) => t.id === route) ?? null;
   const topbar = (
     <>
-      {baseSwitcher && load.state === "ready" ? (
-        <Select label="Base" hideLabel value={load.base.id} onChange={(e) => { location.hash = ""; setRoute(null); setChosen(e.target.value); }}>
+      {baseSwitcher && load.state !== "loading" && load.bases.length > 0 ? (
+        <Select label="Base" hideLabel value={chosen ?? (load.state === "ready" ? load.base.id : "")} onChange={(e) => { location.hash = ""; setRoute(null); setChosen(e.target.value); }}>
+          {chosen !== undefined && !load.bases.some((b) => b.id === chosen) ? <option value={chosen} disabled>Base: not available</option> : null}
+          {chosen === undefined && load.state === "error" ? <option value="" disabled>Base: choose one</option> : null}
           {load.bases.map((b) => <option key={b.id} value={b.id}>{`Base: ${b.name}`}</option>)}
         </Select>
       ) : null}

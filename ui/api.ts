@@ -10,10 +10,10 @@ export function useClient(): TablesClient {
   return client;
 }
 
-/** The text to show for a failed call. Field issues come first: they say what to fix. */
 /** An error whose message is fit for the person to read. */
 export class UiError extends Error {}
 
+/** The text to show for a failed call. Field issues come first: they say what to fix. */
 export function failure(error: unknown): string {
   if (error instanceof TablesClientError) {
     if (error.issues?.length) return error.issues.map((i) => `${i.field}: ${i.message}`).join(". ");

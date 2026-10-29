@@ -257,6 +257,27 @@ describe("base and table options", () => {
     expect(host.querySelector('nav [aria-current="page"]')?.textContent).toContain("Plans");
   });
 
+  it("update with a tableId in another base opens that base", async () => {
+    await open({ tableId: "t-Tasks" });
+    expect(navText()).toContain("Tasks");
+    await act(async () => mounted!.update({ baseUrl: "https://t.example", fetch, tableId: "t-Plans" }));
+    await settle();
+    expect(navText()).toContain("Plans");
+    expect(host.querySelector('nav [aria-current="page"]')?.textContent).toContain("Plans");
+  });
+
+  it("keeps the switcher after an unreadable baseId, and recovers through it", async () => {
+    await open({ baseId: "nope", baseSwitcher: true });
+    expect(host.querySelector('[role="alert"]')).not.toBeNull();
+    const select = host.querySelector("select") as HTMLSelectElement;
+    await act(async () => {
+      select.value = "b1";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await settle();
+    expect(navText()).toContain("Tasks");
+  });
+
   it("lets the hash win over tableId on mount", async () => {
     location.hash = "#/t/t-Budget";
     await open({ tableId: "t-Plans" });
