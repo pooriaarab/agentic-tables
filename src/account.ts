@@ -1,36 +1,51 @@
 // The package's side of the account contract: a host calls `exportAccount` and `eraseAccount`
 // and never reads the storage layout. The shape is provisional: it is the contract that the next
 // `agentic-identity` release adds to `agentic-identity/account` as `AccountPackage`. The released 0.7.x has no such type.
-import type { Json } from "agentic-identity";
+//
+// Both calls go through the guarded path (`exportMyData` and `eraseMyData`), so they keep its rules: a legacy base
+// without an owner kind stops the call, a base the subject gave away is left alone, and the sharing records go
+// with the data they belong to.
+import type { Json, PrincipalContext } from "agentic-identity";
 import type { Actor } from "./model.js";
+import { PRINCIPAL_KINDS } from "./model.js";
+import { createGuarded, type Sharing } from "./guarded.js";
 import type { Tables } from "./tables.js";
 
 export interface TablesAccountDeps {
   tables: Tables;
+  sharing: Sharing;
+  /** The subject's own context, with one step in its chain and the scopes `base:admin` and `table:admin`. */
+  ctx: PrincipalContext;
 }
+
+export type TablesCollection = "bases" | "tables" | "views" | "rows" | "authored_rows";
 
 export interface TablesAccount {
   id: "tables";
-  /** Collections: `bases`, `tables`, `views`, `rows`, and `authored_rows` (rows the subject wrote in bases it does not own). */
-  exportAccount(subject: Actor, deps: TablesAccountDeps): Promise<Record<string, Json[]>>;
-  /** Hard deletes the subject's bases and the rows it wrote elsewhere. Counts by the same collection names. */
-  eraseAccount(subject: Actor, deps: TablesAccountDeps): Promise<Record<string, number>>;
+  /** Collections: `bases`, `tables`, `views`, `rows`, and `authored_rows` (rows the subject wrote in bases it does not own). It holds no format, version, or time: the host's manifest has the time. */
+  exportAccount(subject: Actor, deps: TablesAccountDeps): Promise<Record<TablesCollection, Json[]>>;
+  /** Hard deletes the bases the subject owns and the rows it wrote elsewhere. Counts by the same collection names. */
+  eraseAccount(subject: Actor, deps: TablesAccountDeps): Promise<Record<TablesCollection, number>>;
 }
 
-// The export has collections only: no format, version, or time. The host's manifest holds the time.
 // Through JSON, so the records are what a file would hold: a key with no value is dropped, not left as `undefined`.
 const plain = (value: unknown): Json[] => JSON.parse(JSON.stringify(value)) as Json[];
 
-// A host that passes no tables fails with a clear error, not a TypeError.
-const need = (deps: TablesAccountDeps): Tables => {
-  if (typeof deps?.tables?.exportOwnerData !== "function") throw new Error("tablesAccount needs deps.tables");
-  return deps.tables;
-};
+/** The guarded view of the subject. A context for anyone else is refused: it would export or erase their data. */
+function guardedFor(subject: Actor, deps: TablesAccountDeps) {
+  const { tables, sharing, ctx } = deps ?? ({} as Partial<TablesAccountDeps>);
+  if (typeof tables?.exportOwnerData !== "function" || typeof tables.eraseOwnerData !== "function" || typeof sharing?.can !== "function") throw new Error("tablesAccount needs deps.tables and deps.sharing");
+  const known = (PRINCIPAL_KINDS as readonly unknown[]).includes(subject?.kind);
+  if (typeof subject?.id !== "string" || subject.id === "" || !known) throw new Error("subject needs an id and a known kind");
+  const root = ctx?.chain?.[0];
+  if (ctx?.chain?.length !== 1 || root?.id !== subject.id || root.kind !== subject.kind || ctx.principalId !== subject.id || ctx.kind !== subject.kind) throw new Error("context does not match the subject");
+  return createGuarded(tables, sharing)(ctx);
+}
 
 export const tablesAccount: TablesAccount = {
   id: "tables",
   async exportAccount(subject, deps) {
-    const out = await need(deps).exportOwnerData(subject);
+    const out = await guardedFor(subject, deps).exportMyData();
     return {
       bases: plain(out.bases.map((b) => b.base)),
       tables: plain(out.bases.flatMap((b) => b.tables)),
@@ -40,7 +55,7 @@ export const tablesAccount: TablesAccount = {
     };
   },
   async eraseAccount(subject, deps) {
-    const { bases, tables: tableCount, views, rows, authoredRows } = await need(deps).eraseOwnerData(subject);
-    return { bases, tables: tableCount, views, rows, authored_rows: authoredRows };
+    const { bases, tables, views, rows, authoredRows } = await guardedFor(subject, deps).eraseMyData();
+    return { bases, tables, views, rows, authored_rows: authoredRows };
   },
 };
