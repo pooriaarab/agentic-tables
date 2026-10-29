@@ -15,6 +15,8 @@
 // 11. A revoke on a base removes some table grants, then fails: a self-revoke, a missing scope, a bad subject id.
 // 12. A body names a link field twice, an empty list under one key and a row id under the other. Clearing a link with null or [] needs the right to read the linked table.
 //  9. An agent that acts for a person exports or erases that person's data.
+// 14. Two claims of one base at the same time: one of them answers 404 instead of success.
+// 15. A base gets another owner kind while a claim runs: the claim must refuse, and must not overwrite the kind.
 import { createMemoryStore, createSharing } from "agentic-identity";
 import { beforeEach, describe, expect, test } from "vitest";
 import { createTables } from "./index.js";
@@ -288,35 +290,78 @@ describe("a base from an earlier version", () => {
     expect((await call("GET", `/tables/${table.id}/rows`, ada)).status).toBe(200);
   });
 
+  // Makes a base look like one from an earlier version: no owner kind. The store still holds its sharing record.
+  async function makeLegacy(baseId: string): Promise<void> {
+    const { ownerKind: _kind, ...legacy } = (await store.get("bases", baseId))!;
+    await store.put("bases", baseId, legacy);
+  }
+
+  // A store whose first read of `bases` runs `during` before it returns. That read is the claim's legacy-list check.
+  function racingStore(during: () => Promise<void>): typeof store {
+    let started = false;
+    return {
+      ...store,
+      query: async (...args: Parameters<typeof store.query>) => {
+        const page = await store.query(...args);
+        if (args[0] === "bases" && !started) {
+          started = true;
+          await during();
+        }
+        return page;
+      },
+    } as typeof store;
+  }
+
   // Failure case, written before the fix: two claims of one base by the same owner. The duplicate starts after the first has read the
   // legacy list and before the first writes the owner kind. The first claim then finds the kind already set and answers 404.
   test("a duplicate claim that races the first one returns success", async () => {
     const raw = createTables(store);
     const old = await raw.createBase("old", { id: "ada", kind: "human" });
     const table = await raw.createTable(old.id, "T", [{ name: "N", type: "text" }]);
-    const { ownerKind: _kind, ...legacy } = (await store.get("bases", old.id))!;
-    await store.put("bases", old.id, legacy);
+    await makeLegacy(old.id);
 
     // The first claim reads the legacy list, then the duplicate runs its whole claim before the first one writes.
     let duplicate: { status: number; body: any } | undefined;
-    let started = false;
-    const racing = {
-      ...store,
-      query: async (...args: Parameters<typeof store.query>) => {
-        const page = await store.query(...args);
-        if (args[0] === "bases" && !started) {
-          started = true;
-          duplicate = await call("POST", `/bases/${old.id}/claim`, ada);
-        }
-        return page;
-      },
-    } as typeof store;
+    const racing = racingStore(async () => void (duplicate = await call("POST", `/bases/${old.id}/claim`, ada)));
     app = createApp(createTables(racing), createSharing(racing));
-
     const first = await call("POST", `/bases/${old.id}/claim`, ada);
     expect(duplicate).toMatchObject({ status: 200, body: { baseId: old.id, owner: { id: "ada", kind: "human" } } });
     expect(first).toMatchObject({ status: 200, body: { baseId: old.id, owner: { id: "ada", kind: "human" } } });
     expect((await call("GET", `/tables/${table.id}/rows`, ada)).status).toBe(200);
     expect((await call("GET", "/me/export", ada)).body.bases).toHaveLength(1);
+  });
+
+  // Failure case 14: two claims of one base start at the same time. Both answer 200 with the same result, and the base keeps one kind.
+  test("two claims at once both succeed", async () => {
+    const raw = createTables(store);
+    const old = await raw.createBase("old", { id: "ada", kind: "human" });
+    const table = await raw.createTable(old.id, "T", [{ name: "N", type: "text" }]);
+    await raw.insertRow(table.id, { N: "old row" }, { id: "ada", kind: "human" });
+    await makeLegacy(old.id);
+
+    const [first, second] = await Promise.all([call("POST", `/bases/${old.id}/claim`, ada), call("POST", `/bases/${old.id}/claim`, ada)]);
+    expect(first).toEqual({ status: 200, body: { baseId: old.id, owner: { id: "ada", kind: "human" } } });
+    expect(second).toEqual(first);
+    expect((await store.get("bases", old.id))!.ownerKind).toBe("human");
+    expect((await call("GET", `/tables/${table.id}/rows`, ada)).body.items.map((r: any) => r.values.N)).toEqual(["old row"]);
+  });
+
+  // Failure case 15: the base gets the kind "agent" while the human claim runs. The claim must refuse with 404 and keep "agent".
+  test("a claim with a different kind is refused during a race", async () => {
+    const raw = createTables(store);
+    const old = await raw.createBase("old", { id: "ada", kind: "human" });
+    await raw.createTable(old.id, "T", [{ name: "N", type: "text" }]);
+    await makeLegacy(old.id);
+
+    // The human claim reads the legacy list. Then an agent with the same owner id claims the base and writes its kind.
+    const agent = { "x-principal-id": "ada", "x-principal-kind": "agent" };
+    let agentClaim: { status: number; body: any } | undefined;
+    const racing = racingStore(async () => void (agentClaim = await call("POST", `/bases/${old.id}/claim`, agent)));
+    app = createApp(createTables(racing), createSharing(racing));
+
+    const human = await call("POST", `/bases/${old.id}/claim`, ada);
+    expect(agentClaim).toMatchObject({ status: 200, body: { owner: { id: "ada", kind: "agent" } } });
+    expect(human).toMatchObject({ status: 404, body: { error: { code: "NOT_FOUND" } } });
+    expect((await store.get("bases", old.id))!.ownerKind).toBe("agent");
   });
 });
