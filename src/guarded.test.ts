@@ -10,6 +10,9 @@
 //  6. A person is revoked on a base and keeps the owner role on a table they made.
 //  7. A caller gave a base away, and the rows they wrote there are neither exported nor erased.
 //  8. A caller with a role on table A inserts a link value and learns that a row of table B exists.
+// 10. Export with a base:read credential answers 200 with no bases.
+// 11. A revoke on a base removes some table grants, then fails: a self-revoke, a missing scope, a bad subject id.
+// 12. Clearing a link with null or [] needs the right to read the linked table.
 //  9. An agent that acts for a person exports or erases that person's data.
 import { createMemoryStore, createSharing } from "agentic-identity";
 import { beforeEach, describe, expect, test } from "vitest";
@@ -56,7 +59,9 @@ describe("export and erase", () => {
     await adaBase();
     expect((await call("DELETE", "/me/data", person("ada", "table:read"))).status).toBe(403);
     expect((await call("GET", "/me/export", person("ada", "table:comment"))).status).toBe(403);
-    expect((await call("GET", "/me/export", person("ada", "base:read"))).status).toBe(200);
+    // Export needs the same scope as erase: with less, it must not answer 200 with an empty list.
+    expect((await call("GET", "/me/export", person("ada", "base:read"))).status).toBe(403);
+    expect((await call("GET", "/me/export", person("ada", "base:admin"))).body.bases).toHaveLength(1);
     expect((await call("GET", "/bases", ada)).body.items).toHaveLength(1);
   });
 });
@@ -176,5 +181,34 @@ describe("an agent that acts for a person", () => {
     const fake = await call("GET", `/views/view_0000000000000000/rows`, narrow);
     expect([real.status, fake.status]).toEqual([403, 403]);
     expect(real.body).toEqual(fake.body);
+  });
+});
+
+describe("a revoke on a base", () => {
+  test("changes nothing when it must fail, and says why", async () => {
+    const { base, a } = await adaBase();
+    await call("PUT", `/bases/${base.id}/members/bob`, ada, { role: "owner" });
+    const bobs = (await call("POST", `/bases/${base.id}/tables`, bob, { name: "Bobs" })).body;
+    // Leaving yourself from a base with tables is refused before any grant is touched.
+    const self = await call("DELETE", `/bases/${base.id}/members/bob`, bob);
+    expect([self.status, self.body.error.code]).toEqual([400, "BAD_REQUEST"]);
+    expect((await call("GET", `/tables/${bobs.id}`, bob)).status).toBe(200);
+    // A credential that cannot admin tables is refused with 403, not 500, and nothing is revoked.
+    const scoped = await call("DELETE", `/bases/${base.id}/members/bob`, person("ada", "base:admin"));
+    expect([scoped.status, scoped.body.error.code]).toEqual([403, "FORBIDDEN"]);
+    expect((await call("GET", `/tables/${bobs.id}`, bob)).status).toBe(200);
+    expect((await call("GET", `/tables/${a.id}`, bob)).status).toBe(200);
+    // A subject id that grant would refuse is a 400 here too.
+    for (const bad of ["a%2Fb", "x".repeat(250), "x%20y"]) expect((await call("DELETE", `/bases/${base.id}/members/${bad}`, ada)).status).toBe(400);
+  });
+});
+
+describe("clearing a link", () => {
+  test("names no row, so it needs no right on the linked table", async () => {
+    const { a, b } = await adaBase();
+    await call("POST", `/tables/${a.id}/fields`, ada, { name: "L", type: "link", linkTable: b.id });
+    const row = (await call("POST", `/tables/${a.id}/rows`, ada, { values: { N: "x" } })).body;
+    await call("PUT", `/tables/${a.id}/members/eve`, ada, { role: "editor" });
+    for (const empty of [null, []]) expect((await call("PATCH", `/rows/${row.id}`, eve, { values: { L: empty } })).status).toBe(200);
   });
 });
