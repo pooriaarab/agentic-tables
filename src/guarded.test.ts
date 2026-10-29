@@ -287,4 +287,36 @@ describe("a base from an earlier version", () => {
     expect((await call("POST", `/bases/${old.id}/claim`, ada)).status).toBe(200);
     expect((await call("GET", `/tables/${table.id}/rows`, ada)).status).toBe(200);
   });
+
+  // Failure case, written before the fix: two claims of one base by the same owner. The duplicate starts after the first has read the
+  // legacy list and before the first writes the owner kind. The first claim then finds the kind already set and answers 404.
+  test("a duplicate claim that races the first one returns success", async () => {
+    const raw = createTables(store);
+    const old = await raw.createBase("old", { id: "ada", kind: "human" });
+    const table = await raw.createTable(old.id, "T", [{ name: "N", type: "text" }]);
+    const { ownerKind: _kind, ...legacy } = (await store.get("bases", old.id))!;
+    await store.put("bases", old.id, legacy);
+
+    // The first claim reads the legacy list, then the duplicate runs its whole claim before the first one writes.
+    let duplicate: { status: number; body: any } | undefined;
+    let started = false;
+    const racing = {
+      ...store,
+      query: async (...args: Parameters<typeof store.query>) => {
+        const page = await store.query(...args);
+        if (args[0] === "bases" && !started) {
+          started = true;
+          duplicate = await call("POST", `/bases/${old.id}/claim`, ada);
+        }
+        return page;
+      },
+    } as typeof store;
+    app = createApp(createTables(racing), createSharing(racing));
+
+    const first = await call("POST", `/bases/${old.id}/claim`, ada);
+    expect(duplicate).toMatchObject({ status: 200, body: { baseId: old.id, owner: { id: "ada", kind: "human" } } });
+    expect(first).toMatchObject({ status: 200, body: { baseId: old.id, owner: { id: "ada", kind: "human" } } });
+    expect((await call("GET", `/tables/${table.id}/rows`, ada)).status).toBe(200);
+    expect((await call("GET", "/me/export", ada)).body.bases).toHaveLength(1);
+  });
 });

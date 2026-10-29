@@ -370,12 +370,17 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     async legacyBaseIds(ownerId: string): Promise<string[]> {
       return (await all<Partial<BaseDoc>>(store, "bases", { ownerId }, "createdAt")).filter((b) => typeof b.data.ownerKind !== "string").map((b) => b.id);
     },
-    /** Record the kind of the owner of a base made by an earlier version. It fails if the base is not that owner's, or already has a kind. */
+    /**
+     * Record the kind of the owner of a base made by an earlier version. It fails if the base is not that owner's, or has a different kind.
+     * The same kind again is a no-op, so a duplicate claim that raced the first one still succeeds.
+     */
     async setLegacyBaseOwnerKind(baseId: string, owner: Actor): Promise<void> {
       assertActor(owner);
       await store.transaction(async (ops) => {
         const base = await read<Partial<BaseDoc>>(ops, "bases", baseId);
-        if (!base || base.ownerId !== owner.id || typeof base.ownerKind === "string") throw new NotFoundError(`base "${baseId}"`);
+        if (!base || base.ownerId !== owner.id) throw new NotFoundError(`base "${baseId}"`);
+        if (base.ownerKind === owner.kind) return;
+        if (typeof base.ownerKind === "string") throw new NotFoundError(`base "${baseId}"`);
         await write(ops, "bases", baseId, { ...base, ownerKind: owner.kind });
       });
     },
