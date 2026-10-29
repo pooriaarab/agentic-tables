@@ -41,6 +41,10 @@ Commands:
   share <subject> <role> --kind <human|agent> [--table <t>]  Give a person or agent a role (viewer, commenter, editor, owner) on the base, or on one table.
   unshare <subject> --kind <human|agent> [--table <t>]     Take the role back.
   shares [--table <t>] [--limit <n>] [--cursor <c>]   Print who holds a role on the base, or the roles given on one table (roles on the base also apply to it). Owner only.
+  links [--table <t>]                     Print the share links of the base, or of one table. No tokens. Owner only.
+  link <viewer|commenter|editor> [--table <t>] [--signed-in-only] [--expires-in-ms <n>]
+                                      Make a share link. Prints the token once. Owner only.
+  revoke-link <link-id> [--table <t>]      Revoke a share link. Owner only.
   invite <viewer|commenter|editor> (--email <e> | --handle <h>) [--table <t>] [--expires-in-ms <n>]
                                       Make an invite for a person (email) or an agent (handle). Prints the invite id, never the email. Owner only.
   export-data                         Print every base the actor owns, as JSON.
@@ -80,7 +84,7 @@ function parse(argv: string[]): Parsed {
       continue;
     }
     const name = token.slice(2);
-    const value = ["create", "yes", "dry-run"].includes(name) ? "true" : rest[++i];
+    const value = ["create", "yes", "dry-run", "signed-in-only"].includes(name) ? "true" : rest[++i];
     if (value === undefined) throw new UsageError(`flag --${name} needs a value`);
     flags.set(name, [...(flags.get(name) ?? []), value]);
   }
@@ -251,6 +255,23 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
       if (expiresInMs !== undefined && !Number.isInteger(expiresInMs)) throw new UsageError("--expires-in-ms must be a whole number");
       const table = flag("table") === undefined ? undefined : await ctx.table(flag("table")!);
       return ctx.tables.createInvite(table ? "table" : "base", table ? table.id : await ctx.baseId(), { role: role as Exclude<Role, "owner">, ...(flag("email") === undefined ? { handle: flag("handle") } : { email: flag("email") }), ...(expiresInMs === undefined ? {} : { expiresInMs }) });
+    }
+    case "links": {
+      const table = flag("table") === undefined ? undefined : await ctx.table(flag("table")!);
+      return ctx.tables.listLinks(table ? "table" : "base", table ? table.id : await ctx.baseId());
+    }
+    case "link": {
+      const role = need(0, "a role") as Role;
+      const invitable = ROLES.filter((r): r is Exclude<Role, "owner"> => r !== "owner");
+      if (!(invitable as Role[]).includes(role)) throw new UsageError(`role must be one of ${invitable.join(", ")}`);
+      const expiresInMs = flag("expires-in-ms") === undefined ? undefined : Number(flag("expires-in-ms"));
+      if (expiresInMs !== undefined && !Number.isInteger(expiresInMs)) throw new UsageError("--expires-in-ms must be a whole number");
+      const table = flag("table") === undefined ? undefined : await ctx.table(flag("table")!);
+      return ctx.tables.createLink(table ? "table" : "base", table ? table.id : await ctx.baseId(), { role: role as Exclude<Role, "owner">, ...(flag("signed-in-only") === undefined ? {} : { signedInOnly: true }), ...(expiresInMs === undefined ? {} : { expiresInMs }) });
+    }
+    case "revoke-link": {
+      const table = flag("table") === undefined ? undefined : await ctx.table(flag("table")!);
+      return ctx.tables.revokeLink(table ? "table" : "base", table ? table.id : await ctx.baseId(), need(0, "a link id"));
     }
     case "export-data":
       return ctx.tables.exportMyData();

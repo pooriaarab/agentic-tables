@@ -36,7 +36,7 @@ async function toRequest(req: IncomingMessage, origin: string): Promise<Request>
 
 export async function createNodeServer(options: NodeServerOptions): Promise<RunningNodeServer> {
   if (options.unsafeNoAuth !== true) throw new Error("set unsafeNoAuth: true. This server has no authentication yet");
-  const app = createUnsafeApp(createTables(options.store), createSharing(options.store));
+  const app = createUnsafeApp(createTables(options.store), createSharing(options.store), options.store);
   const host = options.host ?? "127.0.0.1";
   const server: Server = createServer((req, res) => {
     void (async () => {

@@ -1,4 +1,4 @@
-import { assertId, type Auth, type PrincipalContext, type Role, type SubjectKind } from "agentic-identity";
+import { assertId, type Auth, type PrincipalContext, type Role, type Store, type SubjectKind } from "agentic-identity";
 import { requirePrincipal } from "agentic-identity/http";
 import { Hono, type Context } from "hono";
 import { errorBody } from "./errors.js";
@@ -9,7 +9,7 @@ import { createTables, type AddFieldInput, type ChangeTypeOptions, type Tables, 
 import { MAX_BODY_BYTES, schemas } from "./schemas.js";
 import type { ZodTypeAny, z } from "zod";
 
-const STATUS: Record<string, 400 | 401 | 403 | 404 | 409 | 413 | 422> = {
+const STATUS: Record<string, 400 | 401 | 403 | 404 | 409 | 413 | 422 | 503> = {
   UNAUTHENTICATED: 401,
   FORBIDDEN: 403,
   LEGACY_BASE: 409,
@@ -19,6 +19,7 @@ const STATUS: Record<string, 400 | 401 | 403 | 404 | 409 | 413 | 422> = {
   VALIDATION_FAILED: 422,
   SCAN_LIMIT: 422,
   MIGRATION_ABORTED: 409,
+  UNAVAILABLE: 503,
 };
 
 /** Find the caller of a request, or answer for it. `createApp` uses a real `Auth`. `createUnsafeApp` trusts headers. */
@@ -44,6 +45,8 @@ export interface AppOptions {
    * A cookie write from any other origin is refused with 403.
    */
   origins?: readonly string[];
+  /** The store of `tables` and `sharing`. Listing and revoking share links read it. Without it, those routes answer 503. */
+  store?: Store;
 }
 
 /** Credentials are checked by `agentic-identity`. Each route then checks the scope of the credential for its action. */
@@ -123,16 +126,16 @@ export const loggable = (error: unknown): string => (error instanceof Error ? (L
  */
 export function createApp(tables: Tables, sharing: Sharing, auth: Auth, options: AppOptions = {}) {
   if (typeof auth?.authenticate !== "function") throw new TypeError("createApp needs an Auth as its third argument, such as createStoreAuth(store)");
-  return build(tables, sharing, verified(auth, options));
+  return build(tables, sharing, verified(auth, options), options.store);
 }
 
 /** The API with the caller read from `x-principal-*` headers that nothing checks. For a server on this machine and for tests. */
-export function createUnsafeApp(tables: Tables, sharing: Sharing) {
-  return build(tables, sharing, trusted);
+export function createUnsafeApp(tables: Tables, sharing: Sharing, store?: Store) {
+  return build(tables, sharing, trusted, store);
 }
 
-function build(tables: Tables, sharing: Sharing, authenticate: Authenticate) {
-  const guard = createGuarded(tables, sharing);
+function build(tables: Tables, sharing: Sharing, authenticate: Authenticate, store?: Store) {
+  const guard = createGuarded(tables, sharing, store);
   const api = new Hono<{ Variables: { caller: PrincipalContext } }>().basePath("/api/v1/tables");
   // Every route needs a caller, so nothing below runs without one.
   api.use("*", async (c, next) => {
@@ -233,6 +236,12 @@ function build(tables: Tables, sharing: Sharing, authenticate: Authenticate) {
       await (await as(c)).revokeGrant(type, idParam(c, param), subjectOf(c));
       return c.json({ resourceId: idParam(c, param), subjectKind: subjectOf(c).kind, subjectId: subjectOf(c).id });
     });
+    api.get(`/${kind}/members`, async (c) => c.json(await (await as(c)).listGrants(type, idParam(c, param), pageOf(c))));
+    api.post(`/${kind}/invites`, async (c) => c.json(await (await as(c)).createInvite(type, idParam(c, param), (await jsonBody(c, schemas.invite)) as never), 201));
+    // Share links. The token shows once, in the answer of the create. A list never holds it.
+    api.get(`/${kind}/links`, async (c) => c.json(await (await as(c)).listLinks(type, idParam(c, param))));
+    api.post(`/${kind}/links`, async (c) => c.json(await (await as(c)).createLink(type, idParam(c, param), (await jsonBody(c, schemas.link)) as never), 201));
+    api.delete(`/${kind}/links/:linkId`, async (c) => c.json(await (await as(c)).revokeLink(type, idParam(c, param), idParam(c, "linkId"))));
   }
 
   return api;
