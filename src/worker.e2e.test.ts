@@ -10,10 +10,10 @@ import { startWorker, type RunningWorker } from "./wrangler-harness.js";
 const PORT = 18788;
 const BASE = `http://127.0.0.1:${PORT}/api/v1/tables`;
 const HUMAN = { "x-principal-id": "ada", "x-principal-kind": "human" };
-const BOT = { "x-principal-id": "bot-1", "x-principal-kind": "agent_of_human" };
+const BOT = { "x-principal-id": "bot-1", "x-principal-kind": "agent_of_human", "x-principal-chain": "human:ada" };
 const steps: { step: string; status: number }[] = [];
 
-async function call(method: string, path: string, headers: Record<string, string> = {}, body?: unknown, raw?: string) {
+async function call(method: string, path: string, headers: Record<string, string> = HUMAN, body?: unknown, raw?: string) {
   const response = await fetch(`${BASE}${path}`, {
     method,
     headers: { ...(body === undefined && raw === undefined ? {} : { "content-type": "application/json" }), ...headers },
@@ -139,7 +139,8 @@ describe("tables Worker over wrangler dev", () => {
     expect(JSON.stringify(adaExport)).not.toContain("Secret");
     expect(adaExport.bases.some((b: any) => b.base.id === mine.base.id && b.rows[0].values.Name === "Mine" && b.rows[0].createdBy.kind === "agent_of_human")).toBe(true);
 
-    // Eve also wrote a row in Ada's base. Export and erase for Eve cover it, and Ada's other rows stay.
+    // Eve also wrote a row in Ada's base, as an editor on that table. Export and erase for Eve cover it, and Ada's other rows stay.
+    expect((await call("PUT", `/tables/${mine.table.id}/members/eve`, HUMAN, { role: "editor" })).status).toBe(200);
     await call("POST", `/tables/${mine.table.id}/rows`, eve, { values: { Name: "Eve was here" } });
     expect((await call("GET", "/me/export", eve)).body.authoredRows.map((r: any) => r.values.Name)).toEqual(["Eve was here"]);
     expect((await call("GET", "/me/export", HUMAN)).body.authoredRows).toEqual([]);
@@ -148,8 +149,75 @@ describe("tables Worker over wrangler dev", () => {
     expect(erased.body).toEqual({ bases: 1, tables: 1, rows: 0, views: 0, authoredRows: 1 });
     expect((await call("GET", `/tables/${mine.table.id}/rows`)).body.items.map((r: any) => r.values.Name)).toEqual(["Mine"]);
     expect((await call("GET", "/me/export", eve)).body.bases).toEqual([]);
-    expect((await call("GET", `/bases/${theirs.id}/tables`)).body.items).toEqual([]);
+    expect((await call("GET", `/bases/${theirs.id}/tables`)).status).toBe(404);
     expect((await call("GET", `/tables/${mine.table.id}`)).status).toBe(200);
+  });
+
+  // Roles from agentic-identity: viewer < commenter < editor < owner. A role on a base passes down to its tables.
+  // Reading needs viewer, rows and views need editor, a schema change or a delete needs owner. No role: not found.
+  test("checks roles: a viewer cannot write, an agent is cut down by its scopes, a stranger sees nothing", async () => {
+    const { base, table } = await makePeople();
+    const person = (id: string) => ({ "x-principal-id": id, "x-principal-kind": "human" });
+    const [vic, eve, stranger] = [person("vic"), person("eve"), person("stranger")];
+    const row = (await call("POST", `/tables/${table.id}/rows`, HUMAN, { values: { Name: "Ada" } })).body;
+    const rows = `/tables/${table.id}/rows`;
+    const status = async (method: string, path: string, who: Record<string, string>, body?: unknown) => (await call(method, path, who, body)).status;
+
+    // A stranger learns nothing: not the base, not the table, not the row.
+    expect(await status("GET", rows, stranger)).toBe(404);
+    expect(await status("GET", `/rows/${row.id}`, stranger)).toBe(404);
+    expect(await status("POST", rows, stranger, { values: { Name: "x" } })).toBe(404);
+    expect((await call("GET", "/bases", stranger)).body.items).toEqual([]);
+    // Only an owner shares.
+    expect(await status("PUT", `/bases/${base.id}/members/vic`, stranger, { role: "viewer" })).toBe(404);
+    expect(await status("PUT", `/bases/${base.id}/members/vic`, HUMAN, { role: "boss" })).toBe(400);
+
+    // A viewer on the base reads its tables and rows, and cannot change anything.
+    expect(await status("PUT", `/bases/${base.id}/members/vic`, HUMAN, { role: "viewer" })).toBe(200);
+    expect(await status("GET", rows, vic)).toBe(200);
+    expect(await status("GET", `/rows/${row.id}`, vic)).toBe(200);
+    expect((await call("GET", "/bases", vic)).body.items.map((b: any) => b.id)).toEqual([base.id]);
+    const denied = [
+      await call("POST", rows, vic, { values: { Name: "Vic was here" } }),
+      await call("PATCH", `/rows/${row.id}`, vic, { values: { Name: "Changed" } }),
+      await call("DELETE", `/rows/${row.id}`, vic),
+      await call("POST", `/tables/${table.id}/views`, vic, { name: "V", kind: "grid" }),
+      await call("POST", `/tables/${table.id}/fields`, vic, { name: "F", type: "text" }),
+      await call("POST", `/bases/${base.id}/tables`, vic, { name: "T2" }),
+      await call("DELETE", `/tables/${table.id}`, vic),
+      await call("DELETE", `/bases/${base.id}`, vic),
+      await call("PUT", `/bases/${base.id}/members/eve`, vic, { role: "owner" }),
+    ];
+    expect(denied.map((r) => [r.status, r.body.error.code])).toEqual(Array(9).fill([403, "FORBIDDEN"]));
+    const after = (await call("GET", rows, HUMAN)).body.items;
+    expect(after.map((r: any) => r.values.Name)).toEqual(["Ada"]);
+    expect((await call("GET", `/bases/${base.id}/tables`, HUMAN)).body.items).toHaveLength(1);
+
+    // An editor on the table writes rows, and still cannot change the schema or share.
+    expect(await status("PUT", `/tables/${table.id}/members/eve`, HUMAN, { role: "editor" })).toBe(200);
+    expect(await status("POST", rows, eve, { values: { Name: "Eve" } })).toBe(201);
+    expect(await status("POST", `/tables/${table.id}/fields`, eve, { name: "F", type: "text" })).toBe(403);
+    expect(await status("PUT", `/tables/${table.id}/members/vic`, eve, { role: "editor" })).toBe(403);
+    expect(await status("GET", `/bases/${base.id}/tables`, eve)).toBe(404);
+
+    // An agent acts with the role of its owner, cut down by its scopes. It can never exceed either.
+    const agent = (scopes?: string) => ({ "x-principal-id": "bot-2", "x-principal-kind": "agent_of_human", "x-principal-chain": "human:ada", ...(scopes ? { "x-principal-scopes": scopes } : {}) });
+    expect(await status("POST", rows, agent(), { values: { Name: "Bot" } })).toBe(201);
+    expect(await status("GET", rows, agent("table:read,base:read"))).toBe(200);
+    const narrowed = await call("POST", rows, agent("table:read"), { values: { Name: "Bot again" } });
+    expect([narrowed.status, narrowed.body.error.code]).toEqual([403, "FORBIDDEN"]);
+    expect(await status("POST", rows, { ...agent(), "x-principal-chain": "human:vic" }, { values: { Name: "Bot of vic" } })).toBe(403);
+    expect(await status("POST", rows, { ...agent(), "x-principal-chain": "agent_of_human:nobody" }, { values: { Name: "x" } })).toBe(401);
+    // The row shows who wrote it: the agent, not its owner.
+    const written = (await call("GET", `${rows}?sort=Name`, HUMAN)).body.items.find((r: any) => r.values.Name === "Bot");
+    expect(written.createdBy).toEqual({ id: "bot-2", kind: "agent_of_human" });
+    // An agent cannot export or erase its owner's data.
+    expect(await status("DELETE", "/me/data", agent())).toBe(403);
+    expect(await status("GET", "/me/export", agent())).toBe(403);
+
+    // Revoking takes the access away at once.
+    expect(await status("DELETE", `/bases/${base.id}/members/vic`, HUMAN)).toBe(200);
+    expect(await status("GET", rows, vic)).toBe(404);
   });
 
   test("refuses to serve without the unsafe flag", async () => {

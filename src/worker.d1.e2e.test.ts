@@ -12,8 +12,10 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, test } from "vitest";
-import worker from "./worker.js";
+import { afterAll, describe, expect, test, vi } from "vitest";
+import { createMemoryStore, createSharing } from "agentic-identity";
+import { createTables } from "./index.js";
+import worker, { createApp } from "./worker.js";
 import { startWorker, type RunningWorker } from "./wrangler-harness.js";
 
 const A = 18790;
@@ -81,6 +83,10 @@ describe("two Workers on one D1 database", () => {
     expect((await call(again, "GET", "/rows/__secret__")).status).toBe(404);
     expect((await call(again, "GET", "/tables/__secret__/rows")).status).toBe(404);
     expect(again.log()).not.toContain("invalid id");
+
+    // D1 refuses to bind an object, so a cursor that decodes to one must be an invalid cursor, not a 500.
+    const object = Buffer.from(JSON.stringify([{ a: 1 }, "x"])).toString("base64url");
+    expect((await call(again, "GET", `/tables/${table.id}/rows?cursor=${object}`)).status).toBe(400);
   }, 360_000);
 
   test("refuses to serve without a region claim, in a real Worker", async () => {
@@ -104,5 +110,26 @@ describe("two Workers on one D1 database", () => {
   ])("answers 500 MISCONFIGURED with %s", async (_name, env) => {
     const res = await worker.fetch(new Request("http://x/api/v1/tables/bases"), env as never);
     expect([res.status, ((await res.json()) as any).error.code]).toEqual([500, "MISCONFIGURED"]);
+  });
+
+  // The handler writes the failure of a store to the log. The log never holds the caller's input.
+  test("logs no caller text when the store fails, and answers 503 when the database is not ready", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const boom = () => Promise.reject(new Error('invalid id "secret@example.com"'));
+      const store = { ...createMemoryStore({ region: "eu" }), query: boom, get: boom };
+      const failed = await createApp(createTables(store as never), createSharing(store as never)).fetch(new Request("http://x/api/v1/tables/bases", { headers: ADA }));
+      expect(failed.status).toBe(500);
+
+      const db = { prepare: () => ({ run: boom }) };
+      const env = { AGENTIC_TABLES_UNSAFE_NO_AUTH: "1", AGENTIC_TABLES_REGION: "eu", DB: db };
+      const res = await worker.fetch(new Request("http://x/api/v1/tables/bases"), env as never);
+      const body = JSON.stringify(await res.json());
+      expect([res.status, body]).toEqual([503, expect.not.stringContaining("secret@example.com")]);
+      expect(log.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(JSON.stringify(log.mock.calls)).not.toContain("secret@example.com");
+    } finally {
+      log.mockRestore();
+    }
   });
 });

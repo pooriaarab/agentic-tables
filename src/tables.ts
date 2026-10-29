@@ -16,7 +16,7 @@ import {
   TablesError,
   type Values,
 } from "./model.js";
-import type { Doc, Json, Page, Store, StoreOps } from "agentic-identity";
+import { assertId, type Doc, type Json, type Page, type Store, type StoreOps } from "agentic-identity";
 import { compareKeys, decodeCursor, encodeCursor, matches, resolveFilter, resolveSort, sortKey, type Filter, type Sort, type SortSpec } from "./query.js";
 
 interface BaseDoc {
@@ -176,6 +176,17 @@ const checkDirection = (sort: Sort | undefined, issues: Issue[]): void => {
   if (sort?.direction !== undefined && sort.direction !== "asc" && sort.direction !== "desc") issues.push({ field: "direction", code: "type", message: 'must be "asc" or "desc"' });
 };
 
+/** An id the store accepts. A value from a caller that fails this names no doc, so it is never read. */
+const isStoreId = (id: unknown): id is string => {
+  if (typeof id !== "string") return false;
+  try {
+    assertId(id);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const assertOwnerId = (ownerId: unknown): void => {
   if (typeof ownerId !== "string" || ownerId === "") throw new TablesError("BAD_REQUEST", "an owner id is required");
 };
@@ -233,7 +244,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
   const checkLinkTables = async (ops: StoreOps, baseId: string, inputs: FieldInput[], issues: Issue[]): Promise<void> => {
     for (const input of inputs) {
       if (input.type !== "link" || !input.linkTable) continue;
-      const target = await read<TableDoc>(ops, "tables", input.linkTable);
+      const target = isStoreId(input.linkTable) ? await read<TableDoc>(ops, "tables", input.linkTable) : null;
       if (target?.baseId !== baseId) issues.push({ field: input.name, code: "type", message: "linkTable must be a table in the same base" });
     }
   };
@@ -260,8 +271,8 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       if (issue) issues.push({ field: field.name, ...issue });
       else if (field.type === "link" && Array.isArray(value)) {
         for (const id of value as string[]) {
-          const target = await read<RowDoc>(ops, "rows", id);
-          if (target?.tableId !== field.linkTable) issues.push({ field: field.name, code: "link_missing", message: `row "${id}" is not in the linked table` });
+          const target = isStoreId(id) ? await read<RowDoc>(ops, "rows", id) : null;
+          if (target?.tableId !== field.linkTable) issues.push({ field: field.name, code: "link_missing", message: `row "${String(id).slice(0, 80)}" is not in the linked table` });
         }
       }
       merged[field.id] = value ?? null;
@@ -310,10 +321,11 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     return [...writes, ...doomed.map((r): Write => ["rows", r.id, null])];
   };
   /** Rows the principal wrote in bases it does not own, with the table of each. */
-  const authoredElsewhere = async (ops: StoreOps, principalId: string): Promise<{ id: string; data: RowDoc; table: TableDoc }[]> => {
+  /** `skip` holds the bases that are exported or dropped as a whole, so their rows are not counted twice. */
+  const authoredElsewhere = async (ops: StoreOps, principalId: string, skip: Set<string>): Promise<{ id: string; data: RowDoc; table: TableDoc }[]> => {
     const found: { id: string; data: RowDoc; table: TableDoc }[] = [];
     for (const base of await all<{ ownerId?: string }>(ops, "bases", {}, "createdAt")) {
-      if (base.data.ownerId === principalId) continue;
+      if (skip.has(base.id)) continue;
       for (const { id: tableId, data: table } of await all<TableDoc>(ops, "tables", { baseId: base.id }, "createdAt")) {
         for (const r of await all<RowDoc>(ops, "rows", { tableId }, "createdAt")) if (r.data.createdBy?.id === principalId) found.push({ ...r, table });
       }
@@ -359,12 +371,12 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       return (await all<BaseDoc>(store, "bases", {}, "createdAt")).map((e) => baseView(e.id, e.data));
     },
 
-    /** Export every base the principal owns, and every row it wrote in other bases, in one consistent read. Memory grows with the data. */
-    async exportOwnerData(ownerId: string): Promise<OwnerExport> {
+    /** Export every base the principal owns (or only `baseIds` of them), and every row it wrote in other bases, in one consistent read. Memory grows with the data. */
+    async exportOwnerData(ownerId: string, only: { baseIds?: string[] } = {}): Promise<OwnerExport> {
       assertOwnerId(ownerId);
       return store.transaction(async (ops) => {
         const bases: OwnerExport["bases"] = [];
-        for (const owned of await all<BaseDoc>(ops, "bases", { ownerId }, "createdAt")) {
+        for (const owned of (await all<BaseDoc>(ops, "bases", { ownerId }, "createdAt")).filter((b) => only.baseIds?.includes(b.id) ?? true)) {
           const out: OwnerExport["bases"][number] = { base: baseView(owned.id, owned.data), tables: [], views: [], rows: [] };
           for (const { id, data } of await all<TableDoc>(ops, "tables", { baseId: owned.id }, "createdAt")) {
             out.tables.push(tableView(id, data));
@@ -373,17 +385,19 @@ export function createTables(store: Store, options: TablesOptions = {}) {
           }
           bases.push(out);
         }
-        const authoredRows = (await authoredElsewhere(ops, ownerId)).map((r) => rowView(r.table, r.id, r.data));
+        const authoredRows = (await authoredElsewhere(ops, ownerId, new Set(bases.map((b) => b.base.id)))).map((r) => rowView(r.table, r.id, r.data));
         return { format: "agentic-tables-export", version: 1, exportedAt: stamp(), ownerId, bases, authoredRows };
       });
     },
-    /** Hard delete every base the principal owns and every row it wrote in other bases. No copy stays in the store. Other rows in those bases stay. */
-    async eraseOwnerData(ownerId: string): Promise<EraseSummary> {
+    /** Hard delete every base the principal owns (or only `baseIds` of them) and every row it wrote in other bases. No copy stays in the store. Other rows in those bases stay. */
+    async eraseOwnerData(ownerId: string, only: { baseIds?: string[] } = {}): Promise<EraseSummary> {
       assertOwnerId(ownerId);
       return store.transaction(async (ops) => {
         const total: EraseSummary = { bases: 0, tables: 0, rows: 0, views: 0, authoredRows: 0 };
         const writes: Write[] = [];
-        for (const { id } of await all<object>(ops, "bases", { ownerId }, "createdAt")) {
+        const dropped = new Set<string>();
+        for (const { id } of (await all<object>(ops, "bases", { ownerId }, "createdAt")).filter((b) => only.baseIds?.includes(b.id) ?? true)) {
+          dropped.add(id);
           const gone = await planDropBase(ops, id);
           writes.push(...gone.writes);
           total.bases += 1;
@@ -391,7 +405,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
           total.rows += gone.summary.rows;
           total.views += gone.summary.views;
         }
-        const authored = await authoredElsewhere(ops, ownerId);
+        const authored = await authoredElsewhere(ops, ownerId, dropped);
         writes.push(...(await planRemoveRows(ops, authored)));
         total.authoredRows = authored.length;
         await apply(ops, writes);
@@ -495,7 +509,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         const page = await store
           .query("rows", { where: { tableId }, orderBy: { field: spec ? spec.system : "createdAt", direction }, limit, cursor: q.cursor })
           .catch((error: unknown) => {
-            throw q.cursor !== undefined && error instanceof Error && error.message === "invalid cursor" ? new TablesError("INVALID_CURSOR", "invalid cursor") : error;
+            throw q.cursor !== undefined && error instanceof Error && /^(invalid cursor|D1_TYPE_ERROR)/.test(error.message) ? new TablesError("INVALID_CURSOR", "invalid cursor") : error;
           });
         return { items: page.items.map((e) => rowView(doc, e.id, e.data as unknown as RowDoc)), ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}), plan: "store" };
       }
@@ -544,6 +558,11 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         await apply(ops, [["views", id, { ...rest, createdAt: stamp() }], ["tables", tableId, bump(doc)]]);
         return view;
       });
+    },
+    async getView(viewId: string): Promise<View> {
+      const view = await read<Omit<View, "id">>(store, "views", viewId);
+      if (!view) throw new NotFoundError(`view "${viewId}"`);
+      return { id: viewId, ...view };
     },
     async listViews(tableId: string): Promise<View[]> {
       return (await all<Omit<View, "id">>(store, "views", { tableId }, "createdAt")).map((e) => ({ id: e.id, ...e.data }));
@@ -602,7 +621,8 @@ export function createTables(store: Store, options: TablesOptions = {}) {
           if (bad) issues.push({ field: field.name, ...bad });
           else if (field.type === "link" && Array.isArray(fill)) {
             for (const id of fill as string[]) {
-              if ((await read<RowDoc>(ops, "rows", id))?.tableId !== field.linkTable) issues.push({ field: field.name, code: "link_missing", message: `row "${id}" is not in the linked table` });
+              const target = isStoreId(id) ? await read<RowDoc>(ops, "rows", id) : null;
+              if (target?.tableId !== field.linkTable) issues.push({ field: field.name, code: "link_missing", message: `row "${String(id).slice(0, 80)}" is not in the linked table` });
             }
           }
         } else if (field.required && rows.length > 0) {

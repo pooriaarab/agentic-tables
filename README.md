@@ -98,11 +98,28 @@ npx wrangler dev --var AGENTIC_TABLES_UNSAFE_NO_AUTH:1 --var AGENTIC_TABLES_REGI
 curl -X POST localhost:8787/api/v1/tables/bases -H 'x-principal-id: ada' -H 'x-principal-kind: human' -d '{"name":"Crm"}'
 ```
 
-Writes need `x-principal-id` and `x-principal-kind` (one of `human`, `agent_of_human`, `agent_of_agent`, `agent`, `user_token`). A missing or unknown kind returns `401`. The kind is kept on every row, so an agent write stays labeled.
+Every call needs `x-principal-id` and `x-principal-kind` (one of `human`, `agent_of_human`, `agent_of_agent`, `agent`, `user_token`). A missing or unknown kind returns `401`. The kind is kept on every row, so an agent write stays labeled. These headers stand in for sign-in until the identity package has it: nothing proves them.
+
+- `x-principal-chain`: who the caller acts for, root first, as `human:ada` or `agent:a1,agent_of_agent:a2`. An agent of a person needs it. `resolveChain` from `agentic-identity` checks the parent kinds and the depth.
+- `x-principal-scopes`: what the caller may do, as `table:read,base:read`. It defaults to everything. A caller never has more than its owner's role.
+
+## Access
+
+A base and a table are shared resources, and a table sits inside its base. Roles come from `agentic-identity`: viewer, commenter, editor, owner. A role on a base passes down to its tables. The person who creates a base owns it. An agent that acts for a person has the role of that person, cut down by its scopes.
+
+| Role | Can |
+| --- | --- |
+| viewer | Read bases, tables, rows, and views. |
+| editor | Also insert, change, and delete rows, and create and delete views. |
+| owner | Also create a table, change a schema (fields, types, options, required), delete a table or a base, and share. A link field also needs the right to read the table it points at. |
+
+Every call checks the role with `can()`, which writes an audit entry for each allow and each deny. A caller with no role gets `404`, the same answer as for an id that does not exist. A link value names a row, so it needs the right to read the linked table. A caller with a role that is too low, or a credential with too few scopes, gets `403` `FORBIDDEN`. `PUT /bases/:baseId/members/:subjectId` and `PUT /tables/:tableId/members/:subjectId` take `{"role": "viewer"}` and grant a role. `DELETE` on the same path takes it back. A comment role exists, but no route needs it yet.
+
+`GET /me/export` and `DELETE /me/data` work only for a person or an agent with its own identity, and need the `base:admin` scope, because they act on the bases the caller owns. An agent that acts for a person gets `403`: it must not export or erase its owner's data. They touch the bases the caller created and still holds the owner role on. A base the caller gave away is not theirs to erase. They also cover every row the caller wrote in any other base, whatever the caller's role is now: a person may take back what they wrote. The export holds those rows as they are now, with the values that others wrote in them.
 
 | Route | Use it for |
 | --- | --- |
-| `POST /bases`, `GET /bases` | Create and list bases. |
+| `POST /bases`, `GET /bases` | Create and list bases. The list holds the bases the caller can read. |
 | `POST /bases/:baseId/tables`, `GET /bases/:baseId/tables`, `GET /tables/:tableId` | Create, list, and read tables. |
 | `POST /tables/:tableId/fields`, `PATCH` and `DELETE /tables/:tableId/fields/:field`, `POST /tables/:tableId/fields/:field/type` | Add, rename, delete, and retype a field. The retype body takes `dryRun` and `onFailure`. |
 | `PUT /tables/:tableId/fields/:field/required` | Set `required`. A `409` lists the rows with no value. Add `dryRun` to only list them. |
@@ -113,7 +130,7 @@ Writes need `x-principal-id` and `x-principal-kind` (one of `human`, `agent_of_h
 | `GET`, `PATCH`, `DELETE /rows/:rowId` | Read, change, and delete a row. |
 | `POST` and `GET /tables/:tableId/views`, `GET /views/:viewId/rows`, `DELETE /views/:viewId` | Saved views. |
 
-A failure returns `{"error":{"code","message","issues"}}`: `422` for a validation failure, `409` for a migration that would lose data (the body holds the report), `404`, `400`, or `401`.
+A failure returns `{"error":{"code","message","issues"}}`: `422` for a validation failure, `409` for a migration that would lose data (the body holds the report), `404`, `403`, `400`, or `401`.
 
 ## Your data (GDPR)
 
@@ -133,12 +150,13 @@ The result of a hard delete counts what it removed: `bases`, `tables`, `views`, 
 
 The CLI, MCP, and HTTP actions act for the actor of the call only. In the unsafe mode the HTTP actor comes from an unchecked header, so anyone can name any id. The CLI and MCP give each actor id its own default base, so two actors on one file never share data by accident. Set `AGENTIC_TABLES_BASE` to a base id to work in a shared base. A base made before owners existed has no owner. It is never exported and never erased as a whole, but rows that the principal wrote in it are.
 
-Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`) when another principal wrote them. File refs hold blob keys, and erase does not remove the blobs. A file store rewrite does not wipe old file blocks or backups. There is no audit log of access, and there is no retention setting. Agents that act for a person own data under their own id until the principal chain lands. The export holds all data in memory, so a very large export needs a streaming version later.
+Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`) when another principal wrote them. File refs hold blob keys, and erase does not remove the blobs. A file store rewrite does not wipe old file blocks or backups. There is no retention setting. Rows that an agent writes for a person carry the id of the agent, so the person cannot export or erase them and the agent cannot either (it gets `403`). Erase keeps the audit entries that `can()` wrote and the sharing records: they hold ids, kinds, and roles, and no row content. The export holds all data in memory, so a very large export needs a streaming version later.
 
 ## Limits
 
 - A schema change runs in one store transaction. A very large table can exceed the transaction size of a backend.
 - Deleting a table or a base runs in one store transaction. A very large one can exceed the transaction size of a backend. The CLI and MCP server cannot delete a base yet. The library and HTTP API can.
+- Deleting a base or a table leaves its sharing records (the resource and its grants) in the store. They hold ids and roles only. `agentic-identity` 0.1.0 has no call to remove them. Listing bases checks each base, so it grows with the number of bases and writes an audit entry per check. Roles pass to a base or a table, not to a single row. Whoever creates a table owns it. Revoking a person on a base also revokes them on each table in it (the revoker becomes a direct owner of each table first, so the person is never its last owner). It needs the `table:admin` scope too. You cannot remove yourself from a base that has tables: ask another owner. If a step fails, call again. The CLI and the MCP server do not check roles yet.
 - A filter on a field value reads the whole table (up to `maxScan`). An index on field values comes later.
 - On D1, a transaction is one batch of statements. A very large erase or import can exceed the limits of a D1 batch. D1 has no index for the queries this package makes, so each query scans its collection. Inserts into one table take turns, because each one bumps the table (see above).
 - The file store (`agentic-tables/file-store`) keeps one JSON file. The CLI and the MCP server can share it: each write takes a lock file, reads the file again, and renames a new file into place. Each call reads the whole file, so use it for local work. It needs one machine: it does not work on a network disk. If a process dies, its lock is taken over when the process is gone or the lock is 30 seconds old. A lock with unreadable content is never taken: remove `<db>.lock` by hand.

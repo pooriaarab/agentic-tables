@@ -1,3 +1,4 @@
+import { ROLES } from "agentic-identity";
 import { z } from "zod";
 import { FIELD_TYPES } from "./model.js";
 
@@ -37,6 +38,7 @@ export const schemas = {
       dryRun: z.boolean().optional(),
     })
     .strict(),
+  grant: z.object({ role: z.enum(ROLES) }).strict(),
   setRequired: z.object({ required: z.boolean(), dryRun: z.boolean().optional() }).strict(),
   insertRows: z
     .object({ values: values.optional(), rows: z.array(values).min(1).max(MAX_BATCH_ROWS).optional() })

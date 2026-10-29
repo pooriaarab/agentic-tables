@@ -27,6 +27,7 @@ export async function startWorker(options: { port: number; persistTo: string; va
   const exited = new Promise<void>((resolve) => server.once("exit", () => resolve()));
   // A Worker that is still running holds its port, and the next one would answer from the old process.
   const stop = async () => {
+    if (server.exitCode !== null || server.signalCode !== null) return;
     const gone = (ms: number) => Promise.race([exited.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms))]);
     // Wrangler starts workerd and esbuild. A signal to the whole group stops them too.
     const signal = (name: NodeJS.Signals) => (server.pid === undefined ? server.kill(name) : process.kill(-server.pid, name));
@@ -41,9 +42,9 @@ export async function startWorker(options: { port: number; persistTo: string; va
       await fetch(`http://127.0.0.1:${port}/api/v1/tables/bases`);
       return { log: () => log, url: `http://127.0.0.1:${port}/api/v1/tables`, stop };
     } catch {
-      if (Date.now() > deadline) {
+      if (server.exitCode !== null || server.signalCode !== null || Date.now() > deadline) {
         await stop();
-        throw new Error(`wrangler dev did not start in time. Last output: ${log}`);
+        throw new Error(`wrangler dev did not start. Last output: ${log}`);
       }
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
