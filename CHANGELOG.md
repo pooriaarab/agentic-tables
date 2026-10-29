@@ -11,7 +11,7 @@
 
 ### Fixed
 
-- The README examples for the CLI and for queries are corrected.
+- The README CLI example now runs from top to bottom. Before, it set a read-only scope before `new`, and it used a placeholder base id.
 
 ### Changed
 
