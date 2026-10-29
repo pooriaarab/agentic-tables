@@ -1,6 +1,6 @@
 import { AppShell, Button, EmptyState, PlusIcon, Select, SidebarNav, useTheme, type ThemePreference } from "agentic-design/react";
 import type { Base, Table } from "agentic-tables/client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { failure, useClient } from "./api";
 import { NewTableDialog } from "./Dialogs";
 import { TableView } from "./TableView";
@@ -11,20 +11,34 @@ type Load = { state: "loading" } | { state: "error"; message: string } | { state
 /** The table id in the URL hash, as `#/t/<id>`. */
 const routeId = () => /^#\/t\/(.+)$/.exec(location.hash)?.[1] ?? null;
 
-export function App() {
-  const client = useClient();
+/** The theme control. It needs a `ThemeProvider` above it, which sets `data-theme` on the page, so a host opts in. */
+function ThemePicker() {
   const { preference, setPreference } = useTheme();
+  return (
+    <Select label="Theme" hideLabel value={preference} onChange={(e) => setPreference(e.target.value as ThemePreference)}>
+      <option value="system">Theme: system</option>
+      <option value="light">Theme: light</option>
+      <option value="dark">Theme: dark</option>
+    </Select>
+  );
+}
+
+export function App({ themePicker = false }: { themePicker?: boolean }) {
+  const client = useClient();
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [route, setRoute] = useState(routeId());
   const [creating, setCreating] = useState(false);
 
+  const latest = useRef(0);
   const read = useCallback(async () => {
+    const mine = ++latest.current;
     try {
       // The first visit makes a base to hold the tables. Later visits use the first base.
       const base = (await client.listBases())[0] ?? (await client.createBase(DEFAULT_BASE));
-      setLoad({ state: "ready", base, tables: await client.listTables(base.id) });
+      const tables = await client.listTables(base.id);
+      if (mine === latest.current) setLoad({ state: "ready", base, tables });
     } catch (error) {
-      setLoad({ state: "error", message: failure(error) });
+      if (mine === latest.current) setLoad({ state: "error", message: failure(error) });
     }
   }, [client]);
   useEffect(() => { void read(); }, [read]);
@@ -38,11 +52,7 @@ export function App() {
   const current = tables.find((t) => t.id === route) ?? null;
   const topbar = (
     <>
-      <Select label="Theme" hideLabel value={preference} onChange={(e) => setPreference(e.target.value as ThemePreference)}>
-        <option value="system">Theme: system</option>
-        <option value="light">Theme: light</option>
-        <option value="dark">Theme: dark</option>
-      </Select>
+      {themePicker ? <ThemePicker /> : null}
       <Button onClick={() => setCreating(true)} disabled={load.state !== "ready"}><PlusIcon aria-hidden="true" /> New table</Button>
     </>
   );

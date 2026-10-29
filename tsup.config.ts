@@ -20,7 +20,6 @@ export default defineConfig({
   format: ["esm"],
   dts: true,
   clean: true,
-  loader: { ".woff2": "file" },
   define: {
     __PACK_VERSION__: JSON.stringify(pkg.version),
   },

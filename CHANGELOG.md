@@ -4,7 +4,7 @@
 
 ### Added
 
-- `agentic-tables/ui` exports `mount`, which renders the tables app into an element against a base URL and a token callback. It returns `update` and `unmount`. `agentic-tables/ui.css` holds its styles. `react` and `react-dom` are optional peer dependencies, and `agentic-design` is now a dependency.
+- `agentic-tables/ui` exports `mount`, which renders the tables app into an element against a base URL and a token callback. It returns `update` and `unmount`. `agentic-tables/ui.css` holds its styles. `react` and `react-dom` are optional peer dependencies, and `agentic-design` is now a dependency, because the UI imports it at run time.
 
 ## 0.6.0
 

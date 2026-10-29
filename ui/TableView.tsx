@@ -44,7 +44,7 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
         if (mine === latest.current) setBusy(false);
       }
     },
-    [tableId, applied, sort],
+    [client, tableId, applied, sort],
   );
   useEffect(() => {
     // Keep the old rows on screen during a reload, so a control that changed the query keeps its focus.
