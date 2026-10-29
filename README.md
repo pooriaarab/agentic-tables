@@ -103,7 +103,7 @@ The Worker needs no compatibility flags. Do not add `nodejs_compat`: the default
 
 Set `AGENTIC_TABLES_REGION` for each deploy, as in the HTTP API section. A missing `DB` binding or region answers `500`. A request with no valid token answers `401`.
 
-Run it on your machine:
+Run it on your machine (see also "Run locally" near the end of this file):
 
 ```sh
 npm ci
