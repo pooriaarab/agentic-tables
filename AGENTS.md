@@ -9,6 +9,7 @@ Typed tables that agents read and write as rows.
 - MCP: `npx agentic-tables mcp`.
 - HTTP: a Worker from `agentic-tables/worker`, under `/api/v1/tables`. It answers
   `503` until `AGENTIC_TABLES_UNSAFE_NO_AUTH=1` is set. Use that for local work only.
+  Data lives in the D1 binding `DB`. `AGENTIC_TABLES_REGION` (`eu` or `us`) must be set: there is no default.
 
 Do not call a route that `src/worker.ts` does not define.
 
