@@ -47,7 +47,7 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
     } catch (error) {
       if (error instanceof Error && error.message === "forbidden") throw new TablesError("FORBIDDEN", "your role does not allow this");
       if (error instanceof EraseRefusedError) throw new TablesError("BAD_REQUEST", error.message);
-      if (error instanceof Error && /^(invalid role|invalid subject|invalid resource|the last owner)/.test(error.message)) throw new TablesError("BAD_REQUEST", error.message);
+      if (error instanceof Error && /^(invalid role|invalid subject|invalid resource|the last owner|give an email|invalid email|invalid handle|invalid cursor|expiresInMs|limit must)/.test(error.message)) throw new TablesError("BAD_REQUEST", error.message);
       throw error;
     }
   }
@@ -198,6 +198,17 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
         await need(ctx, "admin", resourceId, type);
         checkSubject(subject);
         await shared(() => sharing.grant(ctx, resourceId, { kind: subject.kind, id: subject.id }, role));
+      },
+      /** Who holds a role on a base or a table, in id order. Needs owner. Page on with `nextCursor`. */
+      listGrants: async (type: "base" | "table", resourceId: string, page: { limit?: number; cursor?: string } = {}) => {
+        await need(ctx, "admin", resourceId, type);
+        return shared(() => sharing.listGrants(ctx, resourceId, page));
+      },
+      /** Make an invite for an email or a handle on a base or a table. Needs owner. The answer holds the invite id and never the email. */
+      createInvite: async (type: "base" | "table", resourceId: string, input: { role: Role; email?: string; handle?: string; expiresInMs?: number }) => {
+        await need(ctx, "admin", resourceId, type);
+        const { id } = await shared(() => sharing.createInvite(ctx, resourceId, input));
+        return { id, resourceId, role: input.role, for: input.email === undefined ? ("handle" as const) : ("email" as const) };
       },
       /**
        * Take a role back. On a base it also takes back the role on each table in it, such as the owner role of a table the person made.

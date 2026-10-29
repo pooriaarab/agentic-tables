@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.11.0
+## 0.12.0
 
 No breaking changes to the API. One behavior change: see Fixed.
 
@@ -11,6 +11,18 @@ No breaking changes to the API. One behavior change: see Fixed.
 ### Fixed
 
 - A required field now refuses a string of only whitespace, on insert, update, `add_field` defaults, `set_required`, and type changes. Before, `"   "` passed. Optional fields keep such a value. A row that was saved with `"   "` in a required field must get a real value before any other update to that row, which used to pass.
+
+## 0.11.0
+
+No breaking changes.
+
+### Added
+
+- **List access and invites in the CLI and MCP server.** The CLI has `shares` and `invite`. The MCP server has `list_shares` and `create_invite`. `shares` lists who holds a role on a base or, with `--table`, the roles given on one table. A role on the base also applies to its tables, and a table list does not show it. `invite` makes an invite for a person by email or for an agent by handle, with an optional lifetime. Both need the owner role. The invite answer holds the invite id and never the email. Before, the CLI and MCP server could only grant and revoke.
+
+### Changed
+
+- The `agentic-identity` dependency is now `^0.8.0`.
 
 ## 0.10.0
 
