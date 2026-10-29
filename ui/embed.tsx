@@ -14,7 +14,7 @@ export interface TablesUiOptions {
   baseUrl: string;
   /** Called before each request. Return the bearer token, or nothing to send none. A throw fails that request, and the UI shows it. */
   getToken?: () => string | undefined | Promise<string | undefined>;
-  /** The caller as principal headers. The Worker proves nothing from them yet, so use them against a local Worker only. */
+  /** The caller as principal headers. The Worker ignores them (use `getToken`). Only the Node server in unsafe mode reads them. */
   principal?: ClientPrincipal;
   /** Defaults to the global `fetch`. */
   fetch?: typeof fetch;

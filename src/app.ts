@@ -1,4 +1,5 @@
-import { assertId, type Role, type SubjectKind } from "agentic-identity";
+import { assertId, type Auth, type PrincipalContext, type Role, type SubjectKind } from "agentic-identity";
+import { requirePrincipal } from "agentic-identity/http";
 import { Hono, type Context } from "hono";
 import { errorBody } from "./errors.js";
 import { callerFromHeaders } from "./caller.js";
@@ -20,9 +21,46 @@ const STATUS: Record<string, 400 | 401 | 403 | 404 | 409 | 413 | 422> = {
   MIGRATION_ABORTED: 409,
 };
 
-// The caller comes from headers. Nothing checks these headers yet, so the Worker must not face the public
-// internet until the identity port lands. The default export refuses to serve unless AGENTIC_TABLES_UNSAFE_NO_AUTH=1.
-const contextOf = (c: Context) => callerFromHeaders((name) => c.req.header(name));
+/** Find the caller of a request, or answer for it. `createApp` uses a real `Auth`. `createUnsafeApp` trusts headers. */
+type Authenticate = (request: Request) => Promise<PrincipalContext | Response>;
+
+const REFUSALS: Record<number, { code: string; message: string }> = {
+  401: { code: "UNAUTHENTICATED", message: "send a valid credential as Authorization: Bearer <token>" },
+  403: { code: "FORBIDDEN", message: "this credential is not allowed to do this" },
+};
+
+/** Give a refusal from `requirePrincipal` the error body of this API. Its status and `www-authenticate` stay. */
+function refusal(response: Response): Response {
+  const body = REFUSALS[response.status] ?? { code: "UNAVAILABLE", message: "sign-in is not available. Try again" };
+  const headers = new Headers({ "content-type": "application/json", "cache-control": "no-store" });
+  const challenge = response.headers.get("www-authenticate");
+  if (challenge) headers.set("www-authenticate", challenge);
+  return new Response(JSON.stringify({ error: body }), { status: response.status, headers });
+}
+
+export interface AppOptions {
+  /**
+   * Origins that may send a write with a session cookie, such as `https://tables.example.com`. A bearer token needs none.
+   * A cookie write from any other origin is refused with 403.
+   */
+  origins?: readonly string[];
+}
+
+/** Credentials are checked by `agentic-identity`. Each route then checks the scope of the credential for its action. */
+const verified = (auth: Auth, options: AppOptions): Authenticate => async (request) => {
+  const found = await requirePrincipal(request, auth, { origins: options.origins });
+  return found instanceof Response ? refusal(found) : found;
+};
+
+/** Nothing proves these headers. Local work and tests only. */
+const trusted: Authenticate = async (request) => {
+  try {
+    return await callerFromHeaders((name) => request.headers.get(name) ?? undefined);
+  } catch (error) {
+    if (error instanceof TablesError) return refusal(new Response(null, { status: 401 }));
+    throw error;
+  }
+};
 
 /** Read a body with a size cap, then check it against a schema. Both failures are client errors. */
 async function jsonBody<S extends ZodTypeAny>(c: Context, schema: S): Promise<z.infer<S>> {
@@ -79,11 +117,31 @@ function pageOf(c: Context): { limit?: number; cursor?: string } {
 const LOGGABLE = /^(D1_ERROR[^"]{0,150}|transaction kept conflicting after \d+ attempts|transaction kept conflicting|the database served a query from \w+)/;
 export const loggable = (error: unknown): string => (error instanceof Error ? (LOGGABLE.exec(error.message)?.[0] ?? error.name) : "unknown");
 
-export function createApp(tables: Tables, sharing: Sharing) {
+/**
+ * The HTTP API. `auth` reads the credential of each request (`createStoreAuth` from `agentic-identity` for a Worker).
+ * A request with no valid credential gets 401. A credential without the scope of a route gets 403.
+ */
+export function createApp(tables: Tables, sharing: Sharing, auth: Auth, options: AppOptions = {}) {
+  return build(tables, sharing, verified(auth, options));
+}
+
+/** The API with the caller read from `x-principal-*` headers that nothing checks. For a server on this machine and for tests. */
+export function createUnsafeApp(tables: Tables, sharing: Sharing) {
+  return build(tables, sharing, trusted);
+}
+
+function build(tables: Tables, sharing: Sharing, authenticate: Authenticate) {
   const guard = createGuarded(tables, sharing);
-  /** The API of Tables for the caller of this request. It checks the headers and the role. */
-  const as = async (c: Context) => guard(await contextOf(c));
-  const api = new Hono().basePath("/api/v1/tables");
+  const api = new Hono<{ Variables: { caller: PrincipalContext } }>().basePath("/api/v1/tables");
+  // Every route needs a caller, so nothing below runs without one.
+  api.use("*", async (c, next) => {
+    const found = await authenticate(c.req.raw);
+    if (found instanceof Response) return found;
+    c.set("caller", found);
+    await next();
+  });
+  /** The API of Tables for the caller of this request. It checks the scope and the role. */
+  const as = async (c: Context) => guard(c.get("caller") as PrincipalContext);
 
   api.onError((error, c) => {
     if (error instanceof TablesError) return c.json(errorBody(error), STATUS[error.code] ?? 400);

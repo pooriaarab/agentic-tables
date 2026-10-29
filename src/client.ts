@@ -31,8 +31,8 @@ export class TablesClientError extends Error {
 }
 
 /**
- * The caller. The Worker reads these as headers (`x-principal-*`). Nothing proves them yet,
- * so use them against a local Worker only.
+ * The caller, as headers (`x-principal-*`). The Worker ignores them: it needs `token`. Only the Node server
+ * (`agentic-tables/node`, with `unsafeNoAuth`) reads these headers, and nothing proves them, so use them locally only.
  */
 export interface ClientPrincipal {
   id: string;
@@ -46,9 +46,9 @@ export interface ClientPrincipal {
 export interface ClientOptions {
   /** The Worker origin, such as `https://tables.example.com`. A trailing `/api/v1/tables` is accepted. */
   baseUrl: string;
-  /** Sent as `Authorization: Bearer <token>`. The Worker does not read it yet. */
+  /** Sent as `Authorization: Bearer <token>`. The Worker checks it with `agentic-identity`: no token, or a bad one, gets 401. */
   token?: string;
-  /** The caller, as principal headers. */
+  /** The caller, as principal headers. For the Node server in unsafe mode only. */
   principal?: ClientPrincipal;
   /** Defaults to the global `fetch`. */
   fetch?: typeof fetch;

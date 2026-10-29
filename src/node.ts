@@ -3,7 +3,7 @@
 // server refuses to start unless you accept that with `unsafeNoAuth: true`. Use it for local work only.
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { createSharing, type Store } from "agentic-identity";
-import { createApp } from "./app.js";
+import { createUnsafeApp } from "./app.js";
 import { createTables } from "./tables.js";
 
 export interface NodeServerOptions {
@@ -36,7 +36,7 @@ async function toRequest(req: IncomingMessage, origin: string): Promise<Request>
 
 export async function createNodeServer(options: NodeServerOptions): Promise<RunningNodeServer> {
   if (options.unsafeNoAuth !== true) throw new Error("set unsafeNoAuth: true. This server has no authentication yet");
-  const app = createApp(createTables(options.store), createSharing(options.store));
+  const app = createUnsafeApp(createTables(options.store), createSharing(options.store));
   const host = options.host ?? "127.0.0.1";
   const server: Server = createServer((req, res) => {
     void (async () => {

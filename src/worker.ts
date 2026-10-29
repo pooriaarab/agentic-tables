@@ -1,4 +1,4 @@
-import { assertRegion, createSharing, parseRegion } from "agentic-identity";
+import { assertRegion, createSharing, createStoreAuth, parseRegion } from "agentic-identity";
 import { createD1Store, D1_SCHEMA, type D1Like } from "agentic-identity/cloudflare";
 import { createApp, loggable } from "./app.js";
 import { createTables } from "./tables.js";
@@ -10,7 +10,13 @@ export interface Env {
   DB?: D1Like;
   /** Where the database lives, as a claim: "eu" or "us". The adapter checks the region D1 reports for each query. */
   AGENTIC_TABLES_REGION?: string;
-  AGENTIC_TABLES_UNSAFE_NO_AUTH?: string;
+  /**
+   * "1" for `wrangler dev` only. Local D1 reports no region, so a query that reports none counts as served in the declared one.
+   * It does not change who may call: every request still needs a credential.
+   */
+  AGENTIC_TABLES_LOCAL_DEV?: string;
+  /** Origins that may send a write with a session cookie, comma separated. A bearer token needs none. */
+  AGENTIC_TABLES_ORIGINS?: string;
 }
 
 class ConfigError extends Error {}
@@ -19,7 +25,7 @@ const LOCAL_SERVED_BY = { eu: "WEUR", us: "WNAM" } as const;
 
 /**
  * The D1 adapter checks the region that D1 reports for each query. `wrangler dev` reports none, so no
- * local run could pass. In unsafe local mode only, a query that reports no region gets the declared one.
+ * local run could pass. In local mode only (`AGENTIC_TABLES_LOCAL_DEV=1`), a query that reports no region gets the declared one.
  * A region that D1 does report is never changed.
  */
 export function reportingRegion(db: D1Like, region: "eu" | "us"): D1Like {
@@ -50,23 +56,19 @@ async function open(env: Env) {
     region = "unknown" as const;
   }
   if (region === "unknown") throw new ConfigError('set AGENTIC_TABLES_REGION to "eu" or "us"');
-  const store = createD1Store(env.AGENTIC_TABLES_UNSAFE_NO_AUTH === "1" ? reportingRegion(env.DB, region) : env.DB, { region });
+  const store = createD1Store(env.AGENTIC_TABLES_LOCAL_DEV === "1" ? reportingRegion(env.DB, region) : env.DB, { region });
   assertRegion(region, store);
   await env.DB.prepare(D1_SCHEMA).run();
-  return createApp(createTables(store), createSharing(store));
+  const origins = (env.AGENTIC_TABLES_ORIGINS ?? "").split(",").map((o) => o.trim()).filter((o) => o !== "");
+  // Credentials and principals live in the same store as the data. Issue them with `issueCredential` from agentic-identity.
+  return createApp(createTables(store), createSharing(store), createStoreAuth(store), { origins });
 }
 
 let app: ReturnType<typeof open> | undefined;
 
-// Nothing checks who calls yet. The Worker refuses every request until the operator opts in.
+// Every request needs a credential that `agentic-identity` verifies. A request with none gets 401, before any route runs.
 export default {
   async fetch(request: Request, env: Env = {}): Promise<Response> {
-    if (env.AGENTIC_TABLES_UNSAFE_NO_AUTH !== "1") {
-      return Response.json(
-        { error: { code: "UNSAFE_NOT_ENABLED", message: "this Worker has no authentication yet. Set AGENTIC_TABLES_UNSAFE_NO_AUTH=1 for local use only" } },
-        { status: 503 },
-      );
-    }
     let ready: Awaited<ReturnType<typeof open>>;
     try {
       ready = await (app ??= open(env));

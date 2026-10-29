@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Upgrading the Worker
+
+**The Worker now checks who calls. Read this before you upgrade.**
+
+- Every request needs `Authorization: Bearer <token>`. The Worker verifies the token with `createStoreAuth` from `agentic-identity` and `requirePrincipal` from `agentic-identity/http`. A missing, malformed, unknown, expired, or revoked token gets `401`. A token without the scope of the route gets `403`. The body keeps the shape `{ "error": { "code", "message" } }`, with the codes `UNAUTHENTICATED` and `FORBIDDEN`.
+- The Worker ignores the `x-principal-*` headers. A client that sent them gets `401` until it sends a token. Replace `createClient({ principal })` with `createClient({ token })`.
+- `AGENTIC_TABLES_UNSAFE_NO_AUTH` is gone. The Worker no longer answers `503` for lack of it. For `wrangler dev`, set `AGENTIC_TABLES_LOCAL_DEV=1` instead: it only fills in the region that local D1 does not report, and every request still needs a token.
+- Issue credentials with `issueCredential` from `agentic-identity`, against the same D1 table that the Worker uses (collections `credentials` and `principals`). The README has an example under "Credentials". The Worker has no route that issues one.
+- A write that rides on a session cookie needs an `Origin` that you list in `AGENTIC_TABLES_ORIGINS` (comma separated). A bearer token needs no origin.
+- The web UI that the Worker serves reads its token from the page address: open `/#token=<token>`. The page keeps it for the tab and removes it from the address bar. It no longer acts as `local-user`.
+- `createApp` from `agentic-tables/worker` takes the `Auth` as its third argument: `createApp(tables, sharing, auth, { origins })`. It no longer reads headers. The Node server (`agentic-tables/node`) is unchanged: it trusts headers and needs `unsafeNoAuth: true`.
+
 ### Changed
 
 - `agentic-tables/file-store` now wraps `createFileStore` from `agentic-identity/file`. The local copy is gone. The call `createFileStore(path, { region })` is the same. The options `lockTimeoutMs` and `staleAfterMs` are removed, because the lock timings are now fixed inside the shared adapter. It runs one call at a time on a path in one process. A call on that path made from inside a transaction on it waits for the transaction. Do not make one. A write that meets a save from another process runs again, up to 50 times, then fails with the conflict error. The file format changed: the shared adapter writes `{ format, collections }`. A file of the old shape is converted when the store opens, and an earlier version cannot read it after that. The original stays as `<db>.bak`.

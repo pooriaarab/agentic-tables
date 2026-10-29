@@ -5,11 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { seedD1 } from "./seed-d1.js";
 import { startWorker, type RunningWorker } from "./wrangler-harness.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const HUMAN = { "x-principal-id": "ada", "x-principal-kind": "human", "content-type": "application/json" };
-const VARS = ["AGENTIC_TABLES_UNSAFE_NO_AUTH:1", "AGENTIC_TABLES_REGION:eu"];
+const HUMAN = { "x-principal-id": "ada", "x-principal-kind": "human" };
+const VARS = ["AGENTIC_TABLES_LOCAL_DEV:1", "AGENTIC_TABLES_REGION:eu"];
 const dir = mkdtempSync(join(tmpdir(), "agentic-tables-flags-"));
 const workers: RunningWorker[] = [];
 
@@ -45,8 +46,11 @@ describe.each([["the repository config", "repo"], ["the built worker with a bare
   test("serves a row round trip with default flags only", async () => {
     const index = which === "repo" ? 0 : 1;
     const base = `${workers[index]!.url}`;
+    // The first request makes the table. Then ada gets a credential in the same database.
+    await fetch(`${base}/bases`);
+    const headers = { "content-type": "application/json", ...seedD1(join(dir, which === "repo" ? "a" : "b")).asBearer(HUMAN) };
     const call = async (method: string, path: string, body?: unknown) => {
-      const r = await fetch(`${base}${path}`, { method, headers: HUMAN, body: body === undefined ? undefined : JSON.stringify(body) });
+      const r = await fetch(`${base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
       return { status: r.status, body: (await r.json()) as any };
     };
     const b = await call("POST", "/bases", { name: "Crm" });
