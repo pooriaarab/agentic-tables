@@ -4,7 +4,7 @@
 
 ### Changed
 
-- `setLegacyBaseOwnerKind` on `createTables` succeeds when the base already has the same owner kind. Before, it threw `NotFoundError` for that case. It still throws `NotFoundError` when the base has a different kind, or is not the owner's. A duplicate claim that races the first one now succeeds. Code that calls this method directly must not expect the throw.
+- `setLegacyBaseOwnerKind` on `createTables` succeeds when the base already has the same owner kind. Before, it threw `NotFoundError` for that case. It still throws `NotFoundError` when the base is missing, is not the owner's, or has a different kind. A duplicate claim that races the first one now succeeds. Code that calls this method directly must not expect the throw.
 
 ## 0.2.0
 
