@@ -5,6 +5,7 @@ import { VERSION } from "./version.js";
 
 // Ways `mcp --help` can fail: it exits 2 on an unknown flag, or it starts the server and waits on stdin.
 // Each case runs the built bin with stdin left open and a bare environment (no principal).
+// The bin is also run with a leading `mcp` word, as in `agentic-tables-mcp mcp --help`.
 
 const dist = (file: string) => join(process.cwd(), "dist", file);
 
@@ -26,7 +27,7 @@ function run(file: string, args: string[]): Promise<{ code: number | null; out: 
 describe("help and version never start the server", () => {
   const cases: [string, string[], "help" | "version"][] = [];
   for (const file of ["cli.js", "mcp-bin.js"]) {
-    const prefixes = file === "cli.js" ? [[], ["mcp"]] : [[]];
+    const prefixes = [[], ["mcp"]];
     for (const prefix of prefixes) {
       for (const f of ["--help", "-h"]) cases.push([file, [...prefix, f], "help"]);
       for (const f of ["--version", "-V", "-v"]) cases.push([file, [...prefix, f], "version"]);

@@ -12,6 +12,14 @@ No breaking changes.
 - HTTP routes `GET /…/members` and `POST /…/invites` for a base and a table.
 - `createApp` takes `options.store`, and `createUnsafeApp` and `createGuarded` take a store, so the link routes can read the links. The Worker, the Node server, and the CLI pass it. Without it the link routes answer `503 UNAVAILABLE`.
 
+## 0.12.2 - 2026-10-29
+
+Patch. No change to the API.
+
+### Fixed
+
+- `agentic-tables-mcp mcp --help` and `agentic-tables-mcp mcp --version` now print and exit 0. Before, the `mcp` word started the server, and the command hung on stdin. `--help`, `-h`, `--version`, `-V`, and `-v` work with or without the `mcp` word.
+
 ## 0.12.1 - 2026-10-29
 
 No breaking changes to the API. This release also adds `tablesAccount`, listed under Added.
