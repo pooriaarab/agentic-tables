@@ -6,9 +6,10 @@ const fail = (detail: string) => new TablesError("UNAUTHENTICATED", detail);
 function parseStep(text: string): { kind: PrincipalKind; id: string } {
   const at = text.indexOf(":");
   try {
+    if (at < 1) throw new Error("no kind:id");
     return parsePrincipal({ kind: text.slice(0, at), id: text.slice(at + 1) });
   } catch {
-    throw fail(`"${text.slice(0, 40)}" must look like kind:id with kind one of ${PRINCIPAL_KINDS.join(", ")}`);
+    throw fail(`"${text.slice(0, 40)}" must look like kind:id with kind one of ${PRINCIPAL_KINDS.join(", ")} and an id of A-Z a-z 0-9 . _ -`);
   }
 }
 
@@ -32,7 +33,7 @@ export async function resolveCaller(input: CallerInput): Promise<PrincipalContex
   try {
     kind = parsePrincipal({ kind: input.kind, id }).kind;
   } catch {
-    throw fail(`name the principal as an id and a kind (one of ${PRINCIPAL_KINDS.join(", ")})`);
+    throw fail(`name the principal as an id of A-Z a-z 0-9 . _ - and a kind (one of ${PRINCIPAL_KINDS.join(", ")})`);
   }
   const ancestors = (input.chain ?? "").split(",").filter((s) => s !== "").map(parseStep);
   const everything = ["*:admin"];

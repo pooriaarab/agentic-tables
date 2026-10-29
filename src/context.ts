@@ -9,9 +9,10 @@ import { createTables } from "./tables.js";
 export function parseActor(spec: string): Actor {
   const at = spec.indexOf(":");
   try {
+    if (at < 1) throw new Error("no kind:id");
     return parsePrincipal({ kind: spec.slice(0, at), id: spec.slice(at + 1) });
   } catch {
-    throw new TablesError("USAGE", `actor must look like "kind:id" with kind one of ${PRINCIPAL_KINDS.join(", ")}`);
+    throw new TablesError("USAGE", `actor must look like "kind:id" with kind one of ${PRINCIPAL_KINDS.join(", ")} and an id of A-Z a-z 0-9 . _ -`);
   }
 }
 
