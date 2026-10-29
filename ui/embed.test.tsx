@@ -33,8 +33,8 @@ function fakeApi(tables: string[]) {
 
 const settle = () => act(async () => void (await new Promise((r) => setTimeout(r, 0))));
 
-/** The axe rules for the landmarks that the frame draws: one main, one banner, and no duplicates. */
-const LANDMARK_RULES = { runOnly: { type: "rule" as const, values: ["landmark-no-duplicate-main", "landmark-one-main", "landmark-no-duplicate-banner", "landmark-unique", "landmark-main-is-top-level"] } };
+/** The axe rules that catch a second or nested main, and a landmark out of place. Axe runs them on the host element, so the page-level rules do not apply. */
+const LANDMARK_RULES = { runOnly: { type: "rule" as const, values: ["landmark-no-duplicate-main", "landmark-main-is-top-level", "landmark-unique"] } };
 
 /** A page with its own banner and main, as a site has. The app mounts inside the main, and the slot it mounts into is returned. */
 async function mountInSitePage(options: TablesUiOptions) {
