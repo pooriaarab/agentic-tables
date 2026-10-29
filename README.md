@@ -236,15 +236,24 @@ curl -X POST localhost:8787/api/v1/tables/bases -H "authorization: Bearer $TOKEN
 - `options.origins` (optional): the origins that may send a write with a session cookie. A bearer token needs none. A cookie write from another origin answers 403.
 
 ```ts
+import type { Store } from "agentic-identity";
+import { createSharing, createStoreAuth } from "agentic-identity";
 import { createTables } from "agentic-tables";
 import { createApp } from "agentic-tables/worker";
-import { createSharing, createStoreAuth } from "agentic-identity";
 
-const app = createApp(createTables(store), createSharing(store), createStoreAuth(store), { origins: ["https://tables.example.com"] });
-export default app; // a Hono app: app.fetch(request)
+// Your code: open an agentic-identity Store on env.DB, after the setup steps below.
+declare function openStore(env: unknown): Promise<Store>;
+
+export default {
+  async fetch(request: Request, env: unknown): Promise<Response> {
+    const store = await openStore(env);
+    const app = createApp(createTables(store), createSharing(store), createStoreAuth(store), { origins: ["https://tables.example.com"] });
+    return app.fetch(request);
+  },
+};
 ```
 
-`createApp` does not open the database or check the region. The default export of `agentic-tables/worker` does both. It reads `DB`, `AGENTIC_TABLES_REGION`, and `AGENTIC_TABLES_ORIGINS`. Do the same in your Worker: run `D1_SCHEMA` from `agentic-identity/cloudflare` on the database, and check the region claim with `assertRegion` from `agentic-identity`.
+`createApp` does not open the database or check the region. The default export of `agentic-tables/worker` does both, and it reads `DB`, `AGENTIC_TABLES_REGION`, `AGENTIC_TABLES_ORIGINS`, and `AGENTIC_TABLES_LOCAL_DEV`. Do the same in your Worker: run `D1_SCHEMA` from `agentic-identity/cloudflare` on the database, and check the region claim with `assertRegion` from `agentic-identity`. Under `wrangler dev`, the local database reports no region, so the default export can wrap it with `reportingRegion` when `AGENTIC_TABLES_LOCAL_DEV=1`. `reportingRegion` is exported from `agentic-tables/worker`.
 
 ## SDK
 
