@@ -81,6 +81,9 @@ describe("tables Worker auth", () => {
       const { response, body: answer } = await send(method, path, bearer(reader), body);
       expect([method, path, response.status, answer.error.code]).toEqual([method, path, 403, "FORBIDDEN"]);
     }
+    // Listing bases needs base:read too.
+    const tableOnly = seed.issue({ id: "scope-table-only", kind: "human", scopes: ["table:read"] });
+    expect((await send("GET", "/bases", bearer(tableOnly))).response.status).toBe(403);
     // The table is intact, and the narrow agent wrote nothing.
     expect((await send("GET", `/tables/${table.id}/rows`, bearer(owner))).body.items).toEqual([]);
     const orphan = seed.issue({ id: "scope-orphan", kind: "agent_of_human", chain: [{ id: "scope-owner", kind: "agent" }] });

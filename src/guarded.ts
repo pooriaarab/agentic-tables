@@ -132,6 +132,7 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
       },
       /** The bases the caller can read. Each check writes an audit entry. */
       async listBases() {
+        scoped(ctx, "read", "base");
         const out = [];
         for (const base of await tables.listBases()) if ((await sharing.can(ctx, "read", base.id)).allowed) out.push(base);
         return out;

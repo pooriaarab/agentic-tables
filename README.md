@@ -200,13 +200,24 @@ await store.put("principals", "ada", { id: "ada", kind: "human", scopes: ["*:adm
 const token = await issueCredential(store, { principalId: "ada", kind: "api_key" });
 ```
 
+For `wrangler dev`, send one request first so the Worker makes its table. Then put a principal and a credential into the local database. A credential is stored under the SHA-256 of its token:
+
+```sh
+TOKEN="aid_$(openssl rand -hex 20)"
+HASH=$(printf %s "$TOKEN" | sha256sum | cut -d' ' -f1)
+npx wrangler d1 execute DB --local --command "
+  INSERT INTO store_docs (collection, id, body) VALUES
+    ('principals', 'local-user', '{\"id\":\"local-user\",\"kind\":\"human\",\"scopes\":[\"*:admin\"]}'),
+    ('credentials', '$HASH', '{\"principalId\":\"local-user\",\"kind\":\"api_key\"}')"
+```
+
 ```sh
 npm run build
 npx wrangler dev --var AGENTIC_TABLES_LOCAL_DEV:1 --var AGENTIC_TABLES_REGION:eu
 curl -X POST localhost:8787/api/v1/tables/bases -H "authorization: Bearer $TOKEN" -d '{"name":"Crm"}'
 ```
 
-- A missing, malformed, unknown, expired, or revoked token returns `401` with `www-authenticate: Bearer`. The body is `{ "error": { "code": "UNAUTHENTICATED" } }` and never holds the token. A header such as `x-principal-id` proves nothing and is ignored.
+- A missing, malformed, unknown, expired, or revoked token returns `401` with `www-authenticate: Bearer`. The body is `{ "error": { "code": "UNAUTHENTICATED", "message": "..." } }` and never holds the token. A header such as `x-principal-id` proves nothing and is ignored.
 - A token whose principal is an agent of a person carries that chain. Each step can only narrow the scopes of the step above it. A broken chain returns `401`.
 - Each route checks the scope of the token for its action, before it looks at any id: `base:read`, `base:write`, `base:admin`, `table:read`, `table:write`, `table:admin`. A token without it returns `403`. After that, the role on the base or table decides. A caller with no role gets `404`.
 - A session cookie (`session=<token>`) works for reads. A write with a cookie needs an `Origin` that is listed in `AGENTIC_TABLES_ORIGINS` (comma separated), else it returns `403`. A bearer token needs no origin.

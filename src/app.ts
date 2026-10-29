@@ -122,6 +122,7 @@ export const loggable = (error: unknown): string => (error instanceof Error ? (L
  * A request with no valid credential gets 401. A credential without the scope of a route gets 403.
  */
 export function createApp(tables: Tables, sharing: Sharing, auth: Auth, options: AppOptions = {}) {
+  if (typeof auth?.authenticate !== "function") throw new TypeError("createApp needs an Auth as its third argument, such as createStoreAuth(store)");
   return build(tables, sharing, verified(auth, options));
 }
 

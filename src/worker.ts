@@ -4,6 +4,7 @@ import { createApp, loggable } from "./app.js";
 import { createTables } from "./tables.js";
 
 export { createApp };
+export type { AppOptions } from "./app.js";
 
 export interface Env {
   /** The D1 database. Create it in the EU: `wrangler d1 create agentic-tables --location weur`. */
