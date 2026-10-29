@@ -261,6 +261,9 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
 export async function main(argv: string[], env = process.env): Promise<number> {
   if (argv.length === 0 || argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help") return (process.stdout.write(HELP), 0);
   if (argv[0] === "--version" || argv[0] === "-V") return (console.log(VERSION), 0);
+  // `mcp --help` and `mcp --version` answer and exit. They never start the server.
+  if (argv[0] === "mcp" && argv.slice(1).some((a) => a === "--help" || a === "-h")) return (process.stdout.write(HELP), 0);
+  if (argv[0] === "mcp" && argv.slice(1).some((a) => a === "--version" || a === "-V" || a === "-v")) return (console.log(VERSION), 0);
   try {
     const parsed = parse(argv);
     if (parsed.command === "mcp") {
