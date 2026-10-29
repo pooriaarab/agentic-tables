@@ -11,6 +11,7 @@ No breaking changes.
 - Client methods for members and invites: `listBaseMembers`, `listTableMembers`, `inviteToBase`, and `inviteToTable`. Client methods for links: `createBaseLink`, `createTableLink`, `listBaseLinks`, `listTableLinks`, `revokeBaseLink`, and `revokeTableLink`.
 - HTTP routes `GET /…/members` and `POST /…/invites` for a base and a table.
 - `createApp` takes `options.store`, and `createUnsafeApp` and `createGuarded` take a store, so the link routes can read the links. The Worker, the Node server, and the CLI pass it. Without it the link routes answer `503 UNAVAILABLE`.
+- `tablesAccount`: `exportAccount` and `eraseAccount` for a host that runs account export and erase across packages. They run on the guarded path and return plain JSON by collection and counts by collection, so the host does not read the table layout.
 
 ## 0.12.0
 

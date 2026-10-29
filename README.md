@@ -103,7 +103,7 @@ The Worker needs no compatibility flags. Do not add `nodejs_compat`: the default
 
 Set `AGENTIC_TABLES_REGION` for each deploy, as in the HTTP API section. A missing `DB` binding or region answers `500`. A request with no valid token answers `401`.
 
-Run it on your machine:
+Run it on your machine (see also "Run locally" near the end of this file):
 
 ```sh
 npm ci
@@ -355,6 +355,8 @@ The result of a hard delete counts what it removed: `bases`, `tables`, `views`, 
 
 The CLI, MCP, and HTTP actions act for the actor of the call only, and check the same roles as the HTTP API (see Access). In the unsafe mode the HTTP actor comes from unchecked headers, and the CLI and MCP actor comes from the environment, so anyone who can run the process can name any id. The CLI and MCP give each actor its own default base, so two actors on one file never share data by accident. Set `AGENTIC_TABLES_BASE` to a base id to work in a shared base: the owner shares it first.
 
+The package also gives `tablesAccount` for a host that runs account export and erase across many packages. It has `exportAccount(subject, { tables, sharing, ctx })` and `eraseAccount(subject, { tables, sharing, ctx })`. They call `exportMyData` and `eraseMyData` of the guarded path, so they keep its rules: a base with no owner kind stops the call with `LEGACY_BASE`, a base the subject gave away is left alone (a row the subject wrote in it still counts as an authored row, and is exported and erased), and the sharing records go with the data. `ctx` is the context of the subject, with one step in its chain and the scopes `base:admin` and `table:admin`. A context for someone else, or a chain with an agent, throws. The subject is an id and a kind: the host takes the kind from the signed-in principal and does not guess it. The export has plain JSON in the collections `bases`, `tables`, `views`, `rows`, and `authored_rows`, with no format or time. The erase returns a count for each of those names. The host does not read the table layout. The shape is provisional: it is the `AccountPackage` contract that a later `agentic-identity` release adds to `agentic-identity/account`. The `agentic-identity/account` of a release before it has a different contract (`AccountApp`), and `tablesAccount` does not fit that one. The export holds what the subject owns and wrote, and not the bases that others shared with them, so it is not a full list of what they can reach. Export and erase are two calls, so a row written between them is erased and not exported: stop writes first. If the erase throws `ERASE_INCOMPLETE`, the data is gone and the counts are lost, so a repeat counts zero. A base that the subject gave away is in nobody's export through this path, not even the new owner's, because the stored owner stays the subject.
+
 Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`) when another principal wrote them. File refs hold blob keys, and erase does not remove the blobs. A file store rewrite does not wipe old file blocks or backups. There is no retention setting. Rows that an agent writes for a person carry the id of the agent, so the person cannot export or erase them and the agent cannot either (it gets `403`). Erase keeps the audit entries that `can()` wrote and the sharing records: they hold ids, kinds, and roles, and no row content. The export holds all data in memory, so a very large export needs a streaming version later.
 
 ## Live demo
@@ -507,6 +509,20 @@ console.log(server.url); // http://127.0.0.1:8787/api/v1/tables
 ## Planned surfaces
 
 - **Open formats**: ODS and XLSX export next to CSV. The plan is to write both with a small zip library under a permissive license, with every cell typed (string, number, boolean, date) and no formula cells, so no cell can run as a formula. A flat `.fods` file needs no zip.
+
+## Run locally
+
+```sh
+bun install        # or: npm ci
+bun run dev        # or: npm run dev
+curl http://localhost:8787/health
+```
+
+The script builds the UI, then runs `wrangler dev` with `AGENTIC_TABLES_LOCAL_DEV=1` and `AGENTIC_TABLES_REGION=eu`. `/health` needs no token. Every other route needs one: see "Credentials" for how to issue it.
+
+The scripts call `npm` and `node` (Node 22 or newer), so install both, even if you use bun. They need a POSIX shell.
+
+Run `npm run dev:smoke` to check this path. It starts the dev server on port 8799, waits for `GET /health` to answer 200, and stops the server. CI runs it as the "dev smoke" step. Set `DEV_SMOKE_PORT` to use another port.
 
 ## Develop
 
