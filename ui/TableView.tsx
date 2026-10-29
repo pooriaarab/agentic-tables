@@ -22,11 +22,11 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
   const latest = useRef(0);
   const close = (open: boolean) => open || setDialog(null);
   const reset = () => { setDraft(NO_FILTER); setApplied(NO_FILTER); setSort({ field: "", direction: "asc" }); };
-  /** After a delete the control that had focus is gone. The title is the next sensible place, unless the person already moved focus elsewhere (a menu they opened). */
+  /** After a delete the control that had focus is gone. The title is the next sensible place, unless a menu or dialog the person opened has focus. */
   const refocus = () =>
     setTimeout(() => {
-      const active = document.activeElement;
-      if (active === null || active === document.body) document.getElementById("table-title")?.focus();
+      if (document.activeElement?.closest('[role="menu"], [role="dialog"]')) return;
+      document.getElementById("table-title")?.focus();
     }, 80);
 
   const read = useCallback(
