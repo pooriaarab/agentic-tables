@@ -6,7 +6,7 @@ Keywords: database,tables,airtable,rows,schema,agents,mcp,cli,structured-data.
 
 - SDK: import { createTables } from "agentic-tables", with a Store from "agentic-identity".
 - Remote SDK: import { createClient } from "agentic-tables/client". One typed method per Worker route; errors are TablesClientError with code and status; { signal } on every call; no retries; runs in browsers, Workers and Node 22.
-- CLI: agentic-tables new | list | schema | add-field | insert | update | query | required | rename-field | delete-field | change-type | bases | new-base | delete-base | delete-table | claim-base | share | unshare | export-data | erase-data | export | import.
+- CLI: agentic-tables new | list | schema | add-field | insert | update | query | required | rename-field | delete-field | change-type | bases | new-base | delete-base | views | new-view | view | delete-view | delete-table | claim-base | share | unshare | export-data | erase-data | export | import.
 - MCP: run agentic-tables mcp, then call describe_table.
 - HTTP: Worker from agentic-tables/worker, under /api/v1/tables. It answers 503 until AGENTIC_TABLES_UNSAFE_NO_AUTH=1 is set. Local use only.
 - UI: a web app for tables. The Worker of the repository serves it at /. The npm package ships it as ui-dist. Your own Worker serves it with an assets setting that points at node_modules/agentic-tables/ui-dist and keeps /api/* on the Worker. Local use only, like the API.

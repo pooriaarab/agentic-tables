@@ -371,6 +371,26 @@ npx agentic-tables delete-field People Age --yes
 
 Renaming a base is not available yet.
 
+## Views and CSV import on every face
+
+The CLI and the MCP server save and run views, as the HTTP API does. A view keeps a filter and a sort. A board view groups rows by a single select field.
+
+```sh
+npx agentic-tables new-view People Adults --kind grid --filter '{"field":"Age","op":"gt","value":17}' --sort Name
+npx agentic-tables new-view People "By stage" --kind board --group-by Stage
+npx agentic-tables views People                       # list the views of a table
+npx agentic-tables view view_... --limit 20           # run a view
+npx agentic-tables delete-view view_... --yes         # the rows stay
+```
+
+| MCP tool | Use it for |
+| --- | --- |
+| `list_views`, `create_view` | List the views of a table. Save a view. |
+| `run_view`, `delete_view` | Read the rows of a view. Delete a view. |
+| `import_csv` | Insert rows from CSV text. It has the same checks as `import`, and `create` makes a missing table. |
+
+Changing a view after you make it is not available yet. Delete the view and make it again.
+
 ## Run on Firebase
 
 The domain logic takes any `Store` from `agentic-identity`, so the same API runs on Firestore. `agentic-tables/node` serves the HTTP API from a Node process over the store you pass. It holds no Cloudflare or Firebase code.

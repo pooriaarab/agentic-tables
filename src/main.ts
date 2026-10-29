@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { ROLES, SUBJECT_KINDS, type Role, type SubjectKind } from "agentic-identity";
-import { csvToValues, inferFields, parseCsv, toCsv } from "./csv.js";
+import { toCsv } from "./csv.js";
+import { importCsv } from "./csv-import.js";
 import { openContext, type Context } from "./context.js";
 import { errorBody } from "./errors.js";
 import { FIELD_TYPES, TablesError, type FieldInput, type FieldType, type Row, type Values } from "./model.js";
@@ -31,6 +32,11 @@ Commands:
   bases                               List the bases you can read.
   new-base <name>                     Create a base. Your work base is the oldest one you own. Set its id as AGENTIC_TABLES_BASE to work in another.
   delete-base <baseId> --yes          Delete a base with its tables, rows and views.
+  views <table>                       List the views of a table.
+  new-view <table> <name> --kind <grid|board> [--filter <json>] [--sort <Field[:desc]>] [--group-by <Field>]
+                                      Save a filter and sort as a view. A board groups by a single select field.
+  view <viewId> [--limit <n>] [--cursor <c>]   Run a view: print its rows.
+  delete-view <viewId> --yes          Delete a view. Its rows stay.
   claim-base <baseId>                 Make a base from an earlier version usable. You must be its owner.
   share <subject> <role> --kind <human|agent> [--table <t>]  Give a person or agent a role (viewer, commenter, editor, owner) on the base, or on one table.
   unshare <subject> --kind <human|agent> [--table <t>]     Take the role back.
@@ -184,6 +190,32 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
       if (flag("yes") === undefined) throw new UsageError(`delete-base removes base "${id}" with all its tables, rows and views. Add --yes to confirm`);
       return ctx.tables.deleteBase(id);
     }
+    case "views":
+      return ctx.tables.listViews((await ctx.table(need(0, "a table"))).id);
+    case "new-view": {
+      const table = await ctx.table(need(0, "a table"));
+      const kind = flag("kind");
+      if (kind !== "grid" && kind !== "board") throw new UsageError("new-view needs --kind grid or board");
+      const [field = "", direction] = (flag("sort") ?? "").split(":");
+      return ctx.tables.createView(table.id, {
+        name: need(1, "a view name"),
+        kind,
+        ...(flag("filter") === undefined ? {} : { filter: json(flag("filter"), "--filter") as never }),
+        ...(field ? { sort: { field, direction: direction === "desc" ? "desc" : "asc" } } : {}),
+        ...(flag("group-by") === undefined ? {} : { groupBy: flag("group-by") }),
+      });
+    }
+    case "view":
+      return ctx.tables.runView(need(0, "a view id"), {
+        ...(flag("limit") === undefined ? {} : { limit: Number(flag("limit")) }),
+        ...(flag("cursor") === undefined ? {} : { cursor: flag("cursor") }),
+      });
+    case "delete-view": {
+      const id = need(0, "a view id");
+      if (flag("yes") === undefined) throw new UsageError(`delete-view removes view "${id}". Add --yes to confirm`);
+      await ctx.tables.deleteView(id);
+      return { deleted: id };
+    }
     case "claim-base":
       return ctx.tables.claimBase(need(0, "a base id"));
     case "share":
@@ -215,16 +247,8 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
       return { raw: toCsv(table, rows) };
     }
     case "import": {
-      const [header, ...records] = parseCsv(readFileSync(flag("file") ?? ((): never => { throw new UsageError("import needs --file"); })(), "utf8"));
-      if (!header) throw new UsageError("the CSV file is empty");
-      const name = need(0, "a table");
-      let table = await ctx.table(name).catch((error: unknown) => {
-        if (flag("create") === undefined) throw error;
-        return undefined;
-      });
-      table ??= await ctx.tables.createTable(await ctx.baseId(), name, inferFields(header, records));
-      const rows = await ctx.tables.insertRows(table.id, csvToValues(table, header, records));
-      return { inserted: rows.length, table };
+      const text = readFileSync(flag("file") ?? ((): never => { throw new UsageError("import needs --file"); })(), "utf8");
+      return importCsv(ctx, need(0, "a table"), text, flag("create") !== undefined);
     }
     default:
       throw new UsageError(`unknown command "${command}"`);
