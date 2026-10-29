@@ -12,7 +12,7 @@
 //  8. A caller with a role on table A inserts a link value and learns that a row of table B exists.
 // 10. Export with a base:read credential answers 200 with no bases.
 // 11. A revoke on a base removes some table grants, then fails: a self-revoke, a missing scope, a bad subject id.
-// 12. Clearing a link with null or [] needs the right to read the linked table.
+// 12. A body names a link field twice, an empty list under one key and a row id under the other. Clearing a link with null or [] needs the right to read the linked table.
 //  9. An agent that acts for a person exports or erases that person's data.
 import { createMemoryStore, createSharing } from "agentic-identity";
 import { beforeEach, describe, expect, test } from "vitest";
@@ -210,5 +210,13 @@ describe("clearing a link", () => {
     const row = (await call("POST", `/tables/${a.id}/rows`, ada, { values: { N: "x" } })).body;
     await call("PUT", `/tables/${a.id}/members/eve`, ada, { role: "editor" });
     for (const empty of [null, []]) expect((await call("PATCH", `/rows/${row.id}`, eve, { values: { L: empty } })).status).toBe(200);
+
+    // One field under two keys, its name and its id: an empty list under one must not hide a row id under the other.
+    const target = (await call("POST", `/tables/${b.id}/rows`, ada, { values: { N: "t" } })).body;
+    const id = (await call("GET", `/tables/${a.id}`, ada)).body.fields.find((f: any) => f.name === "L").id;
+    for (const rowId of [target.id, "row_0000000000000000"]) {
+      const res = await call("POST", `/tables/${a.id}/rows`, eve, { values: { L: [], [id]: [rowId] } });
+      expect([res.status, res.body.error.code]).toEqual([404, "NOT_FOUND"]);
+    }
   });
 });

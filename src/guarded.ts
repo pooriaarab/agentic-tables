@@ -53,16 +53,22 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
     // The scope is checked before the lookup, and a failed lookup looks like no role, so neither shows if an id exists.
     const tableOfRow = async (rowId: string) => (await tables.getRow(rowId).catch(() => Promise.reject(missing()))).tableId;
     const tableOfView = async (viewId: string) => (await tables.getView(viewId).catch(() => Promise.reject(missing()))).tableId;
-    /** A link value that names a row tells whether the row exists, so the caller needs to read the linked table. Null and an empty list name no row. */
+    /**
+     * A link value that names a row tells whether the row exists, so the caller needs to read the linked table. Null and an
+     * empty list name no row. Each key is matched to a field the way `Tables` does (id first, then name), and every key counts:
+     * a body may carry one field under two keys.
+     */
     const linkValues = async (tableId: string, lists: Values[]) => {
       const table = await tables.getTable(tableId);
-      for (const field of table.fields) {
-        const names = (v: Values) => {
-          const value = v[field.name] ?? v[field.id];
-          return Array.isArray(value) ? value.length > 0 : value !== undefined && value !== null;
-        };
-        if (field.type === "link" && field.linkTable !== undefined && lists.some(names)) await need(ctx, "read", field.linkTable, "table");
+      const needed = new Set<string>();
+      for (const values of lists) {
+        for (const [key, value] of Object.entries(values)) {
+          const field = table.fields.find((f) => f.id === key) ?? table.fields.find((f) => f.name === key);
+          const names = Array.isArray(value) ? value.length > 0 : value !== undefined && value !== null;
+          if (field?.type === "link" && field.linkTable !== undefined && names) needed.add(field.linkTable);
+        }
       }
+      for (const linkTable of needed) await need(ctx, "read", linkTable, "table");
     };
     const linkTargets = async (inputs: { type: string; linkTable?: string }[]) => {
       // A link field names a table, and the caller learns that table exists when the field is accepted.
