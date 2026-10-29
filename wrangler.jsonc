@@ -5,8 +5,7 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-01-01",
   "send_metrics": false,
-  // The root of agentic-identity imports node:module for its version string.
-  "compatibility_flags": ["nodejs_compat"],
+  // No compatibility flags: the Worker runs on the default Workers runtime.
   // Create the database in the EU, then put its id below:
   //   wrangler d1 create agentic-tables --location weur
   // Local `wrangler dev` keeps its own copy and ignores the id.

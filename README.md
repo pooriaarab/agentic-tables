@@ -93,11 +93,12 @@ export { default } from "agentic-tables/worker";
   "name": "my-tables",
   "main": "src/worker.ts",
   "compatibility_date": "2026-01-01",
-  "compatibility_flags": ["nodejs_compat"],
   "assets": { "directory": "./node_modules/agentic-tables/ui-dist", "run_worker_first": ["/api/*"] },
   "d1_databases": [{ "binding": "DB", "database_name": "agentic-tables", "database_id": "<your id>" }]
 }
 ```
+
+The Worker needs no compatibility flags. Do not add `nodejs_compat`: the default Workers runtime is enough, and a test runs the built Worker under `wrangler dev` with a config like this one. The config needs only a `compatibility_date`, the `DB` binding, and the region variable.
 
 Set `AGENTIC_TABLES_REGION` for each deploy, as in the HTTP API section. The Worker answers `503` until `AGENTIC_TABLES_UNSAFE_NO_AUTH=1` is set. After that, a missing `DB` binding or region answers `500`.
 
