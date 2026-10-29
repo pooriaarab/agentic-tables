@@ -1,12 +1,12 @@
 import { AppShell, Button, EmptyState, PlusIcon, Select, SidebarNav, useTheme, type ThemePreference } from "agentic-design/react";
 import type { Base, Table } from "agentic-tables/client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { failure, useClient } from "./api";
+import { failure, UiError, useClient } from "./api";
 import { NewTableDialog } from "./Dialogs";
 import { TableView } from "./TableView";
 
 const DEFAULT_BASE = "My tables";
-type Load = { state: "loading" } | { state: "error"; message: string } | { state: "ready"; base: Base; tables: Table[] };
+type Load = { state: "loading" } | { state: "error"; message: string } | { state: "ready"; base: Base; bases: Base[]; tables: Table[] };
 
 /** The table id in the URL hash, as `#/t/<id>`. */
 const routeId = () => /^#\/t\/(.+)$/.exec(location.hash)?.[1] ?? null;
@@ -25,24 +25,52 @@ function ThemePicker() {
 
 /** The app. `frame` draws the design package's app shell, with its banner, main landmark, and skip link. Without it the
  * app draws a plain block, for a host page that has its own landmarks. */
-export function App({ themePicker = false, frame = true }: { themePicker?: boolean; frame?: boolean }) {
+export function App({ themePicker = false, frame = true, baseId, tableId, baseSwitcher = false }: { themePicker?: boolean; frame?: boolean; baseId?: string; tableId?: string; baseSwitcher?: boolean }) {
   const client = useClient();
   const [load, setLoad] = useState<Load>({ state: "loading" });
-  const [route, setRoute] = useState(routeId());
+  const [route, setRoute] = useState(routeId() ?? tableId ?? null);
+  // The base the person chose in the switcher. It wins over the `baseId` option until that option changes.
+  const [chosen, setChosen] = useState<string | undefined>(baseId);
+  const routeNow = useRef(route);
+  routeNow.current = route;
+  // A changed option replaces what the person chose. The first render keeps the hash, which wins over `tableId`.
+  const seen = useRef({ baseId, tableId });
+  useEffect(() => {
+    if (seen.current.baseId !== baseId) setChosen(baseId);
+    if (seen.current.tableId !== tableId) setRoute(tableId ?? null);
+    seen.current = { baseId, tableId };
+  }, [baseId, tableId]);
   const [creating, setCreating] = useState(false);
 
   const latest = useRef(0);
   const read = useCallback(async () => {
     const mine = ++latest.current;
     try {
-      // The first visit makes a base to hold the tables. Later visits use the first base.
-      const base = (await client.listBases())[0] ?? (await client.createBase(DEFAULT_BASE));
-      const tables = await client.listTables(base.id);
-      if (mine === latest.current) setLoad({ state: "ready", base, tables });
+      let bases = await client.listBases();
+      let base: Base | undefined;
+      let tables: Table[] | undefined;
+      if (chosen !== undefined) {
+        // A named base that the caller cannot read is an error. It never falls back to another base.
+        base = bases.find((b) => b.id === chosen);
+        if (!base) throw new UiError("That base was not found, or you cannot read it.");
+      } else if (routeNow.current) {
+        // A link to a table with no base: open the base that holds it.
+        for (const b of bases) {
+          const list = await client.listTables(b.id);
+          if (list.some((t) => t.id === routeNow.current)) { base = b; tables = list; break; }
+        }
+      }
+      if (!base) {
+        // The first visit makes a base to hold the tables. Later visits use the first base.
+        base = bases[0];
+        if (!base) { base = await client.createBase(DEFAULT_BASE); bases = [base]; }
+      }
+      tables ??= await client.listTables(base.id);
+      if (mine === latest.current) setLoad({ state: "ready", base, bases, tables });
     } catch (error) {
       if (mine === latest.current) setLoad({ state: "error", message: failure(error) });
     }
-  }, [client]);
+  }, [client, chosen]);
   useEffect(() => { void read(); }, [read]);
   useEffect(() => {
     const on = () => setRoute(routeId());
@@ -54,6 +82,11 @@ export function App({ themePicker = false, frame = true }: { themePicker?: boole
   const current = tables.find((t) => t.id === route) ?? null;
   const topbar = (
     <>
+      {baseSwitcher && load.state === "ready" ? (
+        <Select label="Base" hideLabel value={load.base.id} onChange={(e) => { location.hash = ""; setRoute(null); setChosen(e.target.value); }}>
+          {load.bases.map((b) => <option key={b.id} value={b.id}>{`Base: ${b.name}`}</option>)}
+        </Select>
+      ) : null}
       {themePicker ? <ThemePicker /> : null}
       <Button onClick={() => setCreating(true)} disabled={load.state !== "ready"}><PlusIcon aria-hidden="true" /> New table</Button>
     </>

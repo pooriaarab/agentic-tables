@@ -124,6 +124,18 @@ describe("row validation", () => {
     expect((await t.insertRow(tagged.id, { Tags: ["a"] }, human)).values.Tags).toEqual(["a"]);
   });
 
+  test("treats a whitespace-only string as empty for required, and keeps it in an optional field", async () => {
+    const { table } = await people();
+    await expectIssue(t.insertRow(table.id, { Name: "   " }, human), "Name", "required");
+    await expectIssue(t.insertRow(table.id, { Name: "\t\n " }, human), "Name", "required");
+    const row = await t.insertRow(table.id, { Name: "Ada" }, human);
+    await expectIssue(t.updateRow(row.id, { Name: "  " }, human), "Name", "required");
+    expect((await t.getRow(row.id)).values.Name).toBe("Ada");
+    const loose = await t.createTable(baseId, "Loose", [{ name: "Note", type: "text" }]);
+    expect((await t.insertRow(loose.id, { Note: "  " }, human)).values.Note).toBe("  ");
+    await expectIssue(t.addField(loose.id, { name: "Must", type: "text", required: true, default: "  " }), "Must", "required");
+  });
+
   test("rejects select values that are not options and duplicates", async () => {
     const { table } = await people();
     await expectIssue(t.insertRow(table.id, { Name: "x", Stage: "lost" }, human), "Stage", "option");

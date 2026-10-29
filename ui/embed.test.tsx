@@ -214,3 +214,79 @@ describe("mount", () => {
     expect(host.innerHTML).toBe("");
   });
 });
+
+describe("base and table options", () => {
+  const bases = [{ id: "b1", name: "Mine" }, { id: "b2", name: "Shared" }];
+  const inBase = (baseId: string, name: string) => ({ id: `t-${name}`, baseId, name, fields: [], createdAt: "", updatedAt: "" });
+  const lists: Record<string, ReturnType<typeof inBase>[]> = { b1: [inBase("b1", "Tasks")], b2: [inBase("b2", "Budget"), inBase("b2", "Plans")] };
+  const fetch = (async (input: RequestInfo | URL) => {
+    const path = String(input).split("/api/v1/tables")[1]!;
+    let body: unknown = { items: bases };
+    const m = /^\/bases\/([^/]+)\/tables$/.exec(path);
+    if (m) body = { items: lists[m[1]!] ?? [] };
+    else if (path.startsWith("/tables/")) body = path.endsWith("/rows") ? { items: [] } : inBase("b2", "Budget");
+    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  }) as unknown as typeof globalThis.fetch;
+  const navText = () => host.querySelector("nav")?.textContent ?? "";
+  const open = async (extra: Partial<TablesUiOptions>) => {
+    await act(async () => void (mounted = mount(host, { baseUrl: "https://t.example", fetch, ...extra })));
+    await settle();
+  };
+  afterEach(() => { location.hash = ""; });
+
+  it("opens the first base by default", async () => {
+    await open({});
+    expect(navText()).toContain("Tasks");
+  });
+
+  it("opens the base named by baseId, a shared one", async () => {
+    await open({ baseId: "b2" });
+    expect(navText()).toContain("Budget");
+    expect(navText()).not.toContain("Tasks");
+  });
+
+  it("shows an error, and no other base, for a base the caller cannot read", async () => {
+    await open({ baseId: "nope" });
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("not found");
+    expect(navText()).not.toContain("Tasks");
+  });
+
+  it("opens the base that holds tableId, and marks that table as current", async () => {
+    await open({ tableId: "t-Plans" });
+    expect(navText()).toContain("Budget");
+    expect(host.querySelector('nav [aria-current="page"]')?.textContent).toContain("Plans");
+  });
+
+  it("lets the hash win over tableId on mount", async () => {
+    location.hash = "#/t/t-Budget";
+    await open({ tableId: "t-Plans" });
+    expect(host.querySelector('nav [aria-current="page"]')?.textContent).toContain("Budget");
+  });
+
+  it("lists every readable base in the switcher and switches", async () => {
+    await open({ baseSwitcher: true });
+    const select = host.querySelector("select") as HTMLSelectElement;
+    expect([...select.options].map((o) => o.textContent)).toEqual(["Base: Mine", "Base: Shared"]);
+    await act(async () => {
+      select.value = "b2";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await settle();
+    expect(navText()).toContain("Budget");
+  });
+
+  it("draws no switcher unless asked", async () => {
+    await open({});
+    expect(host.querySelector("select")).toBeNull();
+  });
+
+  it.each([["baseId", ""], ["tableId", 3], ["baseSwitcher", "yes"]])("throws for a bad %s", (key, value) => {
+    expect(() => mount(host, { baseUrl: "https://t.example", fetch, [key]: value } as never)).toThrow(TypeError);
+  });
+
+  it("has no axe violations with the switcher on", async () => {
+    await open({ baseSwitcher: true, frame: false });
+    const result = await axe.run(host, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag22aa"] }, rules: { region: { enabled: false } } });
+    expect(result.violations.map((v) => v.id)).toEqual([]);
+  });
+});

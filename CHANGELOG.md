@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.0
+
+No breaking changes.
+
+### Added
+
+- `mount` in `agentic-tables/ui` takes `baseId`, `tableId`, and `baseSwitcher`. `baseId` opens that base (a shared one too). `tableId` opens that table, and opens the base that holds it when `baseId` is not set. `baseSwitcher` shows a list of every readable base. A base the caller cannot read shows an error, and the app never opens another base instead.
+
+### Fixed
+
+- A required field now refuses a string of only whitespace, on insert, update, `add_field` defaults, `set_required`, and type changes. Before, `"   "` passed. Optional fields keep such a value.
+
 ## 0.10.0
 
 BREAKING: design class prefix is now agd-. The classes and custom properties of `agentic-design` that began with the old prefix now begin with `agd-` (for example `.agd-button` and `--agd-color-text`). Ad blockers hide the old class names, so the prefix changed. The `./ui` output changes. A host that styles those names must use the new ones. There are no aliases.

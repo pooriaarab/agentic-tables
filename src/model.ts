@@ -5,6 +5,9 @@ export { PRINCIPAL_KINDS, type PrincipalKind };
 /** The one emptiness rule: null, missing, an empty string, or an empty list. Queries and "required" both use it. */
 export const isEmpty = (value: unknown): boolean => value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
 
+/** The rule for "required": empty, or a string of only whitespace. Queries keep `isEmpty`, which treats "  " as a value. */
+export const isBlank = (value: unknown): boolean => isEmpty(value) || (typeof value === "string" && value.trim() === "");
+
 export const FIELD_TYPES = ["text", "long_text", "number", "checkbox", "date", "single_select", "multi_select", "link", "file"] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
 

@@ -11,11 +11,15 @@ export function useClient(): TablesClient {
 }
 
 /** The text to show for a failed call. Field issues come first: they say what to fix. */
+/** An error whose message is fit for the person to read. */
+export class UiError extends Error {}
+
 export function failure(error: unknown): string {
   if (error instanceof TablesClientError) {
     if (error.issues?.length) return error.issues.map((i) => `${i.field}: ${i.message}`).join(". ");
     if (error.code === "NETWORK") return "The API did not answer. Check that the Worker runs.";
     return error.message;
   }
+  if (error instanceof UiError) return error.message;
   return "Something went wrong.";
 }

@@ -22,6 +22,12 @@ export interface TablesUiOptions {
   themePicker?: boolean;
   /** Draw the app's own frame: a banner, a main landmark, and a skip link. On by default. Turn it off on a page that has its own landmarks. */
   frame?: boolean;
+  /** The base to open. Without it the app opens the base that holds `tableId`, or else the caller's first base. A base the caller cannot read shows an error. */
+  baseId?: string;
+  /** The table to open, for a deep link or a search hit. A table in the URL hash (`#/t/<id>`) wins on mount. */
+  tableId?: string;
+  /** Show a list of every base the caller can read, shared ones too, to switch between them. Off by default. */
+  baseSwitcher?: boolean;
 }
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -45,6 +51,11 @@ function clientFor(options: TablesUiOptions): TablesClient {
   checkBaseUrl(options.baseUrl);
   if (options.getToken !== undefined && typeof options.getToken !== "function") throw new TypeError("getToken must be a function");
   if (options.frame !== undefined && typeof options.frame !== "boolean") throw new TypeError("frame must be true or false");
+  for (const key of ["baseId", "tableId"] as const) {
+    const v = options[key];
+    if (v !== undefined && (typeof v !== "string" || v === "")) throw new TypeError(`${key} must be a non-empty string`);
+  }
+  if (options.baseSwitcher !== undefined && typeof options.baseSwitcher !== "boolean") throw new TypeError("baseSwitcher must be true or false");
   const inner = options.fetch ?? globalThis.fetch?.bind(globalThis);
   if (typeof inner !== "function") throw new TypeError("no fetch available: pass options.fetch");
   const { getToken } = options;
@@ -59,10 +70,10 @@ function clientFor(options: TablesUiOptions): TablesClient {
 }
 
 /** The app with a client above it. It needs the theme, tooltip, and toast providers above it. `mount` adds them. */
-function TablesApp({ client, themePicker, frame }: { client: TablesClient; themePicker?: boolean; frame?: boolean }) {
+function TablesApp({ client, themePicker, frame, baseId, tableId, baseSwitcher }: { client: TablesClient; themePicker?: boolean; frame?: boolean; baseId?: string; tableId?: string; baseSwitcher?: boolean }) {
   return (
     <ClientContext.Provider value={client}>
-      <App themePicker={themePicker} frame={frame} />
+      <App themePicker={themePicker} frame={frame} baseId={baseId} tableId={tableId} baseSwitcher={baseSwitcher} />
     </ClientContext.Provider>
   );
 }
@@ -83,6 +94,7 @@ export function mount(element: HTMLElement, options: TablesUiOptions): MountedTa
   let client = clientFor(options);
   let picker = options.themePicker === true;
   let frame = options.frame !== false;
+  let where = { baseId: options.baseId, tableId: options.tableId, baseSwitcher: options.baseSwitcher === true };
   const root = createRoot(element);
   mounted.add(element);
   let gone = false;
@@ -90,7 +102,7 @@ export function mount(element: HTMLElement, options: TablesUiOptions): MountedTa
     const app = (
       <TooltipProvider>
         <ToastProvider>
-          <TablesApp client={client} themePicker={picker} frame={frame} />
+          <TablesApp client={client} themePicker={picker} frame={frame} {...where} />
         </ToastProvider>
       </TooltipProvider>
     );
@@ -103,6 +115,7 @@ export function mount(element: HTMLElement, options: TablesUiOptions): MountedTa
       client = clientFor(next);
       picker = next.themePicker === true;
       frame = next.frame !== false;
+      where = { baseId: next.baseId, tableId: next.tableId, baseSwitcher: next.baseSwitcher === true };
       render();
     },
     unmount() {
