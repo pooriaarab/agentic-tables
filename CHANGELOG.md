@@ -2,7 +2,7 @@
 
 ## 0.13.0
 
-No breaking changes.
+No breaking changes to the API. This release is a minor bump because it adds the `tablesAccount` export and the share links. It includes the changes once listed as 0.12.1 and 0.12.2, which were never published.
 
 ### Added
 
@@ -11,29 +11,20 @@ No breaking changes.
 - Client methods for members and invites: `listBaseMembers`, `listTableMembers`, `inviteToBase`, and `inviteToTable`. Client methods for links: `createBaseLink`, `createTableLink`, `listBaseLinks`, `listTableLinks`, `revokeBaseLink`, and `revokeTableLink`.
 - HTTP routes `GET /…/members` and `POST /…/invites` for a base and a table.
 - `createApp` takes `options.store`, and `createUnsafeApp` and `createGuarded` take a store, so the link routes can read the links. The Worker, the Node server, and the CLI pass it. Without it the link routes answer `503 UNAVAILABLE`.
-
-## 0.12.2 - 2026-10-29
-
-Patch. No change to the API.
-
-### Fixed
-
-- `agentic-tables-mcp mcp --help` and `agentic-tables-mcp mcp --version` now print and exit 0. Before, the `mcp` word started the server, and the command hung on stdin. `--help`, `-h`, `--version`, `-V`, and `-v` work with or without the `mcp` word.
-
-## 0.12.1 - 2026-10-29
-
-No breaking changes to the API. This release also adds `tablesAccount`, listed under Added.
-
-### Added
-
-- `tablesAccount`: `exportAccount` and `eraseAccount` for a host that runs account export and erase across packages. They run on the guarded path and return plain JSON by collection and counts by collection, so the host does not read the table layout.
+- `tablesAccount` (#97): `exportAccount` and `eraseAccount` for a host that runs account export and erase across packages. They run on the guarded path and return plain JSON by collection and counts by collection, so the host does not read the table layout.
+- `npm run dev` starts the Worker locally for a fresh clone (#108). `npm run dev:smoke` starts it, checks `GET /health` for `200`, and stops it. CI runs the check as the "dev smoke" step. The README has a "Run locally" section.
+- The README has a table of every subpath export in `package.json`, with what each one is for (#113).
 
 ### Changed
 
-- The `agentic-identity` dependency is now `^0.9.0`.
-- The `agentic-design` dependency is now `^0.5.0`. It has a calmer look in light and dark, with an indigo accent and softer borders. The token names and the `agd-` prefix do not change.
-- The `agentic-identity` 0.9 release adds optional sign-in settings, such as magic-link sign-in. This package does not use them, so its behavior does not change.
-- The `zod` dependency and its override are `^4.6.7`, the floor that `agentic-design` 0.5 needs.
+- `npm run dev:ui` (#108) now runs `npm run dev`.
+- The `agentic-identity` dependency (#116) is now `^0.9.0`. The 0.9 release adds optional sign-in settings, such as magic-link sign-in. This package does not use them, so its behavior does not change.
+- The `agentic-design` dependency (#116) is now `^0.5.0`. It has a calmer look in light and dark, with an indigo accent and softer borders. The token names and the `agd-` prefix do not change.
+- The `zod` dependency (#116) and its override are `^4.6.7`, the floor that `agentic-design` 0.5 needs.
+
+### Fixed
+
+- `agentic-tables-mcp mcp --help` and `agentic-tables-mcp mcp --version` now print and exit 0 (#111). Before, the `mcp` word started the server, and the command hung on stdin. `--help`, `-h`, `--version`, `-V`, and `-v` work with or without the `mcp` word.
 
 ## 0.12.0
 
