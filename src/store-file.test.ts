@@ -1,145 +1,128 @@
-// Failure cases for the file store, written before the code.
+// Failure cases for the file store, written with the wrapper:
 //
-//  1. Two stores on one file write at the same time: every write survives.
-//  2. A store that opened the file before another store wrote still keeps that
-//     write when it writes (it reads the file again under the lock).
-//  3. A lock whose owner is a dead process is taken over.
-//  4. A lock that is too old is taken over, even if its owner is alive.
-//  5. A fresh lock held by a live process is never taken: the write fails.
-//  6. A lock with content that does not parse, or a bad pid or time, counts as
-//     live: the write fails, and the lock stays.
-//  7. A database file that is not JSON is never replaced: the write fails.
-//  8. A transaction that throws writes nothing and releases the lock.
-//  9. A lock that a takeover replaced is not removed by its old owner.
-// 10. A transaction that read a doc by query runs again when another store changes it (the shared
-//     contract suite does not test this case).
-// 11. A file with a doc that is not an object fails to load: it never reads as a missing doc.
-// The two-store test is the guard check: with the lock removed it must fail.
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+//  1. The call is path first, with a region option.
+//  2. Two stores on one path share their data, and concurrent writes all survive.
+//  3. A transaction that throws writes nothing and leaves the store usable.
+//  4. A file that is not JSON is never replaced.
+//  5. A conflict from another process runs again, then gives up after 50 runs. Another error is not run again.
+//  6. A lock that another process holds is not run again.
+//  7. A file of the old shape is converted once, keeps every doc, and is saved as <db>.bak. A mutex left by a dead conversion is taken over.
+//  8. A half-valid old file and a file of an unknown format are left as they are, on a read and on a write.
+// The adapter of agentic-identity runs one call at a time on a path. A call on that path from inside a transaction
+// on it waits for the transaction. Nothing in this package makes one.
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { StoreConflictError } from "agentic-identity";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { createTables } from "./index.js";
 import { createFileStore } from "./store-file.js";
 
 let dir: string;
 let path: string;
-const lock = () => `${path}.lock`;
-const ids = async (store: ReturnType<typeof createFileStore>) => (await store.query("rows")).items.map((e) => e.id).sort();
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "tables-file-store-"));
+  dir = mkdtempSync(join(tmpdir(), "agentic-tables-file-"));
   path = join(dir, "db.json");
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-describe("shared file", () => {
-  test("two stores writing at once lose nothing", async () => {
-    const a = createFileStore(path);
-    const b = createFileStore(path);
-    const writes = Array.from({ length: 40 }, (_, i) => (i % 2 === 0 ? a : b).put("rows", `r${String(i).padStart(2, "0")}`, { n: i }));
-    await Promise.all(writes);
-    expect(await ids(createFileStore(path))).toHaveLength(40);
-  });
-
-  test("a store opened earlier keeps the writes of another store", async () => {
-    const early = createFileStore(path);
-    await early.put("rows", "first", { n: 1 });
-    const other = createFileStore(path);
-    await other.put("rows", "second", { n: 2 });
-    await early.put("rows", "third", { n: 3 });
-    expect(await ids(early)).toEqual(["first", "second", "third"]);
-    expect(await ids(other)).toEqual(["first", "second", "third"]);
-  });
-
-  test("a transaction that throws writes nothing and frees the lock", async () => {
-    const store = createFileStore(path);
-    await store.put("rows", "keep", { n: 1 });
-    await expect(
-      store.transaction(async (tx) => {
-        await tx.put("rows", "gone", { n: 2 });
-        throw new Error("stop");
-      }),
-    ).rejects.toThrow("stop");
-    expect(existsSync(lock())).toBe(false);
-    expect(await ids(store)).toEqual(["keep"]);
-  });
-
-  test("a file that is not JSON is never replaced", async () => {
-    writeFileSync(path, "{not json");
-    const store = createFileStore(path);
-    await expect(store.put("rows", "x", { n: 1 })).rejects.toThrow(/not valid JSON/);
-    expect(readFileSync(path, "utf8")).toBe("{not json");
-    expect(existsSync(lock())).toBe(false);
-  });
+test("two stores on one path share their data, and concurrent writes all survive", async () => {
+  const a = createFileStore(path);
+  const b = createFileStore(path);
+  await Promise.all(Array.from({ length: 40 }, (_, i) => (i % 2 ? a : b).put("rows", `r${i}`, { n: i })));
+  expect((await createFileStore(path).query("rows", { limit: 100 })).items).toHaveLength(40);
 });
 
-describe("the lock", () => {
-  const held = (pid: number, at: number) => writeFileSync(lock(), JSON.stringify({ pid, at, token: "someone" }));
+test("takes the region option", () => {
+  expect(createFileStore(path, { region: "eu" }).region).toBe("eu");
+});
 
-  test("takes over a lock whose owner is dead", async () => {
-    const child = spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"], { encoding: "utf8" });
-    held(Number(child.stdout), Date.now());
-    await createFileStore(path, { lockTimeoutMs: 2000 }).put("rows", "x", { n: 1 });
-    expect(existsSync(lock())).toBe(false);
-  });
+test("a transaction that throws writes nothing and leaves the store usable", async () => {
+  const store = createFileStore(path);
+  await expect(store.transaction(async (tx) => {
+    await tx.get("rows", "a");
+    await tx.put("rows", "a", { n: 1 });
+    throw new Error("stop");
+  })).rejects.toThrow("stop");
+  expect(await store.get("rows", "a")).toBeNull();
+  await store.put("rows", "b", { n: 2 });
+  expect(await store.get("rows", "b")).toEqual({ n: 2 });
+});
 
-  test("takes over a lock that is too old", async () => {
-    held(process.pid, Date.now() - 60_000);
-    await createFileStore(path, { lockTimeoutMs: 2000, staleAfterMs: 1000 }).put("rows", "x", { n: 1 });
-    expect(existsSync(lock())).toBe(false);
-  });
+test("two Tables on one file lose no concurrent change", async () => {
+  const one = createTables(createFileStore(path));
+  const two = createTables(createFileStore(path));
+  const ada = { id: "ada", kind: "human" } as const;
+  const base = await one.createBase("b", ada);
+  const table = await one.createTable(base.id, "T", [{ name: "Name", type: "text" }]);
+  await Promise.all(Array.from({ length: 20 }, (_, i) => (i % 2 ? one : two).insertRow(table.id, { Name: `r${i}` }, ada)));
+  expect((await two.queryRows(table.id, { limit: 100 })).items).toHaveLength(20);
+});
 
-  test("never takes a fresh lock of a live process", async () => {
-    held(process.pid, Date.now());
-    await expect(createFileStore(path, { lockTimeoutMs: 150 }).put("rows", "x", { n: 1 })).rejects.toThrow(/locked/);
-    expect(JSON.parse(readFileSync(lock(), "utf8")).token).toBe("someone");
-    expect(existsSync(path)).toBe(false);
-  });
+test("a file that is not JSON is never replaced", async () => {
+  writeFileSync(path, "garbage");
+  await expect(createFileStore(path).put("rows", "x", { n: 1 })).rejects.toThrow(/not an agentic-identity store file/);
+  expect(readFileSync(path, "utf8")).toBe("garbage");
+});
 
-  test.each([
-    ["not JSON", "garbage"],
-    ["empty", ""],
-    ["a string pid", JSON.stringify({ pid: "1", at: Date.now() })],
-    ["a null time", JSON.stringify({ pid: 999999, at: null })],
-    ["a missing time", JSON.stringify({ pid: 999999 })],
-    ["an array", "[]"],
-  ])("treats a lock with %s as live", async (_name, content) => {
-    writeFileSync(lock(), content);
-    await expect(createFileStore(path, { lockTimeoutMs: 150, staleAfterMs: 1 }).put("rows", "x", { n: 1 })).rejects.toThrow(/locked/);
-    expect(readFileSync(lock(), "utf8")).toBe(content);
-  });
+test("converts a file of the old shape and keeps every doc", async () => {
+  writeFileSync(path, JSON.stringify({ rows: { a: { n: 1 }, constructor: { n: 2 } }, tables: {} }));
+  const store = createFileStore(path);
+  expect(await store.get("rows", "a")).toEqual({ n: 1 });
+  expect(await store.get("rows", "constructor")).toEqual({ n: 2 });
+  await store.put("rows", "b", { n: 3 });
+  expect(JSON.parse(readFileSync(path, "utf8")).format).toBe(1);
+  expect(await createFileStore(path).get("rows", "b")).toEqual({ n: 3 });
+  expect(JSON.parse(readFileSync(`${path}.bak`, "utf8")).rows.a).toEqual({ n: 1 });
+  expect(existsSync(`${path}.migrate`)).toBe(false);
+  expect(statSync(`${path}.bak`).mode & 0o077).toBe(0);
+});
 
-  test("a transaction that queried a doc runs again when another store changes it", async () => {
-    const one = createFileStore(path);
-    const two = createFileStore(path);
-    await one.put("rows", "a", { n: 1 });
-    const seen: number[] = [];
-    await one.transaction(async (tx) => {
-      seen.push(((await tx.query("rows")).items[0]!.data as { n: number }).n);
-      if (seen.length === 1) await two.put("rows", "a", { n: 2 });
-    });
-    expect(seen).toEqual([1, 2]);
-  });
+test("takes over the mutex of a conversion that died", async () => {
+  writeFileSync(path, JSON.stringify({ rows: { a: { n: 1 } } }));
+  mkdirSync(`${path}.migrate`);
+  const old = new Date(Date.now() - 60_000);
+  utimesSync(`${path}.migrate`, old, old);
+  expect(await createFileStore(path).get("rows", "a")).toEqual({ n: 1 });
+  expect(existsSync(`${path}.migrate`)).toBe(false);
+});
 
-  test("a doc that is not an object fails the load", async () => {
-    for (const bad of ["0", '""', "false", "[1]", "null"]) {
-      writeFileSync(path, `{"rows":{"a":${bad}}}`);
-      await expect(createFileStore(path).get("rows", "a")).rejects.toThrow(/not valid JSON/);
-    }
-  });
+test("leaves a half-valid old file alone", async () => {
+  const text = JSON.stringify({ rows: { a: 5 } });
+  writeFileSync(path, text);
+  await expect(createFileStore(path).get("rows", "a")).rejects.toThrow();
+  await expect(createFileStore(path).put("rows", "b", { n: 1 })).rejects.toThrow();
+  expect(readFileSync(path, "utf8")).toBe(text);
+});
 
-  test("an old owner does not remove the lock that replaced its own", async () => {
-    const store = createFileStore(path);
-    // A large doc keeps the write busy long enough to replace the lock while the owner still holds it.
-    const write = store.put("rows", "big", { text: "x".repeat(20_000_000) });
-    let settled = false;
-    void write.then(() => (settled = true));
-    // The lock file exists empty for an instant. Wait until its owner has written its token.
-    while (!(existsSync(lock()) && readFileSync(lock(), "utf8").includes('"token"'))) await new Promise((resolve) => setImmediate(resolve));
-    writeFileSync(lock(), JSON.stringify({ pid: process.pid, at: Date.now(), token: "taker" }));
-    expect(settled).toBe(false);
-    await write;
-    expect(JSON.parse(readFileSync(lock(), "utf8")).token).toBe("taker");
-  });
+test("leaves a file of an unknown format alone", async () => {
+  const text = JSON.stringify({ format: 2, collections: {} });
+  writeFileSync(path, text);
+  await expect(createFileStore(path).put("rows", "b", { n: 1 })).rejects.toThrow();
+  expect(readFileSync(path, "utf8")).toBe(text);
+});
+
+test("a conflict is run again, a lock or another error is not, and 50 conflicts give up", async () => {
+  vi.resetModules();
+  const put = vi.fn();
+  vi.doMock("agentic-identity/file", () => ({ createFileStore: () => ({ region: "unknown", get: vi.fn(), query: vi.fn(), put, delete: put, transaction: put }) }));
+  const { createFileStore: wrapped } = await import("./store-file.js");
+  const store = wrapped(path);
+  put.mockRejectedValueOnce(new StoreConflictError("the store file changed during the write")).mockResolvedValue(undefined);
+  await store.put("rows", "a", { n: 1 });
+  expect(put).toHaveBeenCalledTimes(2);
+
+  put.mockReset().mockRejectedValue(new StoreConflictError("the store file changed during the write"));
+  await expect(store.delete("rows", "a")).rejects.toBeInstanceOf(StoreConflictError);
+  expect(put).toHaveBeenCalledTimes(50);
+
+  put.mockReset().mockRejectedValue(new StoreConflictError("the store file is locked by another process"));
+  await expect(store.transaction(async () => 1)).rejects.toThrow(/locked/);
+  expect(put).toHaveBeenCalledTimes(1);
+
+  put.mockReset().mockRejectedValue(new TypeError("boom"));
+  await expect(store.put("rows", "a", { n: 1 })).rejects.toThrow("boom");
+  expect(put).toHaveBeenCalledTimes(1);
+  vi.doUnmock("agentic-identity/file");
 });
