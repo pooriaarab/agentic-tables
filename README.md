@@ -226,6 +226,26 @@ curl -X POST localhost:8787/api/v1/tables/bases -H "authorization: Bearer $TOKEN
 - A session cookie (`session=<token>`) works for reads. A write with a cookie needs an `Origin` that is listed in `AGENTIC_TABLES_ORIGINS` (comma separated), else it returns `403`. A bearer token needs no origin.
 - The kind of the principal is kept on every row, so an agent write stays labeled.
 
+### Mount the API in your own Worker
+
+`createApp` from `agentic-tables/worker` builds the Hono app of `/api/v1/tables`. It takes:
+
+- `tables`: what `createTables(store)` returns. `store` is a `Store` of `agentic-identity`.
+- `sharing`: `createSharing(store)` from `agentic-identity`. It holds the roles.
+- `auth`: an `Auth` port of `agentic-identity`, such as `createStoreAuth(store)`. A request with no valid credential answers 401. A credential without the scope of a route answers 403.
+- `options.origins` (optional): the origins that may send a write with a session cookie. A bearer token needs none. A cookie write from another origin answers 403.
+
+```ts
+import { createTables } from "agentic-tables";
+import { createApp } from "agentic-tables/worker";
+import { createSharing, createStoreAuth } from "agentic-identity";
+
+const app = createApp(createTables(store), createSharing(store), createStoreAuth(store), { origins: ["https://tables.example.com"] });
+export default app; // a Hono app: app.fetch(request)
+```
+
+`createApp` does not open the database or check the region. The default export of `agentic-tables/worker` does both. It reads `DB`, `AGENTIC_TABLES_REGION`, and `AGENTIC_TABLES_ORIGINS`. Do the same in your Worker: run `D1_SCHEMA` from `agentic-identity/cloudflare` on the database, and check the region claim with `assertRegion` from `agentic-identity`.
+
 ## SDK
 
 `agentic-tables/client` is a typed client for the Worker API. It uses only `fetch`, so it runs in browsers, Workers, and Node 22. It has one method per route.
