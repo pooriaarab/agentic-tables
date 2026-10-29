@@ -4,8 +4,9 @@
 // the second time; update with bad options that breaks the app; update that keeps the old client; `frame: false` that still
 // draws the app's own banner, main landmark, or skip link inside the host page, or loses the table list or the New table button.
 import { act } from "react";
+import axe from "axe-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mount, type MountedTables } from "./embed.js";
+import { mount, type MountedTables, type TablesUiOptions } from "./embed.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -31,6 +32,18 @@ function fakeApi(tables: string[]) {
 }
 
 const settle = () => act(async () => void (await new Promise((r) => setTimeout(r, 0))));
+
+/** The axe rules for the landmarks that the frame draws: one main, one banner, and no duplicates. */
+const LANDMARK_RULES = { runOnly: { type: "rule" as const, values: ["landmark-no-duplicate-main", "landmark-one-main", "landmark-no-duplicate-banner", "landmark-unique", "landmark-main-is-top-level"] } };
+
+/** A page with its own banner and main, as a site has. The app mounts inside the main, and the slot it mounts into is returned. */
+async function mountInSitePage(options: TablesUiOptions) {
+  host.innerHTML = "<header>Site</header><main></main>";
+  const slot = document.createElement("div");
+  host.querySelector("main")!.append(slot);
+  await act(async () => void (mounted = mount(slot, options)));
+  return slot;
+}
 
 let host: HTMLElement;
 let mounted: MountedTables | undefined;
@@ -166,6 +179,22 @@ describe("mount", () => {
     await act(async () => mounted!.update({ baseUrl: "https://t.example", fetch: api.fetch }));
     await settle();
     expect(host.querySelector("main")).not.toBeNull();
+  });
+
+  it("with frame: false, a page that has its own banner and main passes the axe landmark rules", async () => {
+    const api = fakeApi(["Tasks"]);
+    const slot = await mountInSitePage({ baseUrl: "https://t.example", fetch: api.fetch, frame: false });
+    await settle();
+    expect((await axe.run(host, LANDMARK_RULES)).violations.map((v) => v.id)).toEqual([]);
+    expect(slot.textContent).toContain("Tasks");
+  });
+
+  it("the default frame fails the axe landmark rules on that same page", async () => {
+    const api = fakeApi(["Tasks"]);
+    await mountInSitePage({ baseUrl: "https://t.example", fetch: api.fetch });
+    await settle();
+    const ids = (await axe.run(host, LANDMARK_RULES)).violations.map((v) => v.id);
+    expect(ids).toContain("landmark-no-duplicate-main");
   });
 
   it("throws for a frame that is not a boolean", () => {
