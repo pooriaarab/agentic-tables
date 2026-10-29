@@ -96,8 +96,8 @@ export function NewRowDialog({ table, create, ...props }: Props & { table: Table
     >
       {fields.length === 0 ? <p>This table has no columns yet. Add a column first.</p> : null}
       {fields.map((f) => (
-        <div className="ad-field" key={f.id}>
-          <label className="ad-field__label" htmlFor={`new-${f.id}`}>{f.name}{f.required ? " (required)" : ""}</label>
+        <div className="agd-field" key={f.id}>
+          <label className="agd-field__label" htmlFor={`new-${f.id}`}>{f.name}{f.required ? " (required)" : ""}</label>
           <Editor field={f} id={`new-${f.id}`} draft={drafts[f.id] ?? draftOf(f, null)} onChange={(d) => setDrafts({ ...drafts, [f.id]: d })} />
         </div>
       ))}
