@@ -2,6 +2,7 @@ import { assertRegion, createSharing, createStoreAuth, parseRegion } from "agent
 import { createD1Store, D1_SCHEMA, type D1Like } from "agentic-identity/cloudflare";
 import { createApp, loggable } from "./app.js";
 import { createTables } from "./tables.js";
+import pkg from "../package.json" with { type: "json" };
 
 export { createApp };
 export type { AppOptions } from "./app.js";
@@ -67,9 +68,11 @@ async function open(env: Env) {
 
 let app: ReturnType<typeof open> | undefined;
 
-// Every request needs a credential that `agentic-identity` verifies. A request with none gets 401, before any route runs.
+// Every request except `GET /health` needs a credential that `agentic-identity` verifies. A request with none gets 401, before any route runs.
 export default {
   async fetch(request: Request, env: Env = {}): Promise<Response> {
+    // Liveness. It needs no credential and no database, so it answers even when the Worker is not set up yet.
+    if (request.method === "GET" && new URL(request.url).pathname === "/health") return Response.json({ ok: true, name: pkg.name, version: pkg.version });
     let ready: Awaited<ReturnType<typeof open>>;
     try {
       ready = await (app ??= open(env));

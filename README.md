@@ -173,6 +173,8 @@ dependencies. The web UI that the Worker serves renders the same app.
 
 A Cloudflare Worker (Hono) serves `/api/v1/tables`. Data lives in D1, so it survives a restart and every Worker instance sees the same data.
 
+`GET /health` answers `200` with `{ "ok": true, "name": "agentic-tables", "version": "<version in package.json>" }`. It needs no token and does not open the database.
+
 Create the database in the EU, put its id in `wrangler.jsonc`, and set `AGENTIC_TABLES_REGION` for each deploy. There is no default, so a deploy cannot claim a region you did not state.
 
 This repository's `wrangler.jsonc` serves the app from `ui-dist`. Run `npm run build` first, because wrangler stops when that folder is missing. The build needs the dev dependencies:

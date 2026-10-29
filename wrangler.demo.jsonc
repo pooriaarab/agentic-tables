@@ -7,7 +7,7 @@
   "compatibility_date": "2026-01-01",
   "send_metrics": false,
   "workers_dev": true,
-  "assets": { "directory": "./ui-dist", "run_worker_first": ["/api/*"] },
+  "assets": { "directory": "./ui-dist", "run_worker_first": ["/api/*", "/health"] },
   // Created with: wrangler d1 create agentic-tables-demo --location weur
   "d1_databases": [{ "binding": "DB", "database_name": "agentic-tables-demo", "database_id": "37762f27-095a-498e-8049-d6e6b01d843a" }],
   "vars": { "AGENTIC_TABLES_REGION": "eu" }
