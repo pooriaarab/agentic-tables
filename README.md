@@ -241,7 +241,7 @@ import { createSharing, createStoreAuth } from "agentic-identity";
 import { createTables } from "agentic-tables";
 import { createApp } from "agentic-tables/worker";
 
-// Your code: open an agentic-identity Store on env.DB, after the setup steps below.
+// Your code: open an agentic-identity Store on env.DB, after the setup steps below. Build the app once per Worker instance, as the default export does, not on every request.
 declare function openStore(env: unknown): Promise<Store>;
 
 export default {
@@ -253,7 +253,7 @@ export default {
 };
 ```
 
-`createApp` does not open the database or check the region. The default export of `agentic-tables/worker` does both, and it reads `DB`, `AGENTIC_TABLES_REGION`, `AGENTIC_TABLES_ORIGINS`, and `AGENTIC_TABLES_LOCAL_DEV`. Do the same in your Worker: run `D1_SCHEMA` from `agentic-identity/cloudflare` on the database, and check the region claim with `assertRegion` from `agentic-identity`. Under `wrangler dev`, the local database reports no region, so the default export can wrap it with `reportingRegion` when `AGENTIC_TABLES_LOCAL_DEV=1`. `reportingRegion` is exported from `agentic-tables/worker`.
+`createApp` does not open the database or check the region. The default export of `agentic-tables/worker` does both, and it reads `DB`, `AGENTIC_TABLES_REGION`, `AGENTIC_TABLES_ORIGINS`, and `AGENTIC_TABLES_LOCAL_DEV`. Do the same in your Worker: run `D1_SCHEMA` from `agentic-identity/cloudflare` on the database, and check the region claim with `assertRegion` from `agentic-identity`. Under `wrangler dev`, the local database reports no region, When `AGENTIC_TABLES_LOCAL_DEV=1`, the default export wraps the database with `reportingRegion`. `reportingRegion` is exported from `agentic-tables/worker`.
 
 ## SDK
 
