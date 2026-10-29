@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // Ways the embed can fail, each one a test below: no or blank base URL; a getToken that is not a function; a token that is
 // read once and kept; an empty token sent as a header; a getToken that throws; unmount that leaves the page dirty or throws
-// the second time; update with bad options that breaks the app; update that keeps the old client.
+// the second time; update with bad options that breaks the app; update that keeps the old client; `frame: false` that still
+// draws the app's own banner, main landmark, or skip link inside the host page, or loses the table list or the New table button.
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount, type MountedTables } from "./embed.js";
@@ -145,6 +146,31 @@ describe("mount", () => {
     expect(reads.length).toBeGreaterThan(0);
     expect(reads.every((r) => r.headers.get("authorization") === "Bearer new")).toBe(true);
     location.hash = "";
+  });
+
+  it("draws its own banner and main landmarks by default", async () => {
+    const api = fakeApi(["Tasks"]);
+    await act(async () => void (mounted = mount(host, { baseUrl: "https://t.example", fetch: api.fetch })));
+    await settle();
+    expect(host.querySelector("main")).not.toBeNull();
+  });
+
+  it("with frame: false, draws no landmark of its own but keeps the table list and the New table button", async () => {
+    const api = fakeApi(["Tasks"]);
+    await act(async () => void (mounted = mount(host, { baseUrl: "https://t.example", fetch: api.fetch, frame: false })));
+    await settle();
+    expect(host.querySelector("main, header, [role=main], [role=banner], aside, [role=complementary]")).toBeNull();
+    expect(host.querySelector('a[href^="#main"], .ad-skip-link')).toBeNull();
+    expect(host.querySelector("nav")?.textContent).toContain("Tasks");
+    expect([...host.querySelectorAll("button")].some((b) => b.textContent?.includes("New table"))).toBe(true);
+    await act(async () => mounted!.update({ baseUrl: "https://t.example", fetch: api.fetch }));
+    await settle();
+    expect(host.querySelector("main")).not.toBeNull();
+  });
+
+  it("throws for a frame that is not a boolean", () => {
+    expect(() => mount(host, { baseUrl: "https://t.example", frame: "no" } as never)).toThrow(TypeError);
+    expect(host.innerHTML).toBe("");
   });
 
   it("unmount empties the element, and a second unmount does nothing", async () => {
