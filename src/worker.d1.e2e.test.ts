@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test, vi } from "vitest";
-import { createMemoryStore } from "agentic-identity";
+import { createMemoryStore, createSharing } from "agentic-identity";
 import { createTables } from "./index.js";
 import worker, { createApp } from "./worker.js";
 import { startWorker, type RunningWorker } from "./wrangler-harness.js";
@@ -118,7 +118,7 @@ describe("two Workers on one D1 database", () => {
     try {
       const boom = () => Promise.reject(new Error('invalid id "secret@example.com"'));
       const store = { ...createMemoryStore({ region: "eu" }), query: boom, get: boom };
-      const failed = await createApp(createTables(store as never)).fetch(new Request("http://x/api/v1/tables/bases", { headers: ADA }));
+      const failed = await createApp(createTables(store as never), createSharing(store as never)).fetch(new Request("http://x/api/v1/tables/bases", { headers: ADA }));
       expect(failed.status).toBe(500);
 
       const db = { prepare: () => ({ run: boom }) };

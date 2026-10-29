@@ -556,6 +556,11 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         return view;
       });
     },
+    async getView(viewId: string): Promise<View> {
+      const view = await read<Omit<View, "id">>(store, "views", viewId);
+      if (!view) throw new NotFoundError(`view "${viewId}"`);
+      return { id: viewId, ...view };
+    },
     async listViews(tableId: string): Promise<View[]> {
       return (await all<Omit<View, "id">>(store, "views", { tableId }, "createdAt")).map((e) => ({ id: e.id, ...e.data }));
     },
