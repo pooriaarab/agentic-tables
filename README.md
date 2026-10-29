@@ -103,6 +103,36 @@ Every call needs `x-principal-id` and `x-principal-kind` (one of `human`, `agent
 - `x-principal-chain`: who the caller acts for, root first, as `human:ada` or `agent:a1,agent_of_agent:a2`. An agent of a person needs it. `resolveChain` from `agentic-identity` checks the parent kinds and the depth.
 - `x-principal-scopes`: what the caller may do, as `table:read,base:read`. It defaults to everything. A caller never has more than its owner's role.
 
+## SDK
+
+`agentic-tables/client` is a typed client for the Worker API. It uses only `fetch`, so it runs in browsers, Workers, and Node 22. It has one method per route.
+
+```ts
+import { createClient, TablesClientError } from "agentic-tables/client";
+
+const tables = createClient({
+  baseUrl: "http://127.0.0.1:8787",
+  principal: { id: "ada", kind: "human" },
+});
+const base = await tables.createBase("Crm");
+const table = await tables.createTable(base.id, "People", [{ name: "Name", type: "text", required: true }]);
+await tables.insertRow(table.id, { Name: "Ada" });
+const page = await tables.queryRows(table.id, { sort: { field: "Name" }, limit: 50 });
+
+try {
+  await tables.getRow("row_0000000000000000");
+} catch (error) {
+  if (error instanceof TablesClientError) console.log(error.code, error.status); // NOT_FOUND 404
+}
+```
+
+- `baseUrl` is the Worker origin. The client adds `/api/v1/tables`.
+- `principal` sets the `x-principal-*` headers, which the Worker reads today. `token` is sent as `Authorization: Bearer`. The Worker does not read it yet. A call with no `principal` answers `401 UNAUTHENTICATED`.
+- `fetch` replaces the global `fetch`.
+- Every method takes `{ signal }` last. Abort it to cancel the call. An abort throws the error of `fetch` as it is.
+- A failed call throws `TablesClientError` with `code`, `status`, and, where the API sends them, `issues` and `report`. A call that gets no answer has code `NETWORK` and status `0`. An answer that is not JSON has code `BAD_RESPONSE`.
+- The client never retries. A repeat of a write could write twice, so retry in your own code where it is safe.
+
 ## Access
 
 A base and a table are shared resources, and a table sits inside its base. Roles come from `agentic-identity`: viewer, commenter, editor, owner. A role on a base passes down to its tables. The person who creates a base owns it. An agent that acts for a person has the role of that person, cut down by its scopes. A role belongs to a kind and an id together: the person `sam` and the agent `sam` hold separate roles, and a share names the kind (`human` or `agent`).
