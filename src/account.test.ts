@@ -1,5 +1,5 @@
 // Failure cases for the account contract, written before the code.
-//  1. A subject with no id or no kind is refused. A context for someone else, a context with an agent
+//  1. A subject with no id, no kind, or a kind that holds no role (a user token) is refused. A context for someone else, a context with an agent
 //     chain, or missing deps is refused: it would export or erase another person's data.
 //  2. Export holds only what the subject owns: a second owner, and a second subject with the same id
 //     and another kind, never show up.
@@ -10,7 +10,7 @@
 //  6. Erase leaves a second owner's bases, tables, and views whole, and the same-id agent's too.
 //  7. A legacy base (no owner kind) stops both calls with LEGACY_BASE and changes nothing.
 //  8. A base the subject gave away is not exported and not erased. A row the subject wrote in it still is (an authored row).
-//  9. The grants of an erased base go with it, including another person's grant.
+//  9. A context without the admin scopes is refused with FORBIDDEN. The grants of an erased base go with it, including another person's grant.
 // 10. The collection names stay stable, so a rename fails here before it breaks a host.
 import { beforeEach, describe, expect, test } from "vitest";
 import { createMemoryStore, createSharing, type PrincipalContext } from "agentic-identity";
@@ -45,7 +45,7 @@ async function fill(owner: Actor, tag: string) {
 describe("subject and deps", () => {
   test("refuses a bad subject, a context for someone else, an agent chain, and missing deps", async () => {
     await fill(ada, "ada");
-    for (const bad of [{ id: "", kind: "human" }, { id: "ada" }, { id: "ada", kind: "wizard" }, null]) {
+    for (const bad of [{ id: "", kind: "human" }, { id: "ada" }, { id: "ada", kind: "wizard" }, { id: "ada", kind: "user_token" }, null]) {
       await expect(tablesAccount.exportAccount(bad as never, deps(ada))).rejects.toThrow(/subject/);
       await expect(tablesAccount.eraseAccount(bad as never, deps(ada))).rejects.toThrow(/subject/);
     }
@@ -56,6 +56,16 @@ describe("subject and deps", () => {
     await expect(tablesAccount.exportAccount(ada, {} as never)).rejects.toThrow("needs deps.tables");
     await expect(tablesAccount.eraseAccount(ada, undefined as never)).rejects.toThrow("needs deps.tables");
     expect((await tablesAccount.exportAccount(ada, deps(ada))).bases).toHaveLength(1);
+  });
+});
+
+describe("scopes", () => {
+  test("a context without the admin scopes is refused, not answered with nothing", async () => {
+    await fill(ada, "ada");
+    const weak = { ...deps(ada), ctx: { ...ctxOf(ada), scopes: ["base:read"] } };
+    await expect(tablesAccount.exportAccount(ada, weak)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(tablesAccount.eraseAccount(ada, weak)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await tables.listBases()).toHaveLength(1);
   });
 });
 
