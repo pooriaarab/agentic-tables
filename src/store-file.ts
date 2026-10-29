@@ -71,7 +71,14 @@ export function createFileStore(path: string, options: FileStoreOptions = {}): S
     try {
       const data: unknown = JSON.parse(text);
       if (typeof data !== "object" || data === null || Array.isArray(data)) throw new Error();
-      return new Map(Object.entries(data).map(([name, docs]) => [name, new Map(Object.entries(docs as Record<string, Doc>))]));
+      return new Map(
+        Object.entries(data).map(([name, docs]) => {
+          if (typeof docs !== "object" || docs === null || Array.isArray(docs)) throw new Error();
+          // A doc that is not an object would read as a missing doc. Fail closed instead.
+          for (const doc of Object.values(docs)) if (typeof doc !== "object" || doc === null || Array.isArray(doc)) throw new Error();
+          return [name, new Map(Object.entries(docs as Record<string, Doc>))];
+        }),
+      );
     } catch {
       // Never replace a file that does not parse: that would erase data an operator may repair.
       throw new Error(`the database file ${path} is not valid JSON. Repair or remove it`);

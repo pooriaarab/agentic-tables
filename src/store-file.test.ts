@@ -11,6 +11,9 @@
 //  7. A database file that is not JSON is never replaced: the write fails.
 //  8. A transaction that throws writes nothing and releases the lock.
 //  9. A lock that a takeover replaced is not removed by its old owner.
+// 10. A transaction that read a doc by query runs again when another store changes it (the shared
+//     contract suite does not test this case).
+// 11. A file with a doc that is not an object fails to load: it never reads as a missing doc.
 // The two-store test is the guard check: with the lock removed it must fail.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -105,6 +108,25 @@ describe("the lock", () => {
     writeFileSync(lock(), content);
     await expect(createFileStore(path, { lockTimeoutMs: 150, staleAfterMs: 1 }).put("rows", "x", { n: 1 })).rejects.toThrow(/locked/);
     expect(readFileSync(lock(), "utf8")).toBe(content);
+  });
+
+  test("a transaction that queried a doc runs again when another store changes it", async () => {
+    const one = createFileStore(path);
+    const two = createFileStore(path);
+    await one.put("rows", "a", { n: 1 });
+    const seen: number[] = [];
+    await one.transaction(async (tx) => {
+      seen.push(((await tx.query("rows")).items[0]!.data as { n: number }).n);
+      if (seen.length === 1) await two.put("rows", "a", { n: 2 });
+    });
+    expect(seen).toEqual([1, 2]);
+  });
+
+  test("a doc that is not an object fails the load", async () => {
+    for (const bad of ["0", '""', "false", "[1]", "null"]) {
+      writeFileSync(path, `{"rows":{"a":${bad}}}`);
+      await expect(createFileStore(path).get("rows", "a")).rejects.toThrow(/not valid JSON/);
+    }
   });
 
   test("an old owner does not remove the lock that replaced its own", async () => {

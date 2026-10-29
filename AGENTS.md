@@ -4,7 +4,7 @@ Typed tables that agents read and write as rows.
 
 ## Faces
 
-- SDK: `import { createTables } from "agentic-tables"`, with a `Store` from `agentic-identity` (`createMemoryStore`, `createD1Store`) or `createFileStore` from `agentic-tables/file-store`.
+- SDK: `import { createTables } from "agentic-tables"`, with a `Store` from `agentic-identity` (`createMemoryStore`; `createD1Store` from `agentic-identity/cloudflare`) or `createFileStore` from `agentic-tables/file-store`.
 - CLI: `npx agentic-tables --help`.
 - MCP: `npx agentic-tables mcp`.
 - HTTP: a Worker from `agentic-tables/worker`, under `/api/v1/tables`. It answers

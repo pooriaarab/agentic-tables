@@ -19,6 +19,13 @@ import {
 import type { Doc, Json, Page, Store, StoreOps } from "agentic-identity";
 import { compareKeys, decodeCursor, encodeCursor, matches, resolveFilter, resolveSort, sortKey, type Filter, type Sort, type SortSpec } from "./query.js";
 
+interface BaseDoc {
+  rev?: number;
+  name: string;
+  ownerId: string;
+  createdAt: string;
+}
+
 export interface Base {
   id: string;
   name: string;
@@ -117,7 +124,13 @@ export interface ListRowsOptions {
   cursor?: string;
 }
 
+/**
+ * Docs a transaction reads are guarded; docs a query did not return are not. A row, table, or view added
+ * during a change is invisible to that change. So adding a row or a view bumps `rev` on its table, and adding
+ * a table bumps `rev` on its base. Any change that read that table or base then runs again and sees the new doc.
+ */
 interface TableDoc {
+  rev?: number;
   baseId: string;
   name: string;
   fields: Field[];
@@ -202,7 +215,9 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     if (!doc) throw new NotFoundError(`table "${id}"`);
     return doc;
   };
-  const tableView = (id: string, doc: TableDoc): Table => ({ id, ...doc });
+  const tableView = (id: string, { rev: _rev, ...doc }: TableDoc): Table => ({ id, ...doc });
+  const baseView = (id: string, { rev: _rev, ...doc }: BaseDoc): Base => ({ id, ...doc });
+  const bump = <T extends { rev?: number }>(doc: T): T => ({ ...doc, rev: (doc.rev ?? 0) + 1 });
   const rowView = (table: TableDoc, id: string, doc: RowDoc): Row => ({
     id,
     tableId: doc.tableId,
@@ -341,7 +356,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       return base;
     },
     async listBases(): Promise<Base[]> {
-      return (await all<Omit<Base, "id">>(store, "bases", {}, "createdAt")).map((e) => ({ id: e.id, ...e.data }));
+      return (await all<BaseDoc>(store, "bases", {}, "createdAt")).map((e) => baseView(e.id, e.data));
     },
 
     /** Export every base the principal owns, and every row it wrote in other bases, in one consistent read. Memory grows with the data. */
@@ -349,8 +364,8 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       assertOwnerId(ownerId);
       return store.transaction(async (ops) => {
         const bases: OwnerExport["bases"] = [];
-        for (const owned of await all<Omit<Base, "id">>(ops, "bases", { ownerId }, "createdAt")) {
-          const out: OwnerExport["bases"][number] = { base: { id: owned.id, ...owned.data }, tables: [], views: [], rows: [] };
+        for (const owned of await all<BaseDoc>(ops, "bases", { ownerId }, "createdAt")) {
+          const out: OwnerExport["bases"][number] = { base: baseView(owned.id, owned.data), tables: [], views: [], rows: [] };
           for (const { id, data } of await all<TableDoc>(ops, "tables", { baseId: owned.id }, "createdAt")) {
             out.tables.push(tableView(id, data));
             for (const r of await all<RowDoc>(ops, "rows", { tableId: id }, "createdAt")) out.rows.push(rowView(data, r.id, r.data));
@@ -386,7 +401,8 @@ export function createTables(store: Store, options: TablesOptions = {}) {
 
     async createTable(baseId: string, name: string, fields: FieldInput[] = []): Promise<Table> {
       return store.transaction(async (ops) => {
-        if (!(await read(ops, "bases", baseId))) throw new NotFoundError(`base "${baseId}"`);
+        const base = await read<BaseDoc>(ops, "bases", baseId);
+        if (!base) throw new NotFoundError(`base "${baseId}"`);
         const issues: Issue[] = [];
         checkFields(fields, [], issues);
         await checkLinkTables(ops, baseId, fields, issues);
@@ -394,7 +410,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         const at = stamp();
         const doc: TableDoc = { baseId, name: name.trim(), fields: fields.map(toField), createdAt: at, updatedAt: at };
         const id = newId("tbl");
-        await write(ops, "tables", id, doc);
+        await apply(ops, [["tables", id, doc], ["bases", baseId, bump(base)]]);
         return tableView(id, doc);
       });
     },
@@ -412,7 +428,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         const at = stamp();
         const doc: RowDoc = { tableId, baseId: table.baseId, values: await merge(ops, table, {}, values), createdAt: at, updatedAt: at, createdBy: actor, updatedBy: actor };
         const id = newId("row");
-        await write(ops, "rows", id, doc);
+        await apply(ops, [["rows", id, doc], ["tables", tableId, bump(table)]]);
         return rowView(table, id, doc);
       });
     },
@@ -434,7 +450,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
           const doc: RowDoc = { tableId, baseId: table.baseId, values: merged, createdAt: at, updatedAt: at, createdBy: actor, updatedBy: actor };
           docs.push({ id: newId("row"), doc });
         }
-        await apply(ops, docs.map(({ id, doc }): Write => ["rows", id, doc]));
+        await apply(ops, [...docs.map(({ id, doc }): Write => ["rows", id, doc]), ["tables", tableId, bump(table)]]);
         return docs.map(({ id, doc }) => rowView(table, id, doc));
       });
     },
@@ -506,25 +522,28 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     },
 
     async createView(tableId: string, input: ViewInput): Promise<View> {
-      const table = tableView(tableId, await loadTable(store, tableId));
-      const issues: Issue[] = [];
-      const filter = input.filter ? resolveFilter(table, input.filter, issues) : undefined;
-      const spec = input.sort ? resolveSort(table, input.sort, issues) : undefined;
-      const group = input.groupBy ? table.fields.find((f) => f.id === input.groupBy || f.name === input.groupBy) : undefined;
-      if (input.kind === "board" && group?.type !== "single_select") issues.push({ field: input.groupBy ?? "groupBy", code: "type", message: "a board needs groupBy set to a single select field" });
-      if (input.name.trim() === "") issues.push({ field: "name", code: "type", message: "needs a name" });
-      if (input.kind !== "grid" && input.kind !== "board") issues.push({ field: "kind", code: "type", message: 'must be "grid" or "board"' });
-      checkDirection(input.sort, issues);
-      if (issues.length > 0) throw new ValidationError(issues);
-      const view: View = {
-        id: newId("view"), tableId, name: input.name.trim(), kind: input.kind,
-        ...(filter ? { filter } : {}),
-        ...(input.sort ? { sort: { field: spec && "field" in spec ? spec.field.id : input.sort.field, direction: input.sort.direction ?? "asc" } } : {}),
-        ...(group ? { groupBy: group.id } : {}),
-      };
-      const { id, ...rest } = view;
-      await write(store, "views", id, { ...rest, createdAt: stamp() });
-      return view;
+      return store.transaction(async (ops) => {
+        const doc = await loadTable(ops, tableId);
+        const table = tableView(tableId, doc);
+        const issues: Issue[] = [];
+        const filter = input.filter ? resolveFilter(table, input.filter, issues) : undefined;
+        const spec = input.sort ? resolveSort(table, input.sort, issues) : undefined;
+        const group = input.groupBy ? table.fields.find((f) => f.id === input.groupBy || f.name === input.groupBy) : undefined;
+        if (input.kind === "board" && group?.type !== "single_select") issues.push({ field: input.groupBy ?? "groupBy", code: "type", message: "a board needs groupBy set to a single select field" });
+        if (input.name.trim() === "") issues.push({ field: "name", code: "type", message: "needs a name" });
+        if (input.kind !== "grid" && input.kind !== "board") issues.push({ field: "kind", code: "type", message: 'must be "grid" or "board"' });
+        checkDirection(input.sort, issues);
+        if (issues.length > 0) throw new ValidationError(issues);
+        const view: View = {
+          id: newId("view"), tableId, name: input.name.trim(), kind: input.kind,
+          ...(filter ? { filter } : {}),
+          ...(input.sort ? { sort: { field: spec && "field" in spec ? spec.field.id : input.sort.field, direction: input.sort.direction ?? "asc" } } : {}),
+          ...(group ? { groupBy: group.id } : {}),
+        };
+        const { id, ...rest } = view;
+        await apply(ops, [["views", id, { ...rest, createdAt: stamp() }], ["tables", tableId, bump(doc)]]);
+        return view;
+      });
     },
     async listViews(tableId: string): Promise<View[]> {
       return (await all<Omit<View, "id">>(store, "views", { tableId }, "createdAt")).map((e) => ({ id: e.id, ...e.data }));
@@ -650,6 +669,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     async deleteTable(tableId: string): Promise<{ rows: number; views: number }> {
       return store.transaction(async (ops) => {
         const table = await loadTable(ops, tableId);
+        await read(ops, "bases", table.baseId); // a table added to this base now makes this change run again
         const issues: Issue[] = [];
         for (const { id, data } of await all<TableDoc>(ops, "tables", { baseId: table.baseId }, "createdAt")) {
           if (id === tableId) continue;
