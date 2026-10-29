@@ -39,6 +39,7 @@ Environment:
   AGENTIC_TABLES_DB      Database file. Default ./agentic-tables.json.
   AGENTIC_TABLES_ACTOR   Who acts, as kind:id. Default human:cli.
   AGENTIC_TABLES_CHAIN   Who an agent of a person acts for, root first, as kind:id,kind:id.
+                         The actor of such an agent has the kind agent_of_human, for example agent_of_human:bot.
   AGENTIC_TABLES_SCOPES  What the actor may do, as table:read,base:read. Default: everything.
   AGENTIC_TABLES_BASE    The base to work in. Default: your own base.
 `;

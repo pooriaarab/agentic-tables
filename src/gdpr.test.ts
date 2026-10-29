@@ -136,6 +136,19 @@ describe("erase", () => {
     expect(await old.listBases()).toHaveLength(1);
   });
 
+  // A base made by an earlier build has no owner kind and no sharing record. The base is left alone, but rows the principal wrote in it still count.
+  test("rows written in a base with no owner kind are still exported and erased as authored rows", async () => {
+    const store = createMemoryStore();
+    const old = createTables(store);
+    await store.put("bases", "base_old", { name: "old", ownerId: "ada", createdAt: "2026-01-01T00:00:00.000Z" });
+    const table = await old.createTable("base_old", "T", [{ name: "Note", type: "text" }]);
+    await old.insertRow(table.id, { Note: "old-row" }, ada);
+    expect((await old.exportOwnerData(ada)).bases).toEqual([]);
+    expect((await old.exportOwnerData(ada)).authoredRows.map((r) => r.values.Note)).toEqual(["old-row"]);
+    expect(await old.eraseOwnerData(ada)).toMatchObject({ bases: 0, authoredRows: 1 });
+    expect(await old.listBases()).toHaveLength(1);
+  });
+
   test("a file store keeps no trace after erase", async () => {
     const dir = mkdtempSync(join(tmpdir(), "tables-gdpr-"));
     try {
