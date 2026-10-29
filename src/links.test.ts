@@ -42,7 +42,7 @@ describe("a damaged link record", () => {
     await put("elsewhere", {}, "elsewhere", "other-resource");
     await put("owner-role", { role: "owner" });
     const listed = (await call(app, "GET", `/bases/${base.id}/links`)).body;
-    expect(listed).toEqual({ items: [{ id: "revoked", role: "viewer", signedInOnly: false, revokedAt: 0 }], truncated: true });
+    expect(listed).toEqual({ items: [{ id: "revoked", role: "viewer", signedInOnly: false, revokedAt: 0 }], skipped: 3 });
   });
 
   test("a list of more than 200 links says it was cut, and live links come first", async () => {

@@ -94,9 +94,27 @@ describe("the client: members, invites, and links", () => {
     expect((await failure(ada.inviteToBase(base.id, { role: "owner" as never, handle: "bot" }))).code).toBe("BAD_REQUEST");
     expect((await failure(ada.inviteToBase(base.id, { role: "viewer" }))).code).toBe("BAD_REQUEST");
     expect((await failure(ada.revokeBaseLink(base.id, "nope"))).code).toBe("NOT_FOUND");
+    // A stranger and a missing scope are refused on every new route, on a table too.
+    const table = await ada.createTable(base.id, "T", [{ name: "N", type: "text" }]);
+    for (const run of [() => nobody.revokeBaseLink(base.id, link.id), () => nobody.inviteToBase(base.id, { role: "viewer", handle: "bot" }), () => nobody.listTableMembers(table.id), () => nobody.inviteToTable(table.id, { role: "viewer", handle: "bot" }), () => nobody.listTableLinks(table.id), () => nobody.createTableLink(table.id, { role: "viewer" }), () => nobody.revokeTableLink(table.id, link.id)]) {
+      expect(await failure(run())).toMatchObject({ code: "NOT_FOUND", status: 404 });
+    }
+    // A route for a table does not take a base id, and one for a base does not take a table id.
+    expect((await failure(ada.listTableLinks(base.id))).code).toBe("NOT_FOUND");
+    expect((await failure(ada.createTableLink(base.id, { role: "viewer" }))).code).toBe("NOT_FOUND");
+    expect((await failure(ada.revokeTableLink(base.id, link.id))).code).toBe("NOT_FOUND");
+    expect((await failure(ada.listBaseLinks(table.id))).code).toBe("NOT_FOUND");
+    // A second revoke keeps the first revoke time.
+    await ada.revokeBaseLink(base.id, link.id);
+    const first = (await ada.listBaseLinks(base.id)).items.find((l) => l.id === link.id)!.revokedAt;
+    await new Promise((r) => setTimeout(r, 15));
+    await ada.revokeBaseLink(base.id, link.id);
+    expect((await ada.listBaseLinks(base.id)).items.find((l) => l.id === link.id)!.revokedAt).toBe(first);
     // A credential without the admin scope is refused by name.
     const reader = createClient({ baseUrl: `http://127.0.0.1:${PORT}`, token: seed.issue({ id: "ada", kind: "human", scopes: ["base:read", "table:read"] }) });
-    expect((await failure(reader.listBaseLinks(base.id))).code).toBe("FORBIDDEN");
+    for (const run of [() => reader.listBaseLinks(base.id), () => reader.createBaseLink(base.id, { role: "viewer" }), () => reader.revokeBaseLink(base.id, link.id), () => reader.inviteToBase(base.id, { role: "viewer", handle: "bot" }), () => reader.listBaseMembers(base.id), () => reader.listTableLinks(table.id), () => reader.createTableLink(table.id, { role: "viewer" })]) {
+      expect((await failure(run())).code).toBe("FORBIDDEN");
+    }
   }, 60_000);
 });
 

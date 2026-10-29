@@ -134,10 +134,11 @@ export interface CreatedLink {
   role: Exclude<Role, "owner">;
 }
 
-/** The share links of a base or a table, live ones first, up to 200. `truncated` says the list is not complete. */
+/** The share links of a base or a table, live ones first, up to 200. `truncated` says there are more. `skipped` counts damaged records left out. */
 export interface LinkList {
   items: ShareLink[];
   truncated?: true;
+  skipped?: number;
 }
 
 /** The answer of an unshare. */

@@ -65,6 +65,11 @@ export function createGuarded(tables: Tables, sharing: Sharing, store?: Store) {
     }
   }
 
+  /** A link route for a table names a table, and one for a base names a base. A base id on a table route is not found. Needs the store to look. */
+  async function isOfType(type: "base" | "table", resourceId: string): Promise<void> {
+    if (store && (await store.get("resources", resourceId))?.type !== type) throw missing();
+  }
+
   /** A subject is a kind and an id together: a person and an agent with one id hold separate roles. A missing or unknown kind is refused. */
   function checkSubject(subject: Subject): void {
     if (!SUBJECT_KINDS.includes(subject?.kind)) throw new TablesError("BAD_REQUEST", `subject kind must be one of ${SUBJECT_KINDS.join(", ")}`);
@@ -226,6 +231,7 @@ export function createGuarded(tables: Tables, sharing: Sharing, store?: Store) {
       /** Make a share link on a base or a table. Needs owner. The token shows once: only its hash is stored. */
       createLink: async (type: "base" | "table", resourceId: string, input: { role: Exclude<Role, "owner">; signedInOnly?: boolean; expiresInMs?: number }) => {
         await need(ctx, "admin", resourceId, type);
+        await isOfType(type, resourceId);
         if (!(LINK_ROLES as Role[]).includes(input?.role)) throw new TablesError("BAD_REQUEST", `role must be one of ${LINK_ROLES.join(", ")}`);
         if (input.signedInOnly !== undefined && typeof input.signedInOnly !== "boolean") throw new TablesError("BAD_REQUEST", "signedInOnly must be true or false");
         const { expiresInMs } = input;
@@ -233,13 +239,14 @@ export function createGuarded(tables: Tables, sharing: Sharing, store?: Store) {
         const { id, token } = await shared(() => sharing.createLink(ctx, resourceId, { role: input.role, signedInOnly: input.signedInOnly === true, ...(expiresInMs === undefined ? {} : { expiresAt: Date.now() + expiresInMs }) }));
         return { id, token, resourceId, role: input.role };
       },
-      /** The share links of a base or a table, without their tokens. Live links come first. Needs owner. `truncated` says the list is not complete. */
+      /** The share links of a base or a table, without their tokens. Live links come first. Needs owner. `truncated` says there are more, and `skipped` counts the damaged records left out. */
       listLinks: async (type: "base" | "table", resourceId: string) => {
         await need(ctx, "admin", resourceId, type);
         if (!store) throw new TablesError("UNAVAILABLE", "listing links needs the store");
+        await isOfType(type, resourceId);
         const all: LinkSummary[] = [];
         let cursor: string | undefined;
-        let cut = false;
+        let skipped = 0;
         for (let pages = 0; pages < 10; pages++) {
           const page = await store.query("links", { where: { resourceId }, limit: 100, ...(cursor === undefined ? {} : { cursor }) });
           for (const { id: key, data } of page.items) {
@@ -247,7 +254,7 @@ export function createGuarded(tables: Tables, sharing: Sharing, store?: Store) {
             // A bad `expiresAt` is a dead link for agentic-identity, so it is not shown as one that never ends.
             const expiresOk = data.expiresAt === undefined || (typeof data.expiresAt === "number" && Number.isFinite(data.expiresAt));
             if (data.id !== key || data.resourceId !== resourceId || typeof data.id !== "string" || !(LINK_ROLES as unknown[]).includes(data.role) || !expiresOk) {
-              cut = true;
+              skipped++;
               continue;
             }
             all.push({
@@ -264,7 +271,7 @@ export function createGuarded(tables: Tables, sharing: Sharing, store?: Store) {
         const now = Date.now();
         const live = (l: LinkSummary) => l.revokedAt === undefined && (l.expiresAt === undefined || l.expiresAt > now);
         all.sort((x, y) => Number(live(y)) - Number(live(x)) || (y.expiresAt ?? Infinity) - (x.expiresAt ?? Infinity) || x.id.localeCompare(y.id));
-        return { items: all.slice(0, MAX_LINKS), ...(cut || cursor !== undefined || all.length > MAX_LINKS ? { truncated: true as const } : {}) };
+        return { items: all.slice(0, MAX_LINKS), ...(cursor !== undefined || all.length > MAX_LINKS ? { truncated: true as const } : {}), ...(skipped > 0 ? { skipped } : {}) };
       },
       /** Revoke a share link of this base or table. A link of another resource is not found, even for an owner of both. Needs owner. */
       revokeLink: async (type: "base" | "table", resourceId: string, linkId: string) => {
@@ -272,7 +279,9 @@ export function createGuarded(tables: Tables, sharing: Sharing, store?: Store) {
         if (!store) throw new TablesError("UNAVAILABLE", "revoking links needs the store");
         const link = SUBJECT.test(linkId) ? await store.get("links", linkId) : null;
         if (!link || link.resourceId !== resourceId) throw missing();
-        await shared(() => sharing.revokeLink(ctx, linkId));
+        await isOfType(type, resourceId);
+        // A second revoke keeps the first revoke time and writes no second audit entry.
+        if (link.revokedAt == null) await shared(() => sharing.revokeLink(ctx, linkId));
         return { id: linkId, resourceId };
       },
       /**

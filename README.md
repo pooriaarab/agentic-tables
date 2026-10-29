@@ -306,7 +306,7 @@ try {
 
 ## Share links
 
-A share link has a role (`viewer`, `commenter`, or `editor`), an optional expiry, and an optional sign-in rule. The token shows once, when the link is made. Only its hash is stored, so a list shows the id, role, sign-in rule, expiry, and revoke time. A list holds up to 200 links, live ones first, and `truncated: true` says it is not complete. Only an owner of the base or table makes, lists, or revokes links, and a link of another resource is `404`. The links of a Worker made with `createApp` need `options.store` for the list and the revoke: without it, they answer `503 UNAVAILABLE`.
+A share link has a role (`viewer`, `commenter`, or `editor`), an optional expiry, and an optional sign-in rule. The token shows once, when the link is made. Only its hash is stored, so a list shows the id, role, sign-in rule, expiry, and revoke time. A list holds up to 200 links, live ones first, `truncated: true` says there are more, and `skipped` counts damaged records left out. Only an owner of the base or table makes, lists, or revokes links, and a link of another resource is `404`. The links of a Worker made with `createApp` need `options.store` for the list and the revoke: without it, they answer `503 UNAVAILABLE`.
 
 ## Access
 

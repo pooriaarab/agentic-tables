@@ -119,7 +119,7 @@ export function createMcpServer(ctx: Context): McpServer {
     return ctx.tables.createInvite(resource.type, resource.id, { role, ...(email === undefined ? { handle } : { email }), ...(expiresInMs === undefined ? {} : { expiresInMs }) });
   });
   const resourceOf = async (table: string | undefined) => (table === undefined ? { type: "base" as const, id: await ctx.baseId() } : { type: "table" as const, id: (await ctx.table(table)).id });
-  tool("list_links", "List the share links of your base, or of one table, without their tokens. Live links come first, and `truncated` says the list is not complete. Only an owner can.", { table: tableRef.optional() }, "read", async ({ table }) => {
+  tool("list_links", "List the share links of your base, or of one table, without their tokens. Live links come first, `truncated` says there are more, and `skipped` counts damaged records left out. Only an owner can.", { table: tableRef.optional() }, "read", async ({ table }) => {
     const resource = await resourceOf(table);
     return ctx.tables.listLinks(resource.type, resource.id);
   });
