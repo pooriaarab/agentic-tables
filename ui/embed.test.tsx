@@ -340,6 +340,17 @@ describe("base and table options", () => {
     expect(host.textContent).not.toContain("not found");
   });
 
+  it("update with the same tableId opens that table again", async () => {
+    await open({ tableId: "t-Plans" });
+    location.hash = "#/t/t-Budget";
+    await act(async () => void window.dispatchEvent(new HashChangeEvent("hashchange")));
+    await settle();
+    expect(host.querySelector('nav [aria-current="page"]')?.textContent).toContain("Budget");
+    await act(async () => mounted!.update({ baseUrl: "https://t.example", fetch, tableId: "t-Plans" }));
+    await settle();
+    expect(host.querySelector('nav [aria-current="page"]')?.textContent).toContain("Plans");
+  });
+
   it("lets the hash win over tableId on mount", async () => {
     location.hash = "#/t/t-Budget";
     await open({ tableId: "t-Plans" });

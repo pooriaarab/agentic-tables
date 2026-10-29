@@ -70,10 +70,10 @@ function clientFor(options: TablesUiOptions): TablesClient {
 }
 
 /** The app with a client above it. It needs the theme, tooltip, and toast providers above it. `mount` adds them. */
-function TablesApp({ client, themePicker, frame, baseId, tableId, baseSwitcher }: { client: TablesClient; themePicker?: boolean; frame?: boolean; baseId?: string; tableId?: string; baseSwitcher?: boolean }) {
+function TablesApp({ client, themePicker, frame, baseId, tableId, baseSwitcher, navKey }: { client: TablesClient; themePicker?: boolean; frame?: boolean; baseId?: string; tableId?: string; baseSwitcher?: boolean; navKey?: number }) {
   return (
     <ClientContext.Provider value={client}>
-      <App themePicker={themePicker} frame={frame} baseId={baseId} tableId={tableId} baseSwitcher={baseSwitcher} />
+      <App themePicker={themePicker} frame={frame} baseId={baseId} tableId={tableId} baseSwitcher={baseSwitcher} navKey={navKey} />
     </ClientContext.Provider>
   );
 }
@@ -95,6 +95,7 @@ export function mount(element: HTMLElement, options: TablesUiOptions): MountedTa
   let picker = options.themePicker === true;
   let frame = options.frame !== false;
   let where = { baseId: options.baseId, tableId: options.tableId, baseSwitcher: options.baseSwitcher === true };
+  let navKey = 0;
   const root = createRoot(element);
   mounted.add(element);
   let gone = false;
@@ -102,7 +103,7 @@ export function mount(element: HTMLElement, options: TablesUiOptions): MountedTa
     const app = (
       <TooltipProvider>
         <ToastProvider>
-          <TablesApp client={client} themePicker={picker} frame={frame} {...where} />
+          <TablesApp client={client} themePicker={picker} frame={frame} {...where} navKey={navKey} />
         </ToastProvider>
       </TooltipProvider>
     );
@@ -116,6 +117,7 @@ export function mount(element: HTMLElement, options: TablesUiOptions): MountedTa
       picker = next.themePicker === true;
       frame = next.frame !== false;
       where = { baseId: next.baseId, tableId: next.tableId, baseSwitcher: next.baseSwitcher === true };
+      navKey += 1;
       render();
     },
     unmount() {

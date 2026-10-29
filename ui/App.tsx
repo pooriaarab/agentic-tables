@@ -26,7 +26,7 @@ function ThemePicker() {
 
 /** The app. `frame` draws the design package's app shell, with its banner, main landmark, and skip link. Without it the
  * app draws a plain block, for a host page that has its own landmarks. */
-export function App({ themePicker = false, frame = true, baseId, tableId, baseSwitcher = false }: { themePicker?: boolean; frame?: boolean; baseId?: string; tableId?: string; baseSwitcher?: boolean }) {
+export function App({ themePicker = false, frame = true, baseId, tableId, baseSwitcher = false, navKey = 0 }: { themePicker?: boolean; frame?: boolean; baseId?: string; tableId?: string; baseSwitcher?: boolean; navKey?: number }) {
   const client = useClient();
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [route, setRoute] = useState(routeId() ?? tableId ?? null);
@@ -35,10 +35,11 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
   const routeNow = useRef(route);
   routeNow.current = route;
   // A changed option replaces what the person chose. The first render keeps the hash, which wins over `tableId`.
-  const seen = useRef({ baseId, tableId });
+  const seen = useRef({ baseId, tableId, navKey });
   useEffect(() => {
     if (seen.current.baseId !== baseId) setChosen(baseId);
-    if (seen.current.tableId !== tableId && tableId !== undefined) {
+    // `navKey` changes on each `update` call, so the same `tableId` sent again opens that table again.
+    if ((seen.current.tableId !== tableId || seen.current.navKey !== navKey) && tableId !== undefined) {
       // The next read looks for the base of this table, so set the target before it runs.
       routeNow.current = tableId;
       setRoute(tableId);
@@ -47,8 +48,8 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
       location.hash = `#/t/${tableId}`;
       setChosen(baseId);
     }
-    seen.current = { baseId, tableId };
-  }, [baseId, tableId]);
+    seen.current = { baseId, tableId, navKey };
+  }, [baseId, tableId, navKey]);
   const [creating, setCreating] = useState(false);
 
   const latest = useRef(0);
