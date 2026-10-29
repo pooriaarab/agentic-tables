@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+- `agentic-tables/ui` no longer exports `clientFor` or `TablesApp`. Neither was documented, and `mount` uses both inside the module. Use `mount` to render the app.
+
 ## 0.7.1
 
 **Read the changed id rule below before you upgrade.** A principal id that worked in 0.7.0 can now fail.
