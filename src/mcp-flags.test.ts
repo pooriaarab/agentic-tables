@@ -24,15 +24,14 @@ function run(file: string, args: string[]): Promise<{ code: number | null; out: 
 }
 
 describe("help and version never start the server", () => {
-  const cases: [string, string[], "help" | "version"][] = [
-    ["cli.js", ["--help"], "help"],
-    ["cli.js", ["--version"], "version"],
-    ["cli.js", ["mcp", "--help"], "help"],
-    ["cli.js", ["mcp", "-h"], "help"],
-    ["cli.js", ["mcp", "--version"], "version"],
-    ["mcp-bin.js", ["--help"], "help"],
-    ["mcp-bin.js", ["--version"], "version"],
-  ];
+  const cases: [string, string[], "help" | "version"][] = [];
+  for (const file of ["cli.js", "mcp-bin.js"]) {
+    const prefixes = file === "cli.js" ? [[], ["mcp"]] : [[]];
+    for (const prefix of prefixes) {
+      for (const f of ["--help", "-h"]) cases.push([file, [...prefix, f], "help"]);
+      for (const f of ["--version", "-V", "-v"]) cases.push([file, [...prefix, f], "version"]);
+    }
+  }
   for (const [file, args, kind] of cases) {
     test(`${file} ${args.join(" ")} exits 0 within 5 s`, async () => {
       const r = await run(file, args);
