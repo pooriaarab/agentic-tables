@@ -6,6 +6,7 @@ import { NewTableDialog } from "./Dialogs";
 import { TableView } from "./TableView";
 
 const DEFAULT_BASE = "My tables";
+const NOT_FOUND = "That table was not found, or you cannot read it.";
 type Load = { state: "loading" } | { state: "error"; message: string; bases: Base[] } | { state: "ready"; base: Base; bases: Base[]; tables: Table[]; notice?: string };
 
 /** The table id in the URL hash, as `#/t/<id>`. */
@@ -72,16 +73,19 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
         }
       }
       if (!base) {
-        if (routeNow.current) notice = "That table was not found, or you cannot read it.";
-        // The first visit makes a base to hold the tables. Later visits use the first base.
+        // The first visit makes a base to hold the tables. Later visits use the first base. A link that finds no base
+        // makes none.
         base = bases[0];
+        if (!base && routeNow.current) throw new UiError(NOT_FOUND);
         if (!base) { base = await client.createBase(DEFAULT_BASE); bases = [base]; }
       }
       tables ??= await client.listTables(base.id);
+      if (routeNow.current && !tables.some((t) => t.id === routeNow.current)) notice = NOT_FOUND;
       if (mine === latest.current) setLoad({ state: "ready", base, bases, tables, notice });
     } catch (error) {
       if (mine === latest.current) setLoad({ state: "error", message: failure(error), bases });
     }
+  // `tableId` is a dependency on purpose: a new link starts a new read, which looks for the base of that table.
   }, [client, chosen, tableId]);
   useEffect(() => { void read(); }, [read]);
   useEffect(() => {
@@ -111,7 +115,7 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
   else if (load.state === "error")
     body = <EmptyState title="The tables did not load" description={<span role="alert">{load.message}</span>} action={<Button onClick={() => { setLoad({ state: "loading" }); void read(); }}>Try again</Button>} />;
   else if (load.notice && !current) body = <EmptyState title="Table not found" description={<span role="alert">{load.notice}</span>} />;
-  else if (current) body = <TableView key={current.id} tableId={current.id} onGone={() => { location.hash = ""; void read(); }} />;
+  else if (current) body = <TableView key={current.id} tableId={current.id} onGone={() => { routeNow.current = null; setRoute(null); location.hash = ""; void read(); }} />;
   else if (tables.length === 0) body = <EmptyState title="No tables yet" description="Make a table, then add columns and rows." action={<Button onClick={() => setCreating(true)}>New table</Button>} />;
   else body = <EmptyState title="Pick a table" description="Choose a table in the list." />;
 

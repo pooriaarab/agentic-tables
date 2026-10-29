@@ -6,7 +6,7 @@ No breaking changes to the API. One behavior change: see Fixed.
 
 ### Added
 
-- `mount` in `agentic-tables/ui` takes `baseId`, `tableId`, and `baseSwitcher`. `baseId` opens that base (a shared one too). `tableId` opens that table, and opens the base that holds it when `baseId` is not set. `baseSwitcher` shows a list of every readable base. A base the caller cannot read shows an error, and the app never opens another base instead.
+- `mount` in `agentic-tables/ui` takes `baseId`, `tableId`, and `baseSwitcher`. `baseId` opens that base (a shared one too). `tableId` opens that table, and opens the base that holds it when `baseId` is not set. `baseSwitcher` shows a list of every readable base. A table shared alone does not show its base. A base the caller cannot read shows an error, and the app never opens another base instead.
 
 ### Fixed
 

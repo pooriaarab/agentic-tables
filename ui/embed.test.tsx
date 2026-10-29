@@ -306,6 +306,16 @@ describe("base and table options", () => {
     expect(location.hash).toBe("#/t/t-Budget");
   });
 
+  it("shows no not-found notice on a plain mount", async () => {
+    await open({});
+    expect(host.textContent).not.toContain("not found");
+  });
+
+  it("shows a notice when tableId is not in the given baseId", async () => {
+    await open({ baseId: "b1", tableId: "t-Plans" });
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("not found");
+  });
+
   it("lets the hash win over tableId on mount", async () => {
     location.hash = "#/t/t-Budget";
     await open({ tableId: "t-Plans" });
