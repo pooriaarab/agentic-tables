@@ -1,14 +1,12 @@
 // End to end: the real Worker under `wrangler dev`. It starts with the unsafe
 // flag set, and a second time without it to check that it refuses to serve. The run writes a JSON
 // record of each request to $TMPDIR/agentic-tables-worker-e2e.json.
-import { spawn, type ChildProcess } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { startWorker, type RunningWorker } from "./wrangler-harness.js";
 
-const WRANGLER = fileURLToPath(new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url));
 const PORT = 18788;
 const BASE = `http://127.0.0.1:${PORT}/api/v1/tables`;
 const HUMAN = { "x-principal-id": "ada", "x-principal-kind": "human" };
@@ -25,35 +23,17 @@ async function call(method: string, path: string, headers: Record<string, string
   return { status: response.status, body: (await response.json()) as any };
 }
 
-const servers: ChildProcess[] = [];
-
-async function start(port: number, vars: string[]): Promise<void> {
-  const server = spawn(process.execPath, [WRANGLER, "dev", "--ip", "127.0.0.1", "--port", String(port), "--inspector-port", String(port + 100), ...vars.flatMap((v) => ["--var", v])], {
-    env: { ...process.env, WRANGLER_SEND_METRICS: "false", CI: "1" },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let log = "";
-  for (const stream of [server.stdout, server.stderr]) stream?.on("data", (chunk: Buffer) => (log = (log + chunk.toString()).slice(-2000)));
-  servers.push(server);
-  const deadline = Date.now() + 90_000;
-  for (;;) {
-    try {
-      await fetch(`http://127.0.0.1:${port}/api/v1/tables/bases`);
-      return;
-    } catch {
-      if (Date.now() > deadline) throw new Error(`wrangler dev did not start in time. Last output: ${log}`);
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-  }
-}
+const persistTo = mkdtempSync(join(tmpdir(), "agentic-tables-e2e-"));
+const workers: RunningWorker[] = [];
 
 beforeAll(async () => {
-  await start(PORT, ["AGENTIC_TABLES_UNSAFE_NO_AUTH:1"]);
-  await start(PORT + 1, []);
+  workers.push(await startWorker({ port: PORT, persistTo, vars: ["AGENTIC_TABLES_UNSAFE_NO_AUTH:1"] }));
+  workers.push(await startWorker({ port: PORT + 1, persistTo }));
 }, 240_000);
 
-afterAll(() => {
-  for (const server of servers) server.kill("SIGTERM");
+afterAll(async () => {
+  await Promise.all(workers.map((w) => w.stop()));
+  rmSync(persistTo, { recursive: true, force: true });
   writeFileSync(join(tmpdir(), "agentic-tables-worker-e2e.json"), JSON.stringify(steps, null, 2));
 });
 

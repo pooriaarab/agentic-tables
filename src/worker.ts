@@ -1,4 +1,5 @@
-import { createMemoryStore } from "agentic-identity";
+import { assertRegion, parseRegion } from "agentic-identity";
+import { createD1Store, D1_SCHEMA, type D1Like } from "agentic-identity/cloudflare";
 import { Hono, type Context } from "hono";
 import { errorBody } from "./errors.js";
 import { PRINCIPAL_KINDS, TablesError, type Actor, type FieldInput, type PrincipalKind, type Values } from "./model.js";
@@ -69,6 +70,8 @@ export function createApp(tables: Tables) {
 
   api.onError((error, c) => {
     if (error instanceof TablesError) return c.json(errorBody(error), STATUS[error.code] ?? 400);
+    // The message only: an error from the store never holds row content or an email address.
+    console.error(JSON.stringify({ level: "error", message: error instanceof Error ? error.message : "unknown" }));
     return c.json({ error: { code: "INTERNAL", message: "unexpected error" } }, 500);
   });
   api.notFound((c) => c.json({ error: { code: "NOT_FOUND", message: "no such route" } }, 404));
@@ -142,18 +145,41 @@ export function createApp(tables: Tables) {
   return api;
 }
 
-// The in-memory store lasts as long as one Worker instance. A durable adapter replaces it later.
-let app: ReturnType<typeof createApp> | undefined;
+export interface Env {
+  /** The D1 database. Create it in the EU: `wrangler d1 create agentic-tables --location weur`. */
+  DB?: D1Like;
+  /** Where the database lives, as a claim: "eu" or "us". D1 cannot show it, so the operator states it. */
+  AGENTIC_TABLES_REGION?: string;
+  AGENTIC_TABLES_UNSAFE_NO_AUTH?: string;
+}
+
+/** Open the store once per Worker instance. A bad setup fails here, before any request reads or writes. */
+async function open(env: Env) {
+  if (!env.DB) throw new Error("bind a D1 database as DB");
+  const region = parseRegion(env.AGENTIC_TABLES_REGION);
+  if (region === "unknown") throw new Error('set AGENTIC_TABLES_REGION to "eu" or "us"');
+  const store = createD1Store(env.DB, { region });
+  assertRegion(region, store);
+  await env.DB.prepare(D1_SCHEMA).run();
+  return createApp(createTables(store));
+}
+
+let app: ReturnType<typeof open> | undefined;
 
 // Nothing checks who calls yet. The Worker refuses every request until the operator opts in.
 export default {
-  fetch(request: Request, env: { AGENTIC_TABLES_UNSAFE_NO_AUTH?: string } = {}): Response | Promise<Response> {
+  async fetch(request: Request, env: Env = {}): Promise<Response> {
     if (env.AGENTIC_TABLES_UNSAFE_NO_AUTH !== "1") {
       return Response.json(
         { error: { code: "UNSAFE_NOT_ENABLED", message: "this Worker has no authentication yet. Set AGENTIC_TABLES_UNSAFE_NO_AUTH=1 for local use only" } },
         { status: 503 },
       );
     }
-    return (app ??= createApp(createTables(createMemoryStore()))).fetch(request);
+    try {
+      return await (await (app ??= open(env))).fetch(request);
+    } catch (error) {
+      app = undefined;
+      return Response.json({ error: { code: "MISCONFIGURED", message: error instanceof Error ? error.message : "the Worker could not start" } }, { status: 500 });
+    }
   },
 };

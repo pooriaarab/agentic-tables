@@ -326,7 +326,7 @@ describe("schema migrations", () => {
       " a ",
       "duplicate_field",
     );
-    const table = await t.createTable(baseId, "Solo", [{ name: "A", type: "text" }]);
+    const table = await t.createTable(baseId, "Single", [{ name: "A", type: "text" }]);
     await expectIssue(t.addField(table.id, { name: " a", type: "text" }), " a", "duplicate_field");
   });
 

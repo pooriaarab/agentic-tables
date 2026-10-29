@@ -68,7 +68,17 @@ Operators by type: text `eq neq contains starts_with is_empty not_empty`; number
 
 ## HTTP API
 
-A Cloudflare Worker (Hono) serves `/api/v1/tables`. The store is in memory, so state lasts as long as one Worker instance.
+A Cloudflare Worker (Hono) serves `/api/v1/tables`. Data lives in D1, so it survives a restart and every Worker instance sees the same data.
+
+Create the database in the EU, put its id in `wrangler.jsonc`, and keep `AGENTIC_TABLES_REGION` set to the region you chose:
+
+```sh
+npx wrangler d1 create agentic-tables --location weur
+```
+
+D1 cannot report where it lives, so `AGENTIC_TABLES_REGION` (`eu` or `us`) is a claim that you make. The Worker answers `500` with `MISCONFIGURED` when the claim or the `DB` binding is missing, and when the claim is `unknown`. It creates the table it needs on first use.
+
+Local `wrangler dev` keeps its own copy of the database and ignores the id. Two `wrangler dev` runs with the same `--persist-to` folder share it.
 
 ```sh
 npx wrangler dev --var AGENTIC_TABLES_UNSAFE_NO_AUTH:1
@@ -117,6 +127,7 @@ Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`)
 - A schema change runs in one store transaction. A very large table can exceed the transaction size of a backend.
 - Deleting a table or a base runs in one store transaction. A very large one can exceed the transaction size of a backend. The CLI and MCP server cannot delete a base yet. The library and HTTP API can.
 - A filter on a field value reads the whole table (up to `maxScan`). An index on field values comes later.
+- On D1, a transaction is one batch of statements. A very large erase or import can exceed the limits of a D1 batch. D1 has no index for the queries this package makes, so each query scans its collection. Inserts into one table take turns, because each one bumps the table (see above).
 - The file store (`agentic-tables/file-store`) keeps one JSON file. The CLI and the MCP server can share it: each write takes a lock file, reads the file again, and renames a new file into place. Each call reads the whole file, so use it for local work. It needs one machine: it does not work on a network disk. If a process dies, its lock is taken over when the process is gone or the lock is 30 seconds old. A lock with unreadable content is never taken: remove `<db>.lock` by hand.
 - CSV export puts a `'` before any cell or header that starts with `=`, `+`, `-`, `@`, tab, or CR, so a spreadsheet shows it as text. Number and checkbox cells stay as they are. Import reads a guarded header back, but keeps a guarded cell as written, with the `'`.
 
@@ -161,7 +172,6 @@ A failed call returns `isError` with a `code` and the `issues`. Rows written ove
 
 ## Planned surfaces
 
-- **Durable storage for the Worker**: a D1 adapter.
 - **Open formats**: ODS and XLSX export next to CSV. The plan is to write both with a small zip library under a permissive license, with every cell typed (string, number, boolean, date) and no formula cells, so no cell can run as a formula. A flat `.fods` file needs no zip.
 - **Web UI**: a small app served by the same Worker.
 
