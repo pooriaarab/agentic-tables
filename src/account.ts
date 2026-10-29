@@ -6,8 +6,7 @@
 // without an owner kind stops the call, a base the subject gave away is left alone, and the sharing records go
 // with the data they belong to.
 import type { Json, PrincipalContext } from "agentic-identity";
-import type { Actor } from "./model.js";
-import { PRINCIPAL_KINDS } from "./model.js";
+import { PRINCIPAL_KINDS, TablesError, type Actor } from "./model.js";
 import { createGuarded, type Sharing } from "./guarded.js";
 import type { Tables } from "./tables.js";
 
@@ -24,7 +23,7 @@ export interface TablesAccount {
   id: "tables";
   /** Collections: `bases`, `tables`, `views`, `rows`, and `authored_rows` (rows the subject wrote in bases it does not own). It holds no format, version, or time: the host's manifest has the time. */
   exportAccount(subject: Actor, deps: TablesAccountDeps): Promise<Record<TablesCollection, Json[]>>;
-  /** Hard deletes the bases the subject owns and the rows it wrote elsewhere. Counts by the same collection names. */
+  /** Hard deletes the bases the subject owns and the rows it wrote elsewhere. Counts by the same collection names. If it throws `ERASE_INCOMPLETE`, the data is gone but some grants remain, and the counts are lost: a repeat counts zero. */
   eraseAccount(subject: Actor, deps: TablesAccountDeps): Promise<Record<TablesCollection, number>>;
 }
 
@@ -34,11 +33,11 @@ const plain = (value: unknown): Json[] => JSON.parse(JSON.stringify(value)) as J
 /** The guarded view of the subject. A context for anyone else is refused: it would export or erase their data. */
 function guardedFor(subject: Actor, deps: TablesAccountDeps) {
   const { tables, sharing, ctx } = deps ?? ({} as Partial<TablesAccountDeps>);
-  if (typeof tables?.exportOwnerData !== "function" || typeof tables.eraseOwnerData !== "function" || typeof sharing?.can !== "function") throw new Error("tablesAccount needs deps.tables and deps.sharing");
+  if (typeof tables?.exportOwnerData !== "function" || typeof tables.eraseOwnerData !== "function" || typeof sharing?.can !== "function") throw new TablesError("BAD_REQUEST", "tablesAccount needs deps.tables and deps.sharing");
   const known = (PRINCIPAL_KINDS as readonly unknown[]).includes(subject?.kind);
-  if (typeof subject?.id !== "string" || subject.id === "" || !known) throw new Error("subject needs an id and a known kind");
+  if (typeof subject?.id !== "string" || subject.id === "" || !known) throw new TablesError("BAD_REQUEST", "subject needs an id and a known kind");
   const root = ctx?.chain?.[0];
-  if (ctx?.chain?.length !== 1 || root?.id !== subject.id || root.kind !== subject.kind || ctx.principalId !== subject.id || ctx.kind !== subject.kind) throw new Error("context does not match the subject");
+  if (ctx?.chain?.length !== 1 || root?.id !== subject.id || root.kind !== subject.kind || ctx.principalId !== subject.id || ctx.kind !== subject.kind) throw new TablesError("FORBIDDEN", "context does not match the subject");
   return createGuarded(tables, sharing)(ctx);
 }
 

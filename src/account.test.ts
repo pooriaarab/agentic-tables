@@ -9,8 +9,8 @@
 //     second erase counts zero.
 //  6. Erase leaves a second owner's bases, tables, and views whole, and the same-id agent's too.
 //  7. A legacy base (no owner kind) stops both calls with LEGACY_BASE and changes nothing.
-//  8. A base the subject gave away is not exported and not erased.
-//  9. The grants of an erased base go with it.
+//  8. A base the subject gave away is not exported and not erased. A row the subject wrote in it still is (an authored row).
+//  9. The grants of an erased base go with it, including another person's grant.
 // 10. The collection names stay stable, so a rename fails here before it breaks a host.
 import { beforeEach, describe, expect, test } from "vitest";
 import { createMemoryStore, createSharing, type PrincipalContext } from "agentic-identity";
@@ -112,9 +112,11 @@ describe("eraseAccount", () => {
 
   test("takes the grants of the erased base with it", async () => {
     const { base, table } = await fill(ada, "ada");
+    await as(ada).grant("base", base.id, { kind: "human", id: "bob" }, "editor");
+    await as(ada).grant("table", table.id, { kind: "human", id: "bob" }, "editor");
+    expect(await store.query("grants", { where: { resourceId: base.id } })).toMatchObject({ items: expect.arrayContaining([expect.anything()]) });
     await tablesAccount.eraseAccount(ada, deps(ada));
-    expect((await sharing.can(ctxOf(ada), "read", base.id)).allowed).toBe(false);
-    expect((await sharing.can(ctxOf(ada), "read", table.id)).allowed).toBe(false);
+    for (const id of [base.id, table.id]) expect((await store.query("grants", { where: { resourceId: id } })).items).toEqual([]);
   });
 
   test("a legacy base stops the erase and nothing goes", async () => {
@@ -130,7 +132,9 @@ describe("eraseAccount", () => {
     const { base } = await fill(ada, "ada");
     await as(ada).grant("base", base.id, { kind: "human", id: "bob" }, "owner");
     await as(bob).revokeGrant("base", base.id, { kind: "human", id: "ada" });
-    expect(await tablesAccount.eraseAccount(ada, deps(ada))).toMatchObject({ bases: 0 });
+    await tables.insertRow((await tables.listTables(base.id))[0]!.id, { Note: "ada wrote this" }, ada);
+    // The base stays, but the row ada wrote in it is hers to take back: it is an authored row.
+    expect(await tablesAccount.eraseAccount(ada, deps(ada))).toMatchObject({ bases: 0, authored_rows: 2 }); // the row from fill, and this one
     expect((await tablesAccount.exportAccount(bob, deps(bob))).bases).toHaveLength(0); // bob is not the stored owner, so it is not his to export either
     expect(await tables.listBases()).toHaveLength(1);
   });
