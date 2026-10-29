@@ -1,6 +1,6 @@
 {
   "name": "agentic-tables",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Typed tables that agents read and write as rows.",
   "keywords": [
     "database",
@@ -27,7 +27,8 @@
   "files": [
     "dist",
     "llms.txt",
-    "SKILL.md"
+    "SKILL.md",
+    "CHANGELOG.md"
   ],
   "publishConfig": {
     "access": "public"
@@ -54,11 +55,12 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist",
+    "prepack": "npm run build",
     "ci:local": "npm run build && npm run typecheck && npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
-    "agentic-identity": "^0.2.0",
+    "agentic-identity": "^0.3.0",
     "hono": "^4.13.14",
     "zod": "^3.25.0"
   },
