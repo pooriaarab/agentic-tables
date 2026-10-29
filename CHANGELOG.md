@@ -1,10 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
+
+No breaking changes.
 
 ### Added
 
 - `agentic-tables/ui` exports `mount`, which renders the tables app into an element against a base URL and a token callback. It returns `update` and `unmount`. `agentic-tables/ui.css` holds its styles. `react` and `react-dom` are optional peer dependencies, and `agentic-design` is now a dependency, because the UI imports it at run time.
+
+### Fixed
+
+- `agentic-tables-mcp --help` and `-h` print the usage and exit `0`. Before, the bin started a stdio server, so the command waited for input. `--version` and `-V` print the version.
+
+### Changed
+
+- The UI browser spec (`e2e/ui.spec.ts`) runs in CI on every pull request and on `main`. Before, CI ran only the unit and API tests, so a UI regression could merge.
 
 ## 0.6.0
 
