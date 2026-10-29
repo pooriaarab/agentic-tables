@@ -37,11 +37,21 @@ describe("a damaged link record", () => {
     const put = (key: string, extra: Record<string, unknown>, id = key, resourceId = base.id) => store.transaction((tx) => tx.put("links", key, { id, resourceId, role: "viewer", tokenHash: "x", ...extra }));
     await put("revoked", { revokedAt: true });
     await put("bad-expiry", { expiresAt: "soon" });
+    await put("null-expiry", { expiresAt: null });
     await put("key-a", {}, "key-b");
     await put("elsewhere", {}, "elsewhere", "other-resource");
     await put("owner-role", { role: "owner" });
     const listed = (await call(app, "GET", `/bases/${base.id}/links`)).body;
-    expect(listed).toEqual({ items: [{ id: "revoked", role: "viewer", signedInOnly: false, revokedAt: 0 }], skipped: 3 });
+    expect(listed).toEqual({ items: [{ id: "null-expiry", role: "viewer", signedInOnly: false }, { id: "revoked", role: "viewer", signedInOnly: false, revokedAt: 0 }], skipped: 3 });
+  });
+
+  test("a list reads at most 1000 records and says it was cut", async () => {
+    const base = (await call(app, "POST", "/bases", { name: "B" })).body;
+    await store.transaction(async (tx) => {
+      for (let i = 0; i < 1001; i++) await tx.put("links", `huge-${i}`, { id: `huge-${i}`, resourceId: base.id, role: "viewer", tokenHash: "x", revokedAt: 1 });
+    });
+    const listed = (await call(app, "GET", `/bases/${base.id}/links`)).body;
+    expect([listed.items.length, listed.truncated]).toEqual([200, true]);
   });
 
   test("a list of more than 200 links says it was cut, and live links come first", async () => {
