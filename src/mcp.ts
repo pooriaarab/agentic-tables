@@ -7,6 +7,7 @@ import { importCsv } from "./csv-import.js";
 import { errorBody } from "./errors.js";
 import { FIELD_TYPES, type Table, type Values } from "./model.js";
 import { OPERATORS } from "./query.js";
+import { MAX_BATCH_ROWS, MAX_BODY_BYTES } from "./schemas.js";
 import { VERSION } from "./version.js";
 
 const fieldShape = z.object({
@@ -86,10 +87,10 @@ export function createMcpServer(ctx: Context): McpServer {
   });
   tool(
     "import_csv",
-    "Insert the rows of CSV text, with a header line, into a table. All cells are checked first: one bad cell writes no row, and the error names the line and field. With create, a missing table is made and each column gets a guessed type.",
-    { table: tableRef, csv: z.string().max(5_000_000), create: z.boolean().optional() },
+    "Insert the rows of CSV text, with a header line, into a table. All cells are checked first: one bad cell writes no row, and the error names the line and field. With create, a missing table is made and each column gets a guessed type. That table stays if a cell then fails. At most 500 rows.",
+    { table: tableRef, csv: z.string().max(MAX_BODY_BYTES), create: z.boolean().optional() },
     "write",
-    async ({ table, csv, create }) => importCsv(ctx, table, csv, create === true),
+    async ({ table, csv, create }) => importCsv(ctx, table, csv, create === true, MAX_BATCH_ROWS),
   );
   tool("export_my_data", "Export every base owned by the acting principal, with tables, views, and rows, as JSON.", {}, "read", async () => ctx.tables.exportMyData());
   tool("erase_my_data", "Hard delete every base owned by the acting principal. This cannot be undone.", {}, "delete", async () => ctx.tables.eraseMyData());

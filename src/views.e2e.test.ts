@@ -138,6 +138,10 @@ describe("views and CSV import over MCP", () => {
       expect(missing.isError).toBe(true);
       expect(missing.body.code).toBe("NOT_FOUND");
       expect((await call("import_csv", { table: "Parts", csv: "" })).isError).toBe(true);
+      const big = await call("import_csv", { table: "Parts", csv: `Item,Qty,Done\n${"x,1,true\n".repeat(501)}` });
+      expect(big.isError).toBe(true);
+      expect(big.body.code).toBe("PAYLOAD_TOO_LARGE");
+      expect((await call("query_rows", { table: "Parts" })).body.items).toHaveLength(2);
     });
   });
 
