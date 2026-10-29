@@ -366,6 +366,19 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       await write(store, "bases", base.id, { name: base.name, ownerId: base.ownerId, ownerKind: base.ownerKind, createdAt: base.createdAt });
       return base;
     },
+    /** Bases that carry this owner id and no owner kind, made by an earlier version. Nobody has a role on them, and export and erase cannot tell whose they are. */
+    async legacyBaseIds(ownerId: string): Promise<string[]> {
+      return (await all<Partial<BaseDoc>>(store, "bases", { ownerId }, "createdAt")).filter((b) => typeof b.data.ownerKind !== "string").map((b) => b.id);
+    },
+    /** Record the kind of the owner of a base made by an earlier version. It fails if the base is not that owner's, or already has a kind. */
+    async setLegacyBaseOwnerKind(baseId: string, owner: Actor): Promise<void> {
+      assertActor(owner);
+      await store.transaction(async (ops) => {
+        const base = await read<Partial<BaseDoc>>(ops, "bases", baseId);
+        if (!base || base.ownerId !== owner.id || typeof base.ownerKind === "string") throw new NotFoundError(`base "${baseId}"`);
+        await write(ops, "bases", baseId, { ...base, ownerKind: owner.kind });
+      });
+    },
     async listBases(): Promise<Base[]> {
       return (await all<BaseDoc>(store, "bases", {}, "createdAt")).map((e) => baseView(e.id, e.data));
     },

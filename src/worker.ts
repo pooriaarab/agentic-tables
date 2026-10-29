@@ -12,6 +12,7 @@ import type { ZodTypeAny, z } from "zod";
 const STATUS: Record<string, 400 | 401 | 403 | 404 | 409 | 413 | 422> = {
   UNAUTHENTICATED: 401,
   FORBIDDEN: 403,
+  LEGACY_BASE: 409,
   PAYLOAD_TOO_LARGE: 413,
   NOT_FOUND: 404,
   VALIDATION_FAILED: 422,
@@ -155,6 +156,9 @@ export function createApp(tables: Tables, sharing: Sharing) {
     await (await as(c)).deleteView(idParam(c, "viewId"));
     return c.json({ deleted: idParam(c, "viewId") });
   });
+
+  // Make a base from an earlier version usable. The caller must be its owner, by id.
+  api.post("/bases/:baseId/claim", async (c) => c.json(await (await as(c)).claimBase(idParam(c, "baseId"))));
 
   // Roles. The caller must own the base or the table. A role on a base passes down to its tables.
   for (const [kind, type, param] of [["bases/:baseId", "base", "baseId"], ["tables/:tableId", "table", "tableId"]] as const) {

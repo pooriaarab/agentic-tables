@@ -210,6 +210,8 @@ describe("roles over the CLI and MCP", () => {
       cli4(["new", "Notes", "--field", "Body:text"], owner);
       const base = cli4(["export-data"], owner).out.bases[0].base.id as string;
       cli4(["insert", "Notes", "--json", '{"Body":"first"}'], owner);
+      // A base made by this version is not a base from an earlier one, so there is nothing to claim.
+      expect(cli4(["claim-base", base], owner).err.error.code).toBe("NOT_FOUND");
       expect(cli4(["share", "vera", "viewer"], owner).code).toBe(0);
       const viewer = { AGENTIC_TABLES_ACTOR: "agent:vera", AGENTIC_TABLES_BASE: base };
       const stranger = { AGENTIC_TABLES_ACTOR: "agent:sam", AGENTIC_TABLES_BASE: base };

@@ -82,6 +82,7 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
     return {
       async createBase(name: string) {
         if (!hasScope(ctx.scopes, "base:write")) throw new TablesError("FORBIDDEN", "this credential cannot create a base");
+        await noLegacyBases();
         const base = await tables.createBase(name, owner);
         try {
           await shared(() => sharing.createResource(ctx, { id: base.id, type: "base" }));
@@ -164,18 +165,46 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
       },
 
       /**
+       * Claim a base that an earlier version made: the caller states its own kind as the owner, and the base and its tables become
+       * shared resources the caller owns. Only a root principal can, and only for a base that carries its own id. Safe to repeat.
+       */
+      async claimBase(baseId: string) {
+        selfOnly("admin");
+        if (!(await tables.legacyBaseIds(owner.id)).includes(baseId)) throw missing();
+        const register = (id: string, parentId?: string) =>
+          shared(() => sharing.createResource(ctx, { id, type: parentId === undefined ? "base" : "table", ...(parentId === undefined ? {} : { parentId }) })).catch((error: unknown) => {
+            if (!(error instanceof Error && error.message === "resource exists")) throw error;
+          });
+        await register(baseId);
+        for (const table of await tables.listTables(baseId)) await register(table.id, baseId);
+        await tables.setLegacyBaseOwnerKind(baseId, owner);
+        return { baseId, owner };
+      },
+
+      /**
        * Export or erase the data of the caller. Only a root principal may: an agent must not export or erase its owner's data.
        * Only the bases the caller owns and still holds the owner role on are touched: a base the caller gave away is not theirs to erase.
        */
       async exportMyData() {
         const me = selfOnly("admin");
+        await noLegacyBases();
         return tables.exportOwnerData(me, { baseIds: await ownedBases() });
       },
       async eraseMyData() {
         const me = selfOnly("admin");
+        await noLegacyBases();
         return tables.eraseOwnerData(me, { baseIds: await ownedBases() });
       },
     };
+
+    /**
+     * A base made by an earlier version has this owner id and no owner kind. Export and erase would pass it over and report success,
+     * and a new base would hide it, so they all stop until each one is claimed.
+     */
+    async function noLegacyBases(): Promise<void> {
+      const ids = await tables.legacyBaseIds(owner.id);
+      if (ids.length > 0) throw new TablesError("LEGACY_BASE", `bases ${ids.join(", ")} were made by an earlier version and have no owner kind. Claim each one first`);
+    }
 
     async function ownedBases(): Promise<string[]> {
       const ids = [];

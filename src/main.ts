@@ -24,6 +24,7 @@ Commands:
   import <table> --file <csv> [--create]
   required <table> <field> <true|false> [--dry-run]
   delete-table <table> --yes          Delete a table with its rows and views.
+  claim-base <baseId>                 Make a base from an earlier version usable. You must be its owner.
   share <subject> <role> [--table <t>]  Give a person or agent a role (viewer, commenter, editor, owner) on the base, or on one table.
   unshare <subject> [--table <t>]     Take the role back.
   export-data                         Print every base the actor owns, as JSON.
@@ -139,6 +140,8 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
       if (flag("yes") === undefined) throw new UsageError(`delete-table removes "${table.name}" with all its rows. Add --yes to confirm`);
       return ctx.tables.deleteTable(table.id);
     }
+    case "claim-base":
+      return ctx.tables.claimBase(need(0, "a base id"));
     case "share":
     case "unshare": {
       const table = flag("table") === undefined ? undefined : await ctx.table(flag("table")!);

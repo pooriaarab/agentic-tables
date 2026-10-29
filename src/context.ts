@@ -1,4 +1,4 @@
-import { createSharing } from "agentic-identity";
+import { createSharing, hasScope } from "agentic-identity";
 import { resolveCaller } from "./caller.js";
 import { createGuarded, type Guarded } from "./guarded.js";
 import { NotFoundError, PRINCIPAL_KINDS, TablesError, type Actor, type PrincipalKind, type Table } from "./model.js";
@@ -45,6 +45,8 @@ export async function openContext(env: Record<string, string | undefined>, defau
       await tables.listTables(env.AGENTIC_TABLES_BASE);
       return env.AGENTIC_TABLES_BASE;
     }
+    // Without base:read the list is empty, and a new base would be refused for a reason that does not show the cause.
+    if (!hasScope(principal.scopes, "base:read")) throw new TablesError("FORBIDDEN", "this credential does not allow read on a base");
     const mine = (await tables.listBases()).find((b) => b.ownerId === root.id && b.ownerKind === root.kind);
     return mine?.id ?? (await tables.createBase("default")).id;
   };

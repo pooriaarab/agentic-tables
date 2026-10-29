@@ -10,6 +10,7 @@
 //  6. A person is revoked on a base and keeps the owner role on a table they made.
 //  7. A caller gave a base away, and the rows they wrote there are neither exported nor erased.
 //  8. A caller with a role on table A inserts a link value and learns that a row of table B exists.
+// 13. A base from an earlier version (no owner kind, no sharing record) stays behind while export, erase, and a new base report success.
 // 10. Export with a base:read credential answers 200 with no bases.
 // 11. A revoke on a base removes some table grants, then fails: a self-revoke, a missing scope, a bad subject id.
 // 12. A body names a link field twice, an empty list under one key and a row id under the other. Clearing a link with null or [] needs the right to read the linked table.
@@ -23,13 +24,14 @@ const person = (id: string, scopes?: string) => ({ "x-principal-id": id, "x-prin
 const [ada, bob, eve] = [person("ada"), person("bob"), person("eve")];
 
 let app: ReturnType<typeof createApp>;
+let store: ReturnType<typeof createMemoryStore>;
 async function call(method: string, path: string, who: Record<string, string>, body?: unknown) {
   const res = await app.fetch(new Request(`http://x/api/v1/tables${path}`, { method, headers: { ...who, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }));
   return { status: res.status, body: (await res.json()) as any };
 }
 
 beforeEach(() => {
-  const store = createMemoryStore({ region: "eu" });
+  store = createMemoryStore({ region: "eu" });
   app = createApp(createTables(store), createSharing(store));
 });
 
@@ -218,5 +220,37 @@ describe("clearing a link", () => {
       const res = await call("POST", `/tables/${a.id}/rows`, eve, { values: { L: [], [id]: [rowId] } });
       expect([res.status, res.body.error.code]).toEqual([404, "NOT_FOUND"]);
     }
+  });
+});
+
+describe("a base from an earlier version", () => {
+  test("stops export, erase, and new bases until its owner claims it", async () => {
+    const raw = createTables(store);
+    const old = await raw.createBase("old", { id: "ada", kind: "human" });
+    const table = await raw.createTable(old.id, "T", [{ name: "N", type: "text" }]);
+    await raw.insertRow(table.id, { N: "old row" }, { id: "ada", kind: "human" });
+    const { ownerKind: _kind, ...legacy } = (await store.get("bases", old.id))!;
+    await store.put("bases", old.id, legacy);
+
+    // Nothing is touched, and the answer names the base.
+    for (const [method, path] of [["GET", "/me/export"], ["DELETE", "/me/data"], ["POST", "/bases"]] as const) {
+      const res = await call(method, path, ada, method === "POST" ? { name: "new" } : undefined);
+      expect([res.status, res.body.error.code]).toEqual([409, "LEGACY_BASE"]);
+      expect(res.body.error.message).toContain(old.id);
+    }
+    expect((await raw.listRows(table.id)).items).toHaveLength(1);
+    // Another principal is not held up, and cannot claim it.
+    expect((await call("POST", "/bases", bob, { name: "bobs" })).status).toBe(201);
+    expect((await call("POST", `/bases/${old.id}/claim`, bob)).status).toBe(404);
+    expect((await call("POST", `/bases/${old.id}/claim`, person("ada", "base:read"))).status).toBe(403);
+    expect((await call("GET", `/tables/${table.id}/rows`, ada)).status).toBe(404);
+
+    // The owner claims it. The base and its table are then usable, and export and erase cover them.
+    expect((await call("POST", `/bases/${old.id}/claim`, ada)).body).toEqual({ baseId: old.id, owner: { id: "ada", kind: "human" } });
+    expect((await call("GET", `/tables/${table.id}/rows`, ada)).body.items.map((r: any) => r.values.N)).toEqual(["old row"]);
+    expect((await call("GET", `/tables/${table.id}/rows`, bob)).status).toBe(404);
+    expect((await call("POST", `/bases/${old.id}/claim`, ada)).status).toBe(404);
+    expect((await call("GET", "/me/export", ada)).body.bases).toHaveLength(1);
+    expect((await call("DELETE", "/me/data", ada)).body).toMatchObject({ bases: 1, tables: 1, rows: 1 });
   });
 });

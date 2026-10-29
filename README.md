@@ -154,7 +154,7 @@ Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`)
 
 ## Limits
 
-- **Upgrading from 0.1.0:** a base made by the 0.1.0 CLI has no owner kind and no sharing record, so nobody has a role on it and the CLI, the MCP server, and the Worker cannot open it. `list` shows no tables for it, and the CLI makes a new default base. There is no migration. Export and erase still cover the rows a principal wrote in such a base (as `authoredRows`), but never the base as a whole. Start a new file, or export the data with 0.1.0 first.
+- **Upgrading from 0.1.0:** a base made by 0.1.0 (the CLI, the MCP server, or the Worker) has no owner kind and no sharing record, so nobody has a role on it. Until its owner claims it, creating a base, export, and erase answer `409 LEGACY_BASE` with the base ids, and change nothing. Claim a base with `agentic-tables claim-base <id>`, the MCP tool `claim_base`, or `POST /bases/:baseId/claim`. The caller must be a person or an agent with its own identity, with the base owner id, and it states its own kind as the owner. The base and its tables then get sharing records. Rows a principal wrote in a base that is not its own are still exported and erased as `authoredRows`.
 - A schema change runs in one store transaction. A very large table can exceed the transaction size of a backend.
 - Deleting a table or a base runs in one store transaction. A very large one can exceed the transaction size of a backend. The CLI and MCP server cannot delete a base yet. The library and HTTP API can.
 - Deleting a base or a table leaves its sharing records (the resource and its grants) in the store. They hold ids and roles only. `agentic-identity` 0.1.0 has no call to remove them. Listing bases checks each base, so it grows with the number of bases and writes an audit entry per check. Roles pass to a base or a table, not to a single row. Whoever creates a table owns it. Revoking a person on a base also revokes them on each table in it (the revoker becomes a direct owner of each table first, so the person is never its last owner). It needs the `table:admin` scope too. You cannot remove yourself from a base that has tables: ask another owner. If a step fails, call again.
@@ -169,7 +169,7 @@ Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`)
 export AGENTIC_TABLES_DB=./crm.json            # default ./agentic-tables.json
 export AGENTIC_TABLES_ACTOR=agent_of_human:claude   # who acts, as kind:id. Default human:cli (agent:mcp for the MCP server).
 export AGENTIC_TABLES_CHAIN=human:ada          # who an agent of a person acts for, root first. Needs agent_of_human, not agent.
-export AGENTIC_TABLES_SCOPES=table:read        # optional. Narrows what the actor may do. Default: everything.
+export AGENTIC_TABLES_SCOPES=table:read,base:read   # optional. Narrows what the actor may do. Default: everything.
 export AGENTIC_TABLES_BASE=base_...            # optional. The base to work in. Default: one base per actor id.
 
 npx agentic-tables new People --field "Name:text!" --field "Age:number" --field "Stage:single_select=lead|won"
