@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { ROLES } from "agentic-identity";
+import { ROLES, SUBJECT_KINDS } from "agentic-identity";
 import { z } from "zod";
 import { type Context } from "./context.js";
 import { errorBody } from "./errors.js";
@@ -61,15 +61,15 @@ export function createMcpServer(ctx: Context): McpServer {
   tool("export_my_data", "Export every base owned by the acting principal, with tables, views, and rows, as JSON.", {}, "read", async () => ctx.tables.exportMyData());
   tool("erase_my_data", "Hard delete every base owned by the acting principal. This cannot be undone.", {}, "delete", async () => ctx.tables.eraseMyData());
   tool("claim_base", "Make a base from an earlier version usable. You must be the owner by id. A base with no owner kind blocks export, erase, and new bases until you claim it.", { baseId: z.string() }, "write", ({ baseId }) => ctx.tables.claimBase(baseId));
-  tool("share", "Give a person or an agent a role on your base, or on one table. Only an owner can share. A role on the base passes down to its tables.", { subject: z.string().describe("The id of the person or agent."), role: z.enum(ROLES), table: tableRef.optional() }, "write", async ({ subject, role, table }) => {
+  tool("share", "Give a person or an agent a role on your base, or on one table. Only an owner can share. A role on the base passes down to its tables.", { subject: z.string().describe("The id of the person or agent."), kind: z.enum(SUBJECT_KINDS).describe("human or agent. A person and an agent can share one id, and hold separate roles."), role: z.enum(ROLES), table: tableRef.optional() }, "write", async ({ subject, kind, role, table }) => {
     const resource = table === undefined ? { type: "base" as const, id: await ctx.baseId() } : { type: "table" as const, id: (await ctx.table(table)).id };
-    await ctx.tables.grant(resource.type, resource.id, subject, role);
-    return { resourceId: resource.id, subject, role };
+    await ctx.tables.grant(resource.type, resource.id, { kind, id: subject }, role);
+    return { resourceId: resource.id, subject, kind, role };
   });
-  tool("unshare", "Take a role back from a person or an agent, on your base or on one table. On a base it also takes back the roles on its tables.", { subject: z.string(), table: tableRef.optional() }, "delete", async ({ subject, table }) => {
+  tool("unshare", "Take a role back from a person or an agent, on your base or on one table. On a base it also takes back the roles on its tables.", { subject: z.string(), kind: z.enum(SUBJECT_KINDS), table: tableRef.optional() }, "delete", async ({ subject, kind, table }) => {
     const resource = table === undefined ? { type: "base" as const, id: await ctx.baseId() } : { type: "table" as const, id: (await ctx.table(table)).id };
-    await ctx.tables.revokeGrant(resource.type, resource.id, subject);
-    return { resourceId: resource.id, subject };
+    await ctx.tables.revokeGrant(resource.type, resource.id, { kind, id: subject });
+    return { resourceId: resource.id, subject, kind };
   });
   tool("insert_rows", "Insert rows. Keys are field names. All rows are checked first. If one fails, none is written, and the error names the row and field.", { table: tableRef, rows: z.array(z.record(z.any())).min(1).max(500) }, "write", async ({ table, rows }) => ({
     rows: await ctx.tables.insertRows((await ctx.table(table)).id, rows as Values[]),

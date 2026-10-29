@@ -1,0 +1,115 @@
+// Grants are keyed on a kind and an id (agentic-identity 0.4). Failure cases, written before the code:
+//  1. A person and an agent with one id share a role: a grant to the person gives the agent access, or a revoke of one removes the other.
+//  2. A share or unshare without a kind, or with an unknown kind, falls back to a default kind.
+//  3. Deleting a table, a base, or a person's data leaves grants (and resources) in the store.
+//  4. A delete that stopped after the data went cannot be repeated to remove the grants.
+import { createMemoryStore, createSharing } from "agentic-identity";
+import { beforeEach, describe, expect, test } from "vitest";
+import { resolveCaller } from "./caller.js";
+import { createTables } from "./index.js";
+import { createApp } from "./worker.js";
+
+const who = (kind: string, id: string) => ({ "x-principal-id": id, "x-principal-kind": kind });
+const [ada, personSam, agentSam] = [who("human", "ada"), who("human", "sam"), who("agent", "sam")];
+
+let app: ReturnType<typeof createApp>;
+let store: ReturnType<typeof createMemoryStore>;
+async function call(method: string, path: string, headers: Record<string, string>, body?: unknown) {
+  const res = await app.fetch(new Request(`http://x/api/v1/tables${path}`, { method, headers: { ...headers, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }));
+  return { status: res.status, body: (await res.json()) as any };
+}
+const count = async (collection: string) => (await store.query(collection, {})).items.length;
+
+beforeEach(() => {
+  store = createMemoryStore({ region: "eu" });
+  app = createApp(createTables(store), createSharing(store));
+});
+
+async function setup() {
+  const base = (await call("POST", "/bases", ada, { name: "B" })).body;
+  const table = (await call("POST", `/bases/${base.id}/tables`, ada, { name: "T", fields: [{ name: "N", type: "text" }] })).body;
+  return { base, table };
+}
+
+describe("grants by kind and id", () => {
+  test("a person and an agent with one id hold separate roles", async () => {
+    const { base, table } = await setup();
+    expect((await call("PUT", `/bases/${base.id}/members/human/sam`, ada, { role: "editor" })).status).toBe(200);
+    expect((await call("GET", `/tables/${table.id}`, personSam)).status).toBe(200);
+    expect((await call("GET", `/tables/${table.id}`, agentSam)).status).toBe(404);
+
+    expect((await call("PUT", `/bases/${base.id}/members/agent/sam`, ada, { role: "viewer" })).status).toBe(200);
+    expect((await call("POST", `/tables/${table.id}/rows`, personSam, { values: { N: "p" } })).status).toBe(201);
+    expect((await call("POST", `/tables/${table.id}/rows`, agentSam, { values: { N: "a" } })).status).toBe(403);
+
+    // Taking the role back from the person leaves the agent's role.
+    expect((await call("DELETE", `/bases/${base.id}/members/human/sam`, ada)).status).toBe(200);
+    expect((await call("GET", `/tables/${table.id}`, personSam)).status).toBe(404);
+    expect((await call("GET", `/tables/${table.id}`, agentSam)).status).toBe(200);
+  });
+
+  test("a table grant to one kind does not reach the other", async () => {
+    const { table } = await setup();
+    await call("PUT", `/tables/${table.id}/members/agent/sam`, ada, { role: "editor" });
+    expect((await call("GET", `/tables/${table.id}`, agentSam)).status).toBe(200);
+    expect((await call("GET", `/tables/${table.id}`, personSam)).status).toBe(404);
+  });
+
+  test("a subject kind is required, and must be human or agent", async () => {
+    const { base } = await setup();
+    for (const kind of ["user_token", "agent_of_human", "robot"]) {
+      expect((await call("PUT", `/bases/${base.id}/members/${kind}/sam`, ada, { role: "viewer" })).status).toBe(400);
+      expect((await call("DELETE", `/bases/${base.id}/members/${kind}/sam`, ada)).status).toBe(400);
+    }
+    // The old path with no kind is no route.
+    expect((await call("PUT", `/bases/${base.id}/members/sam`, ada, { role: "viewer" })).status).toBe(404);
+    expect(await count("grants")).toBe(2);
+  });
+});
+
+describe("delete removes grants", () => {
+  test("deleting a table removes its grants and its resource", async () => {
+    const { base, table } = await setup();
+    await call("PUT", `/tables/${table.id}/members/agent/sam`, ada, { role: "editor" });
+    const [grants, resources] = [await count("grants"), await count("resources")];
+    expect((await call("DELETE", `/tables/${table.id}`, ada)).status).toBe(200);
+    expect([await count("grants"), await count("resources")]).toEqual([grants - 2, resources - 1]);
+    expect((await call("GET", `/bases/${base.id}/tables`, ada)).status).toBe(200);
+  });
+
+  test("deleting a base removes every grant on it and on its tables", async () => {
+    const { base, table } = await setup();
+    await call("PUT", `/bases/${base.id}/members/human/sam`, ada, { role: "editor" });
+    await call("PUT", `/tables/${table.id}/members/agent/sam`, ada, { role: "editor" });
+    expect(await count("grants")).toBeGreaterThan(3);
+    expect((await call("DELETE", `/bases/${base.id}`, ada)).status).toBe(200);
+    expect(await count("grants")).toBe(0);
+    expect(await count("resources")).toBe(0);
+    expect((await call("GET", `/tables/${table.id}`, agentSam)).status).toBe(404);
+  });
+
+  test("erasing the data of a person removes the grants on their bases, and keeps other bases", async () => {
+    const mine = await setup();
+    await call("PUT", `/bases/${mine.base.id}/members/agent/sam`, ada, { role: "editor" });
+    const other = (await call("POST", "/bases", personSam, { name: "S" })).body;
+    expect((await call("DELETE", "/me/data", ada)).body).toMatchObject({ bases: 1 });
+    const sharing = createSharing(store);
+    const left = await sharing.listGrants(await resolveCaller({ id: "sam", kind: "human" }), other.id);
+    expect(left.grants).toEqual([{ resourceId: other.id, subjectKind: "human", subjectId: "sam", role: "owner" }]);
+    expect(await count("grants")).toBe(1);
+    expect(await count("resources")).toBe(1);
+    // The agent lost the role it held on the erased base.
+    expect((await call("GET", `/bases/${mine.base.id}/tables`, agentSam)).status).toBe(404);
+  });
+
+  test("a repeat of a delete that stopped after the data went removes the grants", async () => {
+    const { base, table } = await setup();
+    // The data is gone, the grants are not: what a crash between the two steps leaves.
+    await createTables(store).deleteTable(table.id);
+    expect((await call("DELETE", `/tables/${table.id}`, ada)).status).toBe(200);
+    expect(await count("grants")).toBe(1);
+    await createTables(store).deleteBase(base.id);
+    expect((await call("DELETE", `/bases/${base.id}`, ada)).status).toBe(200);
+    expect(await count("grants")).toBe(0);
+  });
+});

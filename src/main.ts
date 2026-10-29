@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { ROLES, type Role } from "agentic-identity";
+import { ROLES, SUBJECT_KINDS, type Role, type SubjectKind } from "agentic-identity";
 import { csvToValues, inferFields, parseCsv, toCsv } from "./csv.js";
 import { openContext, type Context } from "./context.js";
 import { errorBody } from "./errors.js";
@@ -25,8 +25,8 @@ Commands:
   required <table> <field> <true|false> [--dry-run]
   delete-table <table> --yes          Delete a table with its rows and views.
   claim-base <baseId>                 Make a base from an earlier version usable. You must be its owner.
-  share <subject> <role> [--table <t>]  Give a person or agent a role (viewer, commenter, editor, owner) on the base, or on one table.
-  unshare <subject> [--table <t>]     Take the role back.
+  share <subject> <role> --kind <human|agent> [--table <t>]  Give a person or agent a role (viewer, commenter, editor, owner) on the base, or on one table.
+  unshare <subject> --kind <human|agent> [--table <t>]     Take the role back.
   export-data                         Print every base the actor owns, as JSON.
   erase-data --yes                    Hard delete every base the actor owns.
   mcp                                 Start the MCP server on stdio.
@@ -147,7 +147,8 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
       const table = flag("table") === undefined ? undefined : await ctx.table(flag("table")!);
       const type = table ? "table" : "base";
       const resourceId = table ? table.id : await ctx.baseId();
-      const subject = need(0, "a subject id");
+      const subject = { kind: flag("kind") as SubjectKind, id: need(0, "a subject id") };
+      if (!SUBJECT_KINDS.includes(subject.kind)) throw new UsageError(`${command} needs --kind ${SUBJECT_KINDS.join(" or ")}: a person and an agent can share one id`);
       if (command === "unshare") return (await ctx.tables.revokeGrant(type, resourceId, subject), { resourceId, subject });
       const role = need(1, "a role") as Role;
       if (!ROLES.includes(role)) throw new UsageError(`role must be one of ${ROLES.join(", ")}`);

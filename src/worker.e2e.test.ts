@@ -140,7 +140,7 @@ describe("tables Worker over wrangler dev", () => {
     expect(adaExport.bases.some((b: any) => b.base.id === mine.base.id && b.rows[0].values.Name === "Mine" && b.rows[0].createdBy.kind === "agent_of_human")).toBe(true);
 
     // Eve also wrote a row in Ada's base, as an editor on that table. Export and erase for Eve cover it, and Ada's other rows stay.
-    expect((await call("PUT", `/tables/${mine.table.id}/members/eve`, HUMAN, { role: "editor" })).status).toBe(200);
+    expect((await call("PUT", `/tables/${mine.table.id}/members/human/eve`, HUMAN, { role: "editor" })).status).toBe(200);
     await call("POST", `/tables/${mine.table.id}/rows`, eve, { values: { Name: "Eve was here" } });
     expect((await call("GET", "/me/export", eve)).body.authoredRows.map((r: any) => r.values.Name)).toEqual(["Eve was here"]);
     expect((await call("GET", "/me/export", HUMAN)).body.authoredRows).toEqual([]);
@@ -169,11 +169,11 @@ describe("tables Worker over wrangler dev", () => {
     expect(await status("POST", rows, stranger, { values: { Name: "x" } })).toBe(404);
     expect((await call("GET", "/bases", stranger)).body.items).toEqual([]);
     // Only an owner shares.
-    expect(await status("PUT", `/bases/${base.id}/members/vic`, stranger, { role: "viewer" })).toBe(404);
-    expect(await status("PUT", `/bases/${base.id}/members/vic`, HUMAN, { role: "boss" })).toBe(400);
+    expect(await status("PUT", `/bases/${base.id}/members/human/vic`, stranger, { role: "viewer" })).toBe(404);
+    expect(await status("PUT", `/bases/${base.id}/members/human/vic`, HUMAN, { role: "boss" })).toBe(400);
 
     // A viewer on the base reads its tables and rows, and cannot change anything.
-    expect(await status("PUT", `/bases/${base.id}/members/vic`, HUMAN, { role: "viewer" })).toBe(200);
+    expect(await status("PUT", `/bases/${base.id}/members/human/vic`, HUMAN, { role: "viewer" })).toBe(200);
     expect(await status("GET", rows, vic)).toBe(200);
     expect(await status("GET", `/rows/${row.id}`, vic)).toBe(200);
     expect((await call("GET", "/bases", vic)).body.items.map((b: any) => b.id)).toEqual([base.id]);
@@ -186,7 +186,7 @@ describe("tables Worker over wrangler dev", () => {
       await call("POST", `/bases/${base.id}/tables`, vic, { name: "T2" }),
       await call("DELETE", `/tables/${table.id}`, vic),
       await call("DELETE", `/bases/${base.id}`, vic),
-      await call("PUT", `/bases/${base.id}/members/eve`, vic, { role: "owner" }),
+      await call("PUT", `/bases/${base.id}/members/human/eve`, vic, { role: "owner" }),
     ];
     expect(denied.map((r) => [r.status, r.body.error.code])).toEqual(Array(9).fill([403, "FORBIDDEN"]));
     const after = (await call("GET", rows, HUMAN)).body.items;
@@ -194,10 +194,10 @@ describe("tables Worker over wrangler dev", () => {
     expect((await call("GET", `/bases/${base.id}/tables`, HUMAN)).body.items).toHaveLength(1);
 
     // An editor on the table writes rows, and still cannot change the schema or share.
-    expect(await status("PUT", `/tables/${table.id}/members/eve`, HUMAN, { role: "editor" })).toBe(200);
+    expect(await status("PUT", `/tables/${table.id}/members/human/eve`, HUMAN, { role: "editor" })).toBe(200);
     expect(await status("POST", rows, eve, { values: { Name: "Eve" } })).toBe(201);
     expect(await status("POST", `/tables/${table.id}/fields`, eve, { name: "F", type: "text" })).toBe(403);
-    expect(await status("PUT", `/tables/${table.id}/members/vic`, eve, { role: "editor" })).toBe(403);
+    expect(await status("PUT", `/tables/${table.id}/members/human/vic`, eve, { role: "editor" })).toBe(403);
     expect(await status("GET", `/bases/${base.id}/tables`, eve)).toBe(404);
 
     // An agent acts with the role of its owner, cut down by its scopes. It can never exceed either.
@@ -216,7 +216,7 @@ describe("tables Worker over wrangler dev", () => {
     expect(await status("GET", "/me/export", agent())).toBe(403);
 
     // Revoking takes the access away at once.
-    expect(await status("DELETE", `/bases/${base.id}/members/vic`, HUMAN)).toBe(200);
+    expect(await status("DELETE", `/bases/${base.id}/members/human/vic`, HUMAN)).toBe(200);
     expect(await status("GET", rows, vic)).toBe(404);
   });
 

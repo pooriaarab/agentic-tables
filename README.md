@@ -7,7 +7,7 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: release 0.2.0. See [CHANGELOG.md](CHANGELOG.md) for the breaking changes.
+> Status: release 0.3.0. See [CHANGELOG.md](CHANGELOG.md) for the breaking changes.
 >
 > **Warning: the HTTP API has no authentication yet.** It reads the caller from
 > `x-principal-*` headers and does not check who sent them. The Worker refuses every request with
@@ -105,7 +105,7 @@ Every call needs `x-principal-id` and `x-principal-kind` (one of `human`, `agent
 
 ## Access
 
-A base and a table are shared resources, and a table sits inside its base. Roles come from `agentic-identity`: viewer, commenter, editor, owner. A role on a base passes down to its tables. The person who creates a base owns it. An agent that acts for a person has the role of that person, cut down by its scopes.
+A base and a table are shared resources, and a table sits inside its base. Roles come from `agentic-identity`: viewer, commenter, editor, owner. A role on a base passes down to its tables. The person who creates a base owns it. An agent that acts for a person has the role of that person, cut down by its scopes. A role belongs to a kind and an id together: the person `sam` and the agent `sam` hold separate roles, and a share names the kind (`human` or `agent`).
 
 | Role | Can |
 | --- | --- |
@@ -113,7 +113,7 @@ A base and a table are shared resources, and a table sits inside its base. Roles
 | editor | Also insert, change, and delete rows, and create and delete views. |
 | owner | Also create a table, change a schema (fields, types, options, required), delete a table or a base, and share. A link field also needs the right to read the table it points at. |
 
-Every call checks the role with `can()`, which writes an audit entry for each allow and each deny. A caller with no role gets `404`, the same answer as for an id that does not exist. A link value names a row, so it needs the right to read the linked table. A caller with a role that is too low, or a credential with too few scopes, gets `403` `FORBIDDEN`. `PUT /bases/:baseId/members/:subjectId` and `PUT /tables/:tableId/members/:subjectId` take `{"role": "viewer"}` and grant a role. `DELETE` on the same path takes it back. A comment role exists, but no route needs it yet.
+Every call checks the role with `can()`, which writes an audit entry for each allow and each deny. A caller with no role gets `404`, the same answer as for an id that does not exist. A link value names a row, so it needs the right to read the linked table. A caller with a role that is too low, or a credential with too few scopes, gets `403` `FORBIDDEN`. `PUT /bases/:baseId/members/:kind/:subjectId` and `PUT /tables/:tableId/members/:kind/:subjectId` (`:kind` is `human` or `agent`) take `{"role": "viewer"}` and grant a role. `DELETE` on the same path takes it back. A comment role exists, but no route needs it yet.
 
 `GET /me/export` and `DELETE /me/data` work only for a person or an agent with its own identity, and need the `base:admin` scope, because they act on the bases the caller owns. An agent that acts for a person gets `403`: it must not export or erase its owner's data. They touch the bases the caller created and still holds the owner role on. A base the caller gave away is not theirs to erase. They also cover every row the caller wrote in any other base, whatever the caller's role is now: a person may take back what they wrote. The export holds those rows as they are now, with the values that others wrote in them.
 
@@ -157,7 +157,7 @@ Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`)
 - **Upgrading from 0.1.0:** a base made by 0.1.0 (the CLI, the MCP server, or the Worker) has no owner kind and no sharing record, so nobody has a role on it. Until its owner claims it, creating a base, export, and erase answer `409 LEGACY_BASE` with the base ids, and change nothing. Claim a base with `agentic-tables claim-base <id>`, the MCP tool `claim_base`, or `POST /bases/:baseId/claim`. The claim needs the scopes `base:admin`, `base:write`, and `table:write`. A credential without them gets `403` and changes nothing. The caller must be a person or an agent with its own identity, with the base owner id, and it states its own kind as the owner. The base and its tables then get sharing records. Rows a principal wrote in a base that is not its own are still exported and erased as `authoredRows`.
 - A schema change runs in one store transaction. A very large table can exceed the transaction size of a backend.
 - Deleting a table or a base runs in one store transaction. A very large one can exceed the transaction size of a backend. The CLI and MCP server cannot delete a base yet. The library and HTTP API can.
-- Deleting a base or a table leaves its sharing records (the resource and its grants) in the store. They hold ids and roles only. `agentic-identity` 0.3.0 has no call to remove them. Listing bases checks each base, so it grows with the number of bases and writes an audit entry per check. Roles pass to a base or a table, not to a single row. Whoever creates a table owns it. Revoking a person on a base also revokes them on each table in it (the revoker becomes a direct owner of each table first, so the person is never its last owner). It needs the `table:admin` scope too. You cannot remove yourself from a base that has tables: ask another owner. If a step fails, call again.
+- Deleting a base or a table, and erasing your data, also removes its sharing records (the resource and its grants), with `deleteResource` from `agentic-identity` 0.4. A repeat of a delete finishes one that stopped half way. An erase that stops after the data went cannot be repeated, since the bases are gone: its base grants stay, and hold ids and roles only. A resource with more than 100 owners is refused. Listing bases checks each base, so it grows with the number of bases and writes an audit entry per check. Roles pass to a base or a table, not to a single row. Whoever creates a table owns it. Revoking a person on a base also revokes them on each table in it (the revoker becomes a direct owner of each table first, so the person is never its last owner). It needs the `table:admin` scope too. You cannot remove yourself from a base that has tables: ask another owner. If a step fails, call again.
 - A filter on a field value reads the whole table (up to `maxScan`). An index on field values comes later.
 - On D1, a transaction is one batch of statements. A very large erase or import can exceed the limits of a D1 batch. D1 has no index for the queries this package makes, so each query scans its collection. Inserts into one table take turns, because each one bumps the table (see above).
 - The file store (`agentic-tables/file-store`) keeps one JSON file. The CLI and the MCP server can share it: each write takes a lock file, reads the file again, and renames a new file into place. Each call reads the whole file, so use it for local work. It needs one machine: it does not work on a network disk. If a process dies, its lock is taken over when the process is gone or the lock is 30 seconds old. A lock with unreadable content is never taken: remove `<db>.lock` by hand.
@@ -178,9 +178,9 @@ npx agentic-tables query People --filter '{"field":"Age","op":"gt","value":30}' 
 npx agentic-tables schema People
 npx agentic-tables required People Age true --dry-run   # lists rows with no Age
 npx agentic-tables delete-table People --yes
-npx agentic-tables share claude editor                  # a role on your base: viewer, commenter, editor, owner
-npx agentic-tables share claude viewer --table People   # or on one table
-npx agentic-tables unshare claude
+npx agentic-tables share claude editor --kind agent                  # a role on your base: viewer, commenter, editor, owner
+npx agentic-tables share claude viewer --kind agent --table People   # or on one table
+npx agentic-tables unshare claude --kind agent
 npx agentic-tables export People > people.csv
 npx agentic-tables import Parts --file parts.csv --create
 ```
