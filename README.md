@@ -28,7 +28,7 @@ Node 22 or newer. The CLI runs with `npx agentic-tables --help`.
 | Import | Use it for |
 | --- | --- |
 | `agentic-tables` | `createTables`, the core API. See [Quick start](#quick-start). `tablesAccount` runs account export and erase. See [Your data (GDPR)](#your-data-gdpr). The package also exports `VERSION` and the field, principal, query, CSV, and error helpers. |
-| `agentic-tables/worker` | `createApp`, which builds the HTTP API as a Hono app. The default export is the Worker. `reportingRegion` gives the declared region to a D1 query that reports none, in local mode only (`AGENTIC_TABLES_LOCAL_DEV=1`). See [HTTP API](#http-api) and [Mount the API in your own Worker](#mount-the-api-in-your-own-worker). |
+| `agentic-tables/worker` | `createApp`, which builds the HTTP API as a Hono app. The default export is the Worker. `reportingRegion` gives the declared region to a D1 query that reports none. The default Worker uses it only when `AGENTIC_TABLES_LOCAL_DEV=1`. See [HTTP API](#http-api) and [Mount the API in your own Worker](#mount-the-api-in-your-own-worker). |
 | `agentic-tables/client` | `createClient`, a typed client for the HTTP API. See [SDK](#sdk). |
 | `agentic-tables/node` | `createNodeServer`, the HTTP API in a Node process. It has no sign-in, so it needs `unsafeNoAuth: true` and is for local work only. See [Run on Firebase](#run-on-firebase). |
 | `agentic-tables/file-store` | `createFileStore`, a local store that keeps one JSON file. The CLI and the MCP server use it. See [Limits](#limits). |
