@@ -23,7 +23,9 @@ function ThemePicker() {
   );
 }
 
-export function App({ themePicker = false }: { themePicker?: boolean }) {
+/** The app. `frame` draws the design package's app shell, with its banner, main landmark, and skip link. Without it the
+ * app draws a plain block, for a host page that has its own landmarks. */
+export function App({ themePicker = false, frame = true }: { themePicker?: boolean; frame?: boolean }) {
   const client = useClient();
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [route, setRoute] = useState(routeId());
@@ -65,29 +67,41 @@ export function App({ themePicker = false }: { themePicker?: boolean }) {
   else if (tables.length === 0) body = <EmptyState title="No tables yet" description="Make a table, then add columns and rows." action={<Button onClick={() => setCreating(true)}>New table</Button>} />;
   else body = <EmptyState title="Pick a table" description="Choose a table in the list." />;
 
+  const sidebar = <SidebarNav label="Tables" items={tables.map((t) => ({ href: `#/t/${t.id}`, label: t.name, current: t.id === route }))} />;
+  const dialog =
+    load.state === "ready" ? (
+      <NewTableDialog
+        open={creating}
+        onOpenChange={setCreating}
+        create={async (name) => {
+          try {
+            const table = await client.createTable(load.base.id, name);
+            await read();
+            location.hash = `#/t/${table.id}`;
+            return null;
+          } catch (error) {
+            return failure(error);
+          }
+        }}
+      />
+    ) : null;
+
+  if (!frame) {
+    return (
+      <div className="embed">
+        <div className="embed__bar">{topbar}</div>
+        <div className="embed__body">
+          {sidebar}
+          <div className="embed__content">{body}</div>
+        </div>
+        {dialog}
+      </div>
+    );
+  }
   return (
-    <AppShell
-      brand="Tables"
-      topbar={topbar}
-      sidebar={<SidebarNav label="Tables" items={tables.map((t) => ({ href: `#/t/${t.id}`, label: t.name, current: t.id === route }))} />}
-    >
+    <AppShell brand="Tables" topbar={topbar} sidebar={sidebar}>
       {body}
-      {load.state === "ready" ? (
-        <NewTableDialog
-          open={creating}
-          onOpenChange={setCreating}
-          create={async (name) => {
-            try {
-              const table = await client.createTable(load.base.id, name);
-              await read();
-              location.hash = `#/t/${table.id}`;
-              return null;
-            } catch (error) {
-              return failure(error);
-            }
-          }}
-        />
-      ) : null}
+      {dialog}
     </AppShell>
   );
 }

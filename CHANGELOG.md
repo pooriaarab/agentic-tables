@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `mount` in `agentic-tables/ui` takes `frame: false`. The app then draws no banner, no `main` landmark, and no skip link, so a host page that has its own landmarks passes the axe landmark checks. The default stays `true`.
+
 ### Removed
 
 - `agentic-tables/ui` no longer exports `clientFor` or `TablesApp`. Neither was documented, and `mount` uses both inside the module. Use `mount` to render the app.

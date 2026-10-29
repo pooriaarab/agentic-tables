@@ -151,6 +151,7 @@ const tables = mount(document.getElementById("tables")!, {
   getToken,
   // principal: { id: "local-user", kind: "human" },   // principal headers, for a local Worker only
   // themePicker: true,                                 // show a theme control; the app then sets data-theme on the page
+  // frame: false,                                      // no banner, main landmark, or skip link: for a page with its own
 });
 
 tables.update({ baseUrl: "https://other.example.com", getToken });  // use other options in the same place
@@ -161,8 +162,10 @@ tables.unmount();                                                   // remove th
 not start with `https://` (`http://` works for `localhost` only), or a `getToken` that is not a function. `getToken`
 runs on each request, so an expired token is replaced and the UI keeps none. If it throws, that request fails and the
 UI shows the error. The Worker does not read the bearer token yet. By default the app leaves the theme of your page
-alone. The app uses the hash of the page address (`#/t/<id>`) to pick a table, and it adds its own `banner` and `main`
-landmarks, so mount it on a page that has none of its own. `react` and `react-dom` (version 19) are optional peer
+alone. The app uses the hash of the page address (`#/t/<id>`) to pick a table. By default it adds its own `banner` and `main`
+landmarks and a skip link, so mount it on a page that has none of its own. On a page with its own landmarks, pass
+`frame: false`: the app then draws a plain block with the actions on top and the table list as a `nav` beside the open
+table. A `frame` that is not `true` or `false` throws a `TypeError`. `react` and `react-dom` (version 19) are optional peer
 dependencies. The web UI that the Worker serves renders the same app.
 
 ## HTTP API

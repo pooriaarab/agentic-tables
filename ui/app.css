@@ -20,3 +20,8 @@ tr[data-agent] > td:first-child { box-shadow: inset 4px 0 0 var(--ad-color-agent
 tr[data-agent] { background: var(--ad-color-agent-subtle); }
 .grid__agent { display: inline-flex; align-items: center; gap: var(--ad-space-1); color: var(--ad-color-agent-text); }
 .grid__cell .ad-input { min-width: 8rem; }
+/* The app without its frame, inside a host page: the actions on top, then the table list beside the open table. */
+.embed__bar { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--ad-space-3); margin-bottom: var(--ad-space-4); }
+.embed__body { display: grid; grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr); gap: var(--ad-space-6); align-items: start; }
+.embed__content { min-width: 0; }
+@media (max-width: 40rem) { .embed__body { grid-template-columns: minmax(0, 1fr); } }

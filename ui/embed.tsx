@@ -20,6 +20,8 @@ export interface TablesUiOptions {
   fetch?: typeof fetch;
   /** Show a theme control, and let the app set `data-theme` on the page. Off by default, so the page keeps its own theme. */
   themePicker?: boolean;
+  /** Draw the app's own frame: a banner, a main landmark, and a skip link. On by default. Turn it off on a page that has its own landmarks. */
+  frame?: boolean;
 }
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -42,6 +44,7 @@ function clientFor(options: TablesUiOptions): TablesClient {
   if (!options) throw new TypeError("the tables UI needs options with a baseUrl");
   checkBaseUrl(options.baseUrl);
   if (options.getToken !== undefined && typeof options.getToken !== "function") throw new TypeError("getToken must be a function");
+  if (options.frame !== undefined && typeof options.frame !== "boolean") throw new TypeError("frame must be true or false");
   const inner = options.fetch ?? globalThis.fetch?.bind(globalThis);
   if (typeof inner !== "function") throw new TypeError("no fetch available: pass options.fetch");
   const { getToken } = options;
@@ -56,10 +59,10 @@ function clientFor(options: TablesUiOptions): TablesClient {
 }
 
 /** The app with a client above it. It needs the theme, tooltip, and toast providers above it. `mount` adds them. */
-function TablesApp({ client, themePicker }: { client: TablesClient; themePicker?: boolean }) {
+function TablesApp({ client, themePicker, frame }: { client: TablesClient; themePicker?: boolean; frame?: boolean }) {
   return (
     <ClientContext.Provider value={client}>
-      <App themePicker={themePicker} />
+      <App themePicker={themePicker} frame={frame} />
     </ClientContext.Provider>
   );
 }
@@ -79,6 +82,7 @@ export function mount(element: HTMLElement, options: TablesUiOptions): MountedTa
   if (mounted.has(element)) throw new TypeError("the tables UI is already mounted in this element");
   let client = clientFor(options);
   let picker = options.themePicker === true;
+  let frame = options.frame !== false;
   const root = createRoot(element);
   mounted.add(element);
   let gone = false;
@@ -86,7 +90,7 @@ export function mount(element: HTMLElement, options: TablesUiOptions): MountedTa
     const app = (
       <TooltipProvider>
         <ToastProvider>
-          <TablesApp client={client} themePicker={picker} />
+          <TablesApp client={client} themePicker={picker} frame={frame} />
         </ToastProvider>
       </TooltipProvider>
     );
@@ -98,6 +102,7 @@ export function mount(element: HTMLElement, options: TablesUiOptions): MountedTa
       if (gone) return;
       client = clientFor(next);
       picker = next.themePicker === true;
+      frame = next.frame !== false;
       render();
     },
     unmount() {
