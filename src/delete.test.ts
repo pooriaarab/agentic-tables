@@ -107,4 +107,12 @@ describe("change required", () => {
     await t.insertRow(tbl.id, {}, human);
     await expect(t.setRequired(tbl.id, "Nope", true)).rejects.toBeInstanceOf(NotFoundError);
   });
+
+  test("refuses a link default that points at no row of the linked table", async () => {
+    const other = await t.createTable(baseId, "Other", [{ name: "N", type: "text" }]);
+    const tbl = await t.createTable(baseId, "T", [{ name: "Name", type: "text" }]);
+    await t.insertRow(tbl.id, { Name: "x" }, human);
+    await expect(t.addField(tbl.id, { name: "L", type: "link", linkTable: other.id, default: ["row_missing"] })).rejects.toBeInstanceOf(ValidationError);
+    expect((await t.getTable(tbl.id)).fields).toHaveLength(1);
+  });
 });

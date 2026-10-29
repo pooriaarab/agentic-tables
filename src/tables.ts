@@ -600,6 +600,11 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         if (!isEmpty(fill)) {
           const bad = checkValue(field, fill);
           if (bad) issues.push({ field: field.name, ...bad });
+          else if (field.type === "link" && Array.isArray(fill)) {
+            for (const id of fill as string[]) {
+              if ((await read<RowDoc>(ops, "rows", id))?.tableId !== field.linkTable) issues.push({ field: field.name, code: "link_missing", message: `row "${id}" is not in the linked table` });
+            }
+          }
         } else if (field.required && rows.length > 0) {
           issues.push({ field: field.name, code: "required", message: `is required and ${rows.length} rows exist: pass a default` });
         }

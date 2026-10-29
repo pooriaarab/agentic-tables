@@ -40,7 +40,7 @@ await tables.insertRow(people.id, { Name: "Ada", Stage: "lead" }, { id: "u1", ki
 - Queries: filters with `and` and `or`, per-type operators, one sort, `limit`, and a cursor. Saved views: a grid, and a board grouped by a single select field.
 - Deleting a row removes it from the links that point at it.
 - Storage sits behind the `Store` port from `agentic-identity`. Use its memory adapter in tests, its D1 adapter in a Worker, or the file store from `agentic-tables/file-store`. The file store passes the same contract suite (`runStoreContract`), so any adapter that passes it also works here.
-- A change to a schema, a row, or a view runs in one `Store` transaction that reads first and writes after. This is the shared port rule, and Firestore follows it. A query guards only the docs it returned, so adding a row or a view bumps a `rev` counter on its table, and adding a table bumps one on its base. A change that read the table or base then runs again and sees the new doc. A busy table serializes its inserts for that reason.
+- A change that reads before it writes runs in one `Store` transaction that reads first and writes after. Creating a base, and deleting a view, are single writes. This is the shared port rule, and Firestore follows it. A query guards only the docs it returned, so adding a row or a view bumps a `rev` counter on its table, and adding a table bumps one on its base. A change that read the table or base then runs again and sees the new doc. A busy table serializes its inserts for that reason.
 
 ## Queries
 

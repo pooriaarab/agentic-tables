@@ -6,6 +6,7 @@
 //  2. addField (required) reads the rows. A row is added meanwhile. The change must fail: a row has no value.
 //  3. deleteTable reads the tables of the base. A table that links to it is added meanwhile. The delete must refuse.
 //  4. Erase reads a table. A view is added meanwhile. No view may survive the erase.
+//  6. A batch insert (insertRows) racing an erase leaves no row.
 //  5. changeFieldType reads the rows. A row is added meanwhile. The new row must be converted or refused, not left in the old type.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -66,6 +67,14 @@ describe.each(Object.entries(ADAPTERS))("a doc added during a change, %s store",
     const t = createTables(interrupting(mine, "rows", () => other.insertRow(table.id, { Name: "late" }, ada)));
     const summary = await t.eraseOwnerData("ada");
     expect(summary.rows).toBe(2);
+    expect(await rowsOf(mine)).toBe(0);
+  });
+
+  test("rows added in a batch during erase do not survive", async () => {
+    const { shared, other, table, rowsOf } = await setup(open);
+    const mine = open(shared);
+    const t = createTables(interrupting(mine, "rows", () => other.insertRows(table.id, [{ Name: "a" }, { Name: "b" }], ada)));
+    await t.eraseOwnerData("ada");
     expect(await rowsOf(mine)).toBe(0);
   });
 
