@@ -1,6 +1,6 @@
 // The package's side of the account contract: a host calls `exportAccount` and `eraseAccount`
-// and never reads the storage layout. The shape is provisional: it is the contract that the next
-// `agentic-identity` release adds to `agentic-identity/account` as `AccountPackage`. The released 0.7.x has no such type.
+// and never reads the storage layout. The shape is provisional: it is the contract that a later
+// `agentic-identity` release adds to `agentic-identity/account` as `AccountPackage`. The `AccountApp` of earlier releases is a different contract, and this does not fit it.
 //
 // Both calls go through the guarded path (`exportMyData` and `eraseMyData`), so they keep its rules: a legacy base
 // without an owner kind stops the call, a base the subject gave away is left alone, and the sharing records go
