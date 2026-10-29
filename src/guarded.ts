@@ -170,6 +170,9 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
        */
       async claimBase(baseId: string) {
         selfOnly("admin");
+        // The scopes the claim needs, checked before anything is written, so a narrow credential cannot leave a half claim.
+        scoped(ctx, "write", "base");
+        scoped(ctx, "write", "table");
         if (!(await tables.legacyBaseIds(owner.id)).includes(baseId)) throw missing();
         /** True when the resource is new. A resource that exists is left as it is. */
         const register = (id: string, parentId?: string) =>
@@ -181,11 +184,13 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
             },
           );
         // A base with a sharing record was made by a build that had sharing but no owner kind. Its owner may have given it away. Then the
-        // caller has no right to register a table, and the tables are registered already, so the claim only records the kind.
+        // caller holds no role on it and cannot register a table. Such a build registered each table with its base, so the claim only
+        // records the kind. A table that was not registered stays unreachable. Where the caller holds a role, any failure stops the claim.
         const registered = !(await register(baseId));
+        const mayRegister = !registered || (await sharing.can(ctx, "admin", baseId)).allowed;
         for (const table of await tables.listTables(baseId)) {
           await register(table.id, baseId).catch((error: unknown) => {
-            if (!(registered && error instanceof TablesError && error.code === "FORBIDDEN")) throw error;
+            if (mayRegister) throw error;
           });
         }
         await tables.setLegacyBaseOwnerKind(baseId, owner);

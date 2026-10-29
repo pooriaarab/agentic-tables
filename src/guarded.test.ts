@@ -271,4 +271,20 @@ describe("a base from an earlier version", () => {
     expect((await call("POST", "/bases", ada, { name: "fresh" })).status).toBe(201);
     expect((await call("GET", `/bases/${base.id}/tables`, bob)).body.items).toHaveLength(2);
   });
+
+  // A credential that cannot write tables must not leave a half claim: a retry must not turn into a success that skips a table.
+  test("is refused for a credential without the scopes it needs, every time", async () => {
+    const raw = createTables(store);
+    const old = await raw.createBase("old", { id: "ada", kind: "human" });
+    const table = await raw.createTable(old.id, "T", [{ name: "N", type: "text" }]);
+    const { ownerKind: _kind, ...legacy } = (await store.get("bases", old.id))!;
+    await store.put("bases", old.id, legacy);
+
+    for (const scopes of ["base:admin", "base:admin,table:read"]) {
+      for (let attempt = 0; attempt < 2; attempt++) expect((await call("POST", `/bases/${old.id}/claim`, person("ada", scopes))).status).toBe(403);
+    }
+    expect((await call("GET", "/me/export", ada)).body.error.code).toBe("LEGACY_BASE");
+    expect((await call("POST", `/bases/${old.id}/claim`, ada)).status).toBe(200);
+    expect((await call("GET", `/tables/${table.id}/rows`, ada)).status).toBe(200);
+  });
 });
