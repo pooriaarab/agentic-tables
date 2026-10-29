@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The README has a table of every subpath export in `package.json`, with what each one is for (#113).
+
 ## 0.13.0
 
 No breaking changes.

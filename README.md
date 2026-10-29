@@ -23,6 +23,18 @@ npm install agentic-tables agentic-identity
 
 Node 22 or newer. The CLI runs with `npx agentic-tables --help`.
 
+## Subpath exports
+
+| Import | Use it for |
+| --- | --- |
+| `agentic-tables` | `createTables`, the core API. See [Quick start](#quick-start). `tablesAccount` runs account export and erase. See [Your data (GDPR)](#your-data-gdpr). The package also exports `VERSION` and the field, principal, query, CSV, and error helpers. |
+| `agentic-tables/worker` | `createApp`, which builds the HTTP API as a Hono app. The default export is the Worker. `reportingRegion` is the local-mode region helper. See [HTTP API](#http-api) and [Mount the API in your own Worker](#mount-the-api-in-your-own-worker). |
+| `agentic-tables/client` | `createClient`, a typed client for the HTTP API. See [SDK](#sdk). |
+| `agentic-tables/node` | `createNodeServer`, the HTTP API in a Node process. It has no sign-in, so it needs `unsafeNoAuth: true` and is for local work only. See [Run on Firebase](#run-on-firebase). |
+| `agentic-tables/file-store` | `createFileStore`, a local store that keeps one JSON file. The CLI and the MCP server use it. See [Limits](#limits). |
+| `agentic-tables/ui` | `mount`, which renders the web app in your page. See [Mount the UI in your app](#mount-the-ui-in-your-app). |
+| `agentic-tables/ui.css` | The styles for `agentic-tables/ui`. Import it after `agentic-design/styles.css`. See [Mount the UI in your app](#mount-the-ui-in-your-app). |
+
 ## Quick start
 
 The library, the CLI, the MCP server, the HTTP API, and the web UI work.
