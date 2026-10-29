@@ -23,7 +23,14 @@ Commands:
   export <table>                      Print the rows as CSV.
   import <table> --file <csv> [--create]
   required <table> <field> <true|false> [--dry-run]
+  rename-field <table> <field> <newName>   Rename a field. Rows and views keep working.
+  delete-field <table> <field> --yes  Delete a field and its values in every row.
+  change-type <table> <field> --to <type> [--options <a|b>] [--link-table <t>] [--on-failure <abort|clear>] [--dry-run] [--yes]
+                                      Convert every value. "abort" (default) changes nothing if one fails. "clear" empties failed values.
   delete-table <table> --yes          Delete a table with its rows and views.
+  bases                               List the bases you can read.
+  new-base <name>                     Create a base. Your work base is the oldest one you own. Set its id as AGENTIC_TABLES_BASE to work in another.
+  delete-base <baseId> --yes          Delete a base with its tables, rows and views.
   claim-base <baseId>                 Make a base from an earlier version usable. You must be its owner.
   share <subject> <role> --kind <human|agent> [--table <t>]  Give a person or agent a role (viewer, commenter, editor, owner) on the base, or on one table.
   unshare <subject> --kind <human|agent> [--table <t>]     Take the role back.
@@ -139,6 +146,43 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
       const table = await ctx.table(need(0, "a table"));
       if (flag("yes") === undefined) throw new UsageError(`delete-table removes "${table.name}" with all its rows. Add --yes to confirm`);
       return ctx.tables.deleteTable(table.id);
+    }
+    case "rename-field": {
+      const table = await ctx.table(need(0, "a table"));
+      return ctx.tables.renameField(table.id, need(1, "a field"), need(2, "a new name"));
+    }
+    case "delete-field": {
+      const table = await ctx.table(need(0, "a table"));
+      const field = need(1, "a field");
+      if (flag("yes") === undefined) throw new UsageError(`delete-field removes "${field}" and its values from every row of "${table.name}". Add --yes to confirm`);
+      return ctx.tables.deleteField(table.id, field);
+    }
+    case "change-type": {
+      const table = await ctx.table(need(0, "a table"));
+      const to = flag("to");
+      if (!FIELD_TYPES.includes(to as FieldType)) throw new UsageError(`change-type needs --to with one of ${FIELD_TYPES.join(", ")}`);
+      const onFailure = flag("on-failure");
+      if (onFailure !== undefined && onFailure !== "abort" && onFailure !== "clear") throw new UsageError("--on-failure must be abort or clear");
+      const select = to === "single_select" || to === "multi_select";
+      if (flag("options") !== undefined && !select) throw new UsageError("--options needs --to single_select or multi_select");
+      if (flag("link-table") !== undefined && to !== "link") throw new UsageError("--link-table needs --to link");
+      if (onFailure === "clear" && flag("dry-run") === undefined && flag("yes") === undefined) throw new UsageError("--on-failure clear empties the values that fail. Add --yes to confirm, or --dry-run to see them first");
+      return ctx.tables.changeFieldType(table.id, need(1, "a field"), {
+        to: to as FieldType,
+        ...(flag("options") === undefined ? {} : { options: flag("options")!.split("|").filter(Boolean) }),
+        ...(flag("link-table") === undefined ? {} : { linkTable: (await ctx.table(flag("link-table")!)).id }),
+        ...(onFailure === undefined ? {} : { onFailure }),
+        dryRun: flag("dry-run") !== undefined,
+      });
+    }
+    case "bases":
+      return ctx.tables.listBases();
+    case "new-base":
+      return ctx.tables.createBase(need(0, "a base name"));
+    case "delete-base": {
+      const id = need(0, "a base id");
+      if (flag("yes") === undefined) throw new UsageError(`delete-base removes base "${id}" with all its tables, rows and views. Add --yes to confirm`);
+      return ctx.tables.deleteBase(id);
     }
     case "claim-base":
       return ctx.tables.claimBase(need(0, "a base id"));
