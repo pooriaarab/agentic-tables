@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
+
+No breaking changes.
 
 ### Added
 
@@ -9,6 +11,7 @@
 ### Changed
 
 - The route code moved from `src/worker.ts` to `src/app.ts`, so the Node server does not load the D1 adapter. `createApp` is still exported from `agentic-tables/worker`.
+- The `agentic-identity` dependency is now `^0.5.0`.
 
 ## 0.5.0
 
