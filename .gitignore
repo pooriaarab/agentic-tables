@@ -11,3 +11,4 @@ ui-dist/
 test-results/
 playwright-report/
 *-debug.log
+.dev.vars
