@@ -12,3 +12,4 @@ test-results/
 playwright-report/
 *-debug.log
 .dev.vars
+bun.lock
