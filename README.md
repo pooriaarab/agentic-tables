@@ -243,6 +243,18 @@ The CLI, MCP, and HTTP actions act for the actor of the call only, and check the
 
 Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`) when another principal wrote them. File refs hold blob keys, and erase does not remove the blobs. A file store rewrite does not wipe old file blocks or backups. There is no retention setting. Rows that an agent writes for a person carry the id of the agent, so the person cannot export or erase them and the agent cannot either (it gets `403`). Erase keeps the audit entries that `can()` wrote and the sharing records: they hold ids, kinds, and roles, and no row content. The export holds all data in memory, so a very large export needs a streaming version later.
 
+## Live demo
+
+A demo runs at https://agentic-tables-demo.hello-fd1.workers.dev. It serves the web UI. The Worker has no sign-in yet, so the demo does not set `AGENTIC_TABLES_UNSAFE_NO_AUTH`. The API answers `503` there by design, and the page shows no data. The database lives in the EU (D1, `weur`) and the region claim is `eu`.
+
+To redeploy, log in to Cloudflare with `wrangler login` (or set `CLOUDFLARE_API_TOKEN` in your shell, never in a file). Then run:
+
+```sh
+WRANGLER_SEND_METRICS=false npm run deploy:demo
+```
+
+This builds the UI and deploys `wrangler.demo.jsonc`. No CI job deploys the demo, and no secret is stored in this repository.
+
 ## Limits
 
 - **Upgrading from 0.1.0:** a base made by 0.1.0 (the CLI, the MCP server, or the Worker) has no owner kind and no sharing record, so nobody has a role on it. Until its owner claims it, creating a base, export, and erase answer `409 LEGACY_BASE` with the base ids, and change nothing. Claim a base with `agentic-tables claim-base <id>`, the MCP tool `claim_base`, or `POST /bases/:baseId/claim`. The claim needs the scopes `base:admin`, `base:write`, and `table:write`. A credential without them gets `403` and changes nothing. The caller must be a person or an agent with its own identity, with the base owner id, and it states its own kind as the owner. The base and its tables then get sharing records. Rows a principal wrote in a base that is not its own are still exported and erased as `authoredRows`.
