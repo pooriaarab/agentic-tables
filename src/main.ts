@@ -23,7 +23,7 @@ Commands:
   export <table>                      Print the rows as CSV.
   import <table> --file <csv> [--create]
   required <table> <field> <true|false> [--dry-run]
-  rename-field <table> <field> <newName>
+  rename-field <table> <field> <newName>   Rename a field. Rows and views keep working.
   delete-field <table> <field> --yes  Delete a field and its values in every row.
   change-type <table> <field> --to <type> [--options <a|b>] [--link-table <t>] [--on-failure <abort|clear>] [--dry-run]
                                       Convert every value. "abort" (default) changes nothing if one fails. "clear" empties failed values.
@@ -163,6 +163,9 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
       if (!FIELD_TYPES.includes(to as FieldType)) throw new UsageError(`change-type needs --to with one of ${FIELD_TYPES.join(", ")}`);
       const onFailure = flag("on-failure");
       if (onFailure !== undefined && onFailure !== "abort" && onFailure !== "clear") throw new UsageError("--on-failure must be abort or clear");
+      const select = to === "single_select" || to === "multi_select";
+      if (flag("options") !== undefined && !select) throw new UsageError("--options needs --to single_select or multi_select");
+      if (flag("link-table") !== undefined && to !== "link") throw new UsageError("--link-table needs --to link");
       return ctx.tables.changeFieldType(table.id, need(1, "a field"), {
         to: to as FieldType,
         ...(flag("options") === undefined ? {} : { options: flag("options")!.split("|").filter(Boolean) }),

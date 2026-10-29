@@ -21,9 +21,9 @@ const ok = (args: string[], extra?: Record<string, string>) => {
   expect(r.code).toBe(0);
   return JSON.parse(r.out) as any;
 };
-async function mcp<T>(fn: (call: (name: string, args?: Record<string, unknown>) => Promise<{ isError: boolean; body: any }>) => Promise<T>): Promise<T> {
+async function mcp<T>(fn: (call: (name: string, args?: Record<string, unknown>) => Promise<{ isError: boolean; body: any }>) => Promise<T>, extra: Record<string, string> = {}): Promise<T> {
   const client = new Client({ name: "e2e-parity", version: "0.0.0" });
-  await client.connect(new StdioClientTransport({ command: "node", args: [cli, "mcp"], env: { ...env, AGENTIC_TABLES_ACTOR: "human:cli" } }));
+  await client.connect(new StdioClientTransport({ command: "node", args: [cli, "mcp"], env: { ...env, AGENTIC_TABLES_ACTOR: "human:cli", ...extra } }));
   try {
     return await fn(async (name, args = {}) => {
       const res = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { text: string }[] };
@@ -42,7 +42,7 @@ afterAll(() => rmSync(dir, { recursive: true }));
 describe("help", () => {
   test("lists the new commands", () => {
     const help = run(["--help"]).out;
-    for (const word of ["bases", "new-base", "delete-base", "rename-field", "delete-field", "change-type"]) expect(help).toContain(word);
+    for (const word of ["bases", "new-base", "delete-base", "rename-field", "delete-field", "change-type"]) expect(help).toMatch(new RegExp(`^  ${word} `, "m"));
   });
 });
 
@@ -60,6 +60,13 @@ describe("bases over the CLI", () => {
     expect(ok(["bases"]).map((b: any) => b.id)).not.toContain(base.id);
     expect(run(["delete-base", base.id, "--yes"]).code).toBe(1);
     expect(run(["delete-base"]).code).toBe(2);
+  });
+
+  test("change-type refuses a flag the target type ignores", () => {
+    ok(["new", "Tags", "--field", "Label:text"]);
+    expect(run(["change-type", "Tags", "Label", "--to", "number", "--options", "a|b"]).code).toBe(2);
+    expect(run(["change-type", "Tags", "Label", "--to", "text", "--link-table", "Tags"]).code).toBe(2);
+    expect(ok(["schema", "Tags"]).fields[0].type).toBe("text");
   });
 
   test("a viewer cannot delete a base", () => {
@@ -97,6 +104,17 @@ describe("field edits over the CLI", () => {
 });
 
 describe("bases and field edits over MCP", () => {
+  test("a viewer is refused", async () => {
+    const base = ok(["new-base", "Guarded"]);
+    ok(["share", "eve", "viewer", "--kind", "human"], { AGENTIC_TABLES_BASE: base.id });
+    await mcp(async (call) => {
+      const refused = await call("delete_base", { baseId: base.id });
+      expect(refused.isError).toBe(true);
+      expect(refused.body.code).toBe("FORBIDDEN");
+    }, { AGENTIC_TABLES_ACTOR: "human:eve", AGENTIC_TABLES_BASE: base.id });
+    expect(ok(["bases"]).map((b: any) => b.id)).toContain(base.id);
+  });
+
   test("runs the same operations and reports failures as errors", async () => {
     await mcp(async (call) => {
       const made = await call("create_base", { name: "Ops" });

@@ -45,8 +45,8 @@ export function createMcpServer(ctx: Context): McpServer {
     );
 
   tool("list_bases", "List the bases you can read. Set AGENTIC_TABLES_BASE to work in another base.", {}, "read", async () => ctx.tables.listBases());
-  tool("create_base", "Create a base. You own it.", { name: z.string() }, "write", async ({ name }) => ctx.tables.createBase(name));
-  tool("delete_base", "Delete a base with all its tables, rows and views. This cannot be undone.", { baseId: z.string() }, "delete", async ({ baseId }) => ctx.tables.deleteBase(baseId));
+  tool("create_base", "Create a base. You own it. Tables you create stay in the current base until AGENTIC_TABLES_BASE names the new base and the server restarts.", { name: z.string() }, "write", async ({ name }) => ctx.tables.createBase(name));
+  tool("delete_base", "Delete a base with all its tables, rows and views. This cannot be undone. If you delete the base you work in, the next table you create makes a new empty base.", { baseId: z.string() }, "delete", async ({ baseId }) => ctx.tables.deleteBase(baseId));
   tool("list_tables", "List the tables with their fields.", {}, "read", async () => (await ctx.tables.listTables(await ctx.baseId())).map(describe));
   tool("describe_table", "Read the schema of one table: field names, types, options, required, and the filter operators each field supports. Call this before you write rows.", { table: tableRef }, "read", async ({ table }) => describe(await ctx.table(table)));
   tool("create_table", "Create a table with typed fields.", { name: z.string(), fields: z.array(fieldShape) }, "write", async ({ name, fields }) => {
@@ -67,7 +67,7 @@ export function createMcpServer(ctx: Context): McpServer {
     'Change the type of a field. Every value converts or the change fails and lists the rows that fail. Use dryRun to see the report first. onFailure "clear" empties the values that fail.',
     { table: tableRef, field: z.string(), to: z.enum(FIELD_TYPES), options: z.array(z.string()).optional().describe("Select targets. Default: the distinct stored values."), linkTable: z.string().optional(), onFailure: z.enum(["abort", "clear"]).optional(), dryRun: z.boolean().optional() },
     "write",
-    async ({ table, field, linkTable, ...change }) => ctx.tables.changeFieldType((await ctx.table(table)).id, field, { ...change, ...(linkTable ? { linkTable: (await ctx.table(linkTable)).id } : {}) }),
+    async ({ table, field, linkTable, ...change }) => ctx.tables.changeFieldType((await ctx.table(table)).id, field, { ...change, ...(linkTable !== undefined ? { linkTable: (await ctx.table(linkTable)).id } : {}) }),
   );
   tool("delete_table", "Delete a table with all its rows and views. It fails while another table links to it.", { table: tableRef }, "delete", async ({ table }) => ctx.tables.deleteTable((await ctx.table(table)).id));
   tool("export_my_data", "Export every base owned by the acting principal, with tables, views, and rows, as JSON.", {}, "read", async () => ctx.tables.exportMyData());

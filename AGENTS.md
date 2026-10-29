@@ -16,8 +16,8 @@ Do not call a route that `src/worker.ts` does not define.
 
 ## MCP tools
 
-`list_tables`, `describe_table`, `create_table`, `add_field`, `set_required`,
-`delete_table`, `insert_rows`, `update_row`, `delete_row`, `get_row`,
+`list_bases`, `create_base`, `delete_base`, `list_tables`, `describe_table`, `create_table`, `add_field`,
+`rename_field`, `delete_field`, `change_field_type`, `set_required`, `delete_table`, `insert_rows`, `update_row`, `delete_row`, `get_row`,
 `query_rows`, `claim_base`, `share`, `unshare`, `export_my_data`, `erase_my_data`.
 
 Your role limits every tool. A `FORBIDDEN` answer means your role or scope is too low: ask an owner to `share`. `NOT_FOUND` can also mean you have no role at all.
