@@ -27,7 +27,8 @@
   "files": [
     "dist",
     "llms.txt",
-    "SKILL.md"
+    "SKILL.md",
+    "CHANGELOG.md"
   ],
   "publishConfig": {
     "access": "public"
