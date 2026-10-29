@@ -12,11 +12,12 @@ interface Props {
   onKeyDown?: KeyboardEventHandler;
   onBlur?: () => void;
   invalid?: boolean;
+  describedBy?: string;
 }
 
 /** One typed control for one field. A grid cell and the new-row form share it. */
-export const Editor = forwardRef<HTMLElement, Props>(function Editor({ field, draft, onChange, label, id, onKeyDown, onBlur, invalid }, ref) {
-  const common = { id, "aria-label": label, "aria-invalid": invalid || undefined, onKeyDown, onBlur };
+export const Editor = forwardRef<HTMLElement, Props>(function Editor({ field, draft, onChange, label, id, onKeyDown, onBlur, invalid, describedBy }, ref) {
+  const common = { id, "aria-label": label, "aria-invalid": invalid || undefined, "aria-describedby": describedBy, onKeyDown, onBlur };
   switch (field.type) {
     case "checkbox":
       return <input {...common} ref={ref as never} type="checkbox" className="ad-checkbox" checked={draft === true} onChange={(e) => onChange(e.target.checked)} />;

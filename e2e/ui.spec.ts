@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { createClient } from "../src/client";
+import { createClient } from "../src/client.js";
 import { expect, test, type Page } from "@playwright/test";
 
 test.describe.configure({ mode: "serial" });
@@ -112,6 +112,33 @@ test("an agent's row carries a marker", async ({ page, baseURL }) => {
   await audit(page, "5-agent-row");
 });
 
+test("focus stays where the person put it", async ({ page }) => {
+  await page.goto("/#/t/" + (await tableId(page)));
+  const cell = page.getByRole("gridcell", { name: "Write the docs" });
+
+  // Tab out of an open editor goes on to the next control. It does not bounce back into the grid.
+  await cell.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("Title, row 1")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.locator("td:focus")).toHaveCount(0);
+  await expect(page.getByLabel("Title, row 1")).toHaveCount(0);
+
+  // A double click opens the editor for a pointer user.
+  await cell.dblclick();
+  await expect(page.getByLabel("Title, row 1")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(cell).toBeFocused();
+
+  // A sort control keeps focus after it changes the rows, so arrow keys step through its options.
+  const sort = page.getByLabel("Sort by");
+  await sort.focus();
+  await sort.selectOption({ label: "Title" });
+  await expect(sort).toBeFocused();
+  await sort.selectOption("");
+  await expect(sort).toBeFocused();
+});
+
 test("filter, sort, delete a row and a column", async ({ page }) => {
   await page.goto("/#/t/" + (await tableId(page)));
   await page.getByLabel("Filter column").selectOption({ label: "Title" });
@@ -131,6 +158,8 @@ test("filter, sort, delete a row and a column", async ({ page }) => {
   await page.getByRole("button", { name: "Delete row 1" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Delete row" }).click();
   await expect(page.getByRole("gridcell", { name: "Write the docs" })).toHaveCount(0);
+  // Focus does not fall to the page body after a delete.
+  await expect(page.locator("#table-title")).toBeFocused();
 
   await page.getByRole("button", { name: "Column options for Done" }).click();
   await page.getByRole("menuitem", { name: "Delete column" }).click();

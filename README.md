@@ -78,7 +78,7 @@ Operators by type: text `eq neq contains starts_with is_empty not_empty`; number
 
 ## UI
 
-A small web app for your tables. It is built on [`agentic-design`](https://www.npmjs.com/package/agentic-design) and talks to the Worker through `agentic-tables/client`. The Worker serves it at `/`, next to the API under `/api/v1/tables`.
+A small web app for your tables. It is built on [`agentic-design`](https://www.npmjs.com/package/agentic-design) and talks to the Worker through `agentic-tables/client`. The Worker of this repository serves it at `/`, next to the API under `/api/v1/tables`: `wrangler.jsonc` points its `assets` at `ui-dist`. The Worker in the npm package (`agentic-tables/worker`) holds the API only. To serve the UI from your own Worker, copy the `assets` setting and build `ui-dist` with `npm run build:ui`.
 
 Run it on your machine:
 
@@ -97,7 +97,7 @@ What it does:
 - Filters on one column and sorts on one column or on the time of the last edit.
 - Shows loading, empty, and error states. A failed call shows its reason.
 - Marks a row whose last edit an agent made with the word "Agent" and an icon. Colour is never the only sign.
-- Works with the keyboard. In the grid, the arrow keys, Home, and End move. Enter edits a cell (or toggles a checkbox). Enter saves and Escape cancels.
+- Works with the keyboard. In the grid, the arrow keys, Home, and End move. Enter edits a cell (or toggles a checkbox). Enter saves and Escape cancels. A double click edits a cell, and a click toggles a checkbox.
 - Follows the system light or dark theme, or the pick in the top bar.
 
 Run the browser tests, which start `wrangler dev` with a fresh local database:
@@ -109,7 +109,7 @@ npm run build && npm run test:e2e
 
 They create a table, add a row, edit a cell, and reload to check that it stays. They also run an axe check for WCAG 2.2 AA on each view in both themes, and write screenshots to [`docs/screenshots`](docs/screenshots) (light and dark).
 
-Limits of the UI: link and file cells show their value and cannot be edited. A column cannot be renamed or change type. Filters take one condition. It does not refresh when another caller writes: reload to see new rows.
+Limits of the UI: it shows the first base only. Link and file cells show their value and cannot be edited. A column cannot be renamed or change type. Filters take one condition. It does not refresh when another caller writes: reload to see new rows.
 
 ## HTTP API
 

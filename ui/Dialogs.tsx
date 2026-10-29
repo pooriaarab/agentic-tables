@@ -36,7 +36,7 @@ function FormDialog({ open, onOpenChange, title, submitLabel, submit, children }
 export function NewTableDialog({ create, ...props }: Props & { create: (name: string) => Promise<string | null> }) {
   const [name, setName] = useState("");
   return (
-    <FormDialog {...props} title="New table" submitLabel="Create table" submit={async () => (await create(name)) ?? (setName(""), null)}>
+    <FormDialog {...props} onOpenChange={(open) => { if (!open) setName(""); props.onOpenChange(open); }} title="New table" submitLabel="Create table" submit={async () => (await create(name)) ?? (setName(""), null)}>
       <Input label="Table name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
     </FormDialog>
   );
@@ -53,6 +53,7 @@ export function NewColumnDialog({ create, ...props }: Props & { create: (field: 
   return (
     <FormDialog
       {...props}
+      onOpenChange={(open) => { if (!open) { setName(""); setOptions(""); setRequired(false); setType("text"); } props.onOpenChange(open); }}
       title="New column"
       submitLabel="Add column"
       submit={async () => {
@@ -78,6 +79,7 @@ export function NewRowDialog({ table, create, ...props }: Props & { table: Table
   return (
     <FormDialog
       {...props}
+      onOpenChange={(open) => { if (!open) setDrafts({}); props.onOpenChange(open); }}
       title="New row"
       submitLabel="Add row"
       submit={async () => {
@@ -106,6 +108,7 @@ export function NewRowDialog({ table, create, ...props }: Props & { table: Table
 /** Ask before a delete. `confirm` resolves to an error text, or `null` to close. */
 export function ConfirmDialog({ title, description, label, confirm, ...props }: Props & { title: string; description: string; label: string; confirm: () => Promise<string | null> }) {
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   return (
     <Dialog
       {...props}
@@ -115,7 +118,7 @@ export function ConfirmDialog({ title, description, label, confirm, ...props }: 
       footer={
         <>
           <DialogClose asChild><Button variant="ghost">Cancel</Button></DialogClose>
-          <Button variant="danger" onClick={async () => { const m = await confirm(); setError(m); if (m === null) props.onOpenChange(false); }}>{label}</Button>
+          <Button variant="danger" loading={busy} onClick={async () => { setBusy(true); const m = await confirm(); setBusy(false); setError(m); if (m === null) props.onOpenChange(false); }}>{label}</Button>
         </>
       }
     >

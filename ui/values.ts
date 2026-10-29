@@ -8,7 +8,9 @@ export const EDITABLE = new Set(["text", "long_text", "number", "checkbox", "dat
 export const draftOf = (field: Field, value: unknown): Draft => {
   if (field.type === "checkbox") return value === true;
   if (field.type === "multi_select") return Array.isArray(value) ? (value as string[]) : [];
-  return value === null || value === undefined ? "" : String(value);
+  if (value === null || value === undefined) return "";
+  // A date input holds the day. The time of a date and time value is kept when it saves.
+  return field.type === "date" ? String(value).slice(0, 10) : String(value);
 };
 
 /** The JSON value for a draft. An empty draft is `null`, which clears the cell. */
@@ -16,8 +18,8 @@ export const valueOf = (field: Field, draft: Draft): string | number | boolean |
   if (field.type === "checkbox") return draft === true;
   if (field.type === "multi_select") return (draft as string[]).length ? (draft as string[]) : null;
   const text = String(draft);
-  if (text.trim() === "") return null;
-  return field.type === "number" ? Number(text) : text;
+  if (field.type === "number") return text.trim() === "" ? null : Number(text);
+  return text === "" ? null : text;
 };
 
 /** The text of a value for reading. Links and files are shown, not edited. */
@@ -41,6 +43,9 @@ export interface Condition {
 const EMPTY_OPS = ["is_empty", "not_empty"];
 const TEXT_OPS = ["contains", "eq", "neq", ...EMPTY_OPS];
 const ORDER_OPS = ["eq", "neq", "gt", "lt", ...EMPTY_OPS];
+/** The types the API can sort on. */
+export const SORTABLE = new Set(["text", "long_text", "number", "checkbox", "date", "single_select"]);
+
 /** The operators the UI offers for each field type. The API accepts more. */
 export const OPS: Record<string, string[]> = {
   text: TEXT_OPS,
