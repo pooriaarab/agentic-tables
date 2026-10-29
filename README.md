@@ -323,7 +323,7 @@ value such as `table:read,base:read` makes `new` fail with `FORBIDDEN`, and it b
 is optional too. Leave it unset to use the default base, one for each actor or for the person it acts for. Or set it to
 the id of a base that its owner shared with you.
 
-Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `rename-field`, `delete-field`, `change-type`, `delete-table`, `bases`, `new-base`, `delete-base`, `views`, `new-view`, `view`, `delete-view`, `claim-base`, `share`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1. A usage error prints `"code":"USAGE"` and exits 2.
+Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `rename-field`, `delete-field`, `change-type`, `delete-table`, `bases`, `new-base`, `delete-base`, `views`, `new-view`, `view`, `delete-view`, `claim-base`, `share`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1. A bad command line prints `"code":"USAGE"` and exits 2. A bad `AGENTIC_TABLES_ACTOR` also prints `USAGE`, but exits 1.
 
 CSV import checks every cell first. If one cell fails, no row is written, and the error names the line and field. `--create` makes the table and guesses a type for each column: number, checkbox, date, single select, long text, or text. A column is a number only if every value is a plain decimal. `00123`, `0x1F`, and `1e3` stay text.
 
