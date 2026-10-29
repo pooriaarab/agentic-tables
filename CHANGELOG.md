@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+No breaking changes.
+
+### Added
+
+- **A minimal web UI.** The Worker of this repository serves an app at `/`, next to the API under `/api/v1/tables`. The app is built on `agentic-design` and uses `agentic-tables/client`. It lists your tables and shows each one as a keyboard grid with typed cells. You can add, edit, and delete rows, columns, and tables. It has one filter, one sort, and loading, empty, and error states. A row that an agent last edited carries an "Agent" marker. Like the API, it needs `AGENTIC_TABLES_UNSAFE_NO_AUTH=1` for local work, because the Worker has no sign-in yet.
+- **The UI ships in the npm package.** The package includes the built app in `ui-dist`. To serve it from your own Worker, point the `assets` setting at `node_modules/agentic-tables/ui-dist`. The README shows the setting.
+
 ## 0.4.0
 
 No breaking changes.

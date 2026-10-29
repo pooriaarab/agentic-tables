@@ -7,7 +7,7 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: release 0.4.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
+> Status: release 0.5.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
 >
 > **Warning: the HTTP API has no authentication yet.** It reads the caller from
 > `x-principal-*` headers and does not check who sent them. The Worker refuses every request with
@@ -24,7 +24,7 @@ Node 22 or newer. The CLI runs with `npx agentic-tables --help`.
 
 ## Quick start
 
-The library, the CLI, the MCP server, and the HTTP API work. The web UI is planned.
+The library, the CLI, the MCP server, the HTTP API, and the web UI work.
 
 A base holds tables. A table has typed fields and rows. The library checks each
 row against the schema before it writes.
@@ -78,7 +78,12 @@ Operators by type: text `eq neq contains starts_with is_empty not_empty`; number
 
 ## UI
 
-A small web app for your tables. It is built on [`agentic-design`](https://www.npmjs.com/package/agentic-design) and talks to the Worker through `agentic-tables/client`. The Worker of this repository serves it at `/`, next to the API under `/api/v1/tables`: `wrangler.jsonc` points its `assets` at `ui-dist`. The Worker in the npm package (`agentic-tables/worker`) holds the API only. To serve the UI from your own Worker, copy the `assets` setting and build `ui-dist` with `npm run build:ui`.
+A small web app for your tables. It is built on [`agentic-design`](https://www.npmjs.com/package/agentic-design) and talks to the Worker through `agentic-tables/client`. The Worker of this repository serves it at `/`, next to the API under `/api/v1/tables`: `wrangler.jsonc` points its `assets` at `ui-dist`. The npm package ships the built app in `ui-dist`. The Worker in the package (`agentic-tables/worker`) holds the API only, so your own Worker adds the assets. Point `assets` at the shipped folder and keep `/api/*` on the Worker:
+
+```jsonc
+// wrangler.jsonc of your own Worker
+"assets": { "directory": "./node_modules/agentic-tables/ui-dist", "run_worker_first": ["/api/*"] }
+```
 
 Run it on your machine:
 
