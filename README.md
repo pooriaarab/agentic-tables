@@ -80,10 +80,21 @@ Operators by type: text `eq neq contains starts_with is_empty not_empty`; number
 
 A small web app for your tables. It is built on [`agentic-design`](https://www.npmjs.com/package/agentic-design) and talks to the Worker through `agentic-tables/client`. The Worker of this repository serves it at `/`, next to the API under `/api/v1/tables`: `wrangler.jsonc` points its `assets` at `ui-dist`. The npm package ships the built app in `ui-dist`. The Worker in the package (`agentic-tables/worker`) holds the API only, so your own Worker adds the assets. Point `assets` at the shipped folder and keep `/api/*` on the Worker:
 
+Your Worker's entry file re-exports the API Worker, and the config adds the assets and the `DB` binding:
+
+```ts
+// src/worker.ts of your own Worker
+export { default } from "agentic-tables/worker";
+```
+
 ```jsonc
 // wrangler.jsonc of your own Worker
-"assets": { "directory": "./node_modules/agentic-tables/ui-dist", "run_worker_first": ["/api/*"] }
+"main": "src/worker.ts",
+"assets": { "directory": "./node_modules/agentic-tables/ui-dist", "run_worker_first": ["/api/*"] },
+"d1_databases": [{ "binding": "DB", "database_name": "agentic-tables", "database_id": "<your id>" }]
 ```
+
+Set `AGENTIC_TABLES_REGION` for each deploy, as in the HTTP API section. Without the `DB` binding and the region, the API answers `500`.
 
 Run it on your machine:
 
