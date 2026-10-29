@@ -283,7 +283,7 @@ export function createGuarded(tables: Tables, sharing: Sharing, store?: Store) {
         const link = SUBJECT.test(linkId) ? await store.get("links", linkId) : null;
         if (!link || link.resourceId !== resourceId) throw missing();
         await isOfType(type, resourceId);
-        // A second revoke keeps the first revoke time and writes no second audit entry.
+        // A repeat revoke made after the first keeps its revoke time and writes no second audit entry. Two revokes at the same moment can both write: only agentic-identity can close that.
         if (link.revokedAt == null) await shared(() => sharing.revokeLink(ctx, linkId));
         return { id: linkId, resourceId };
       },
