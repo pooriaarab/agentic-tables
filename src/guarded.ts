@@ -166,17 +166,28 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
 
       /**
        * Claim a base that an earlier version made: the caller states its own kind as the owner, and the base and its tables become
-       * shared resources the caller owns. Only a root principal can, and only for a base that carries its own id. Safe to repeat.
+       * shared resources the caller owns. Only a root principal can, and only for a base that carries its own id. If a step fails, call again. A claim that succeeded cannot be repeated.
        */
       async claimBase(baseId: string) {
         selfOnly("admin");
         if (!(await tables.legacyBaseIds(owner.id)).includes(baseId)) throw missing();
+        /** True when the resource is new. A resource that exists is left as it is. */
         const register = (id: string, parentId?: string) =>
-          shared(() => sharing.createResource(ctx, { id, type: parentId === undefined ? "base" : "table", ...(parentId === undefined ? {} : { parentId }) })).catch((error: unknown) => {
-            if (!(error instanceof Error && error.message === "resource exists")) throw error;
+          shared(() => sharing.createResource(ctx, { id, type: parentId === undefined ? "base" : "table", ...(parentId === undefined ? {} : { parentId }) })).then(
+            () => true,
+            (error: unknown) => {
+              if (error instanceof Error && error.message === "resource exists") return false;
+              throw error;
+            },
+          );
+        // A base with a sharing record was made by a build that had sharing but no owner kind. Its owner may have given it away. Then the
+        // caller has no right to register a table, and the tables are registered already, so the claim only records the kind.
+        const registered = !(await register(baseId));
+        for (const table of await tables.listTables(baseId)) {
+          await register(table.id, baseId).catch((error: unknown) => {
+            if (!(registered && error instanceof TablesError && error.code === "FORBIDDEN")) throw error;
           });
-        await register(baseId);
-        for (const table of await tables.listTables(baseId)) await register(table.id, baseId);
+        }
         await tables.setLegacyBaseOwnerKind(baseId, owner);
         return { baseId, owner };
       },

@@ -253,4 +253,22 @@ describe("a base from an earlier version", () => {
     expect((await call("GET", "/me/export", ada)).body.bases).toHaveLength(1);
     expect((await call("DELETE", "/me/data", ada)).body).toMatchObject({ bases: 1, tables: 1, rows: 1 });
   });
+
+  // A base made by a build that had sharing but no owner kind, and given away. Its former owner holds no role, so the claim
+  // cannot register the tables again. It must still clear the block, or export and erase stay closed for good.
+  test("can be claimed by an owner who gave it away", async () => {
+    const { base } = await adaBase();
+    await call("PUT", `/bases/${base.id}/members/bob`, ada, { role: "owner" });
+    expect((await call("DELETE", `/bases/${base.id}/members/ada`, bob)).status).toBe(200);
+    const { ownerKind: _kind, ...legacy } = (await store.get("bases", base.id))!;
+    await store.put("bases", base.id, legacy);
+
+    expect((await call("GET", "/me/export", ada)).body.error.code).toBe("LEGACY_BASE");
+    expect((await call("POST", `/bases/${base.id}/claim`, bob)).status).toBe(404);
+    expect((await call("POST", `/bases/${base.id}/claim`, ada)).status).toBe(200);
+    expect((await call("GET", "/me/export", ada)).body.bases).toEqual([]);
+    expect((await call("DELETE", "/me/data", ada)).status).toBe(200);
+    expect((await call("POST", "/bases", ada, { name: "fresh" })).status).toBe(201);
+    expect((await call("GET", `/bases/${base.id}/tables`, bob)).body.items).toHaveLength(2);
+  });
 });

@@ -185,7 +185,7 @@ npx agentic-tables export People > people.csv
 npx agentic-tables import Parts --file parts.csv --create
 ```
 
-Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `delete-table`, `share`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
+Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `delete-table`, `claim-base`, `share`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
 
 CSV import checks every cell first. If one cell fails, no row is written, and the error names the line and field. `--create` makes the table and guesses a type for each column: number, checkbox, date, single select, long text, or text. A column is a number only if every value is a plain decimal. `00123`, `0x1F`, and `1e3` stay text.
 
@@ -201,6 +201,7 @@ Run `npx agentic-tables mcp`. It uses the same database file as the CLI, and a C
 | `set_required` | Make a field required or optional. It lists the rows that block it. |
 | `delete_table` | Delete a table with its rows and views. |
 | `share`, `unshare` | Give or take back a role on your base or on one table. Only an owner can. |
+| `claim_base` | Make a base from an earlier version usable. You must be its owner. |
 | `export_my_data`, `erase_my_data` | Export or hard delete the bases the acting principal owns. |
 | `insert_rows` | Insert up to 500 rows at once. One bad row writes none. |
 | `update_row`, `delete_row`, `get_row` | Change, delete, or read one row. |
