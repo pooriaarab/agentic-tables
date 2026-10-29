@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.12.2
+## 0.12.2 - 2026-10-29
 
 Patch. No change to the API.
 
