@@ -166,7 +166,7 @@ describe("the CLI: links", () => {
     expect(run(["link"]).code).toBe(2);
     expect(run(["link", "viewer", "--expires-in-ms", "soon"]).code).toBe(2);
     expect(run(["revoke-link"]).code).toBe(2);
-    expect(codeOf(run(["link", "viewer", "--expires-in-ms", "-5"]))).toBe("BAD_REQUEST");
+    for (const bad of ["-5", "0"]) expect(run(["link", "viewer", "--expires-in-ms", bad]).code).toBe(2);
   });
 });
 

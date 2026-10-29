@@ -265,7 +265,7 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
       const invitable = ROLES.filter((r): r is Exclude<Role, "owner"> => r !== "owner");
       if (!(invitable as Role[]).includes(role)) throw new UsageError(`role must be one of ${invitable.join(", ")}`);
       const expiresInMs = flag("expires-in-ms") === undefined ? undefined : Number(flag("expires-in-ms"));
-      if (expiresInMs !== undefined && !Number.isInteger(expiresInMs)) throw new UsageError("--expires-in-ms must be a whole number");
+      if (expiresInMs !== undefined && !(Number.isSafeInteger(expiresInMs) && expiresInMs > 0)) throw new UsageError("--expires-in-ms must be a whole number above 0");
       const table = flag("table") === undefined ? undefined : await ctx.table(flag("table")!);
       return ctx.tables.createLink(table ? "table" : "base", table ? table.id : await ctx.baseId(), { role: role as Exclude<Role, "owner">, ...(flag("signed-in-only") === undefined ? {} : { signedInOnly: true }), ...(expiresInMs === undefined ? {} : { expiresInMs }) });
     }
