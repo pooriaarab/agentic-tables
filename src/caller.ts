@@ -1,13 +1,15 @@
-import { PRINCIPAL_KINDS, resolveChain, type Principal, type PrincipalContext } from "agentic-identity";
+import { parsePrincipal, PRINCIPAL_KINDS, resolveChain, type Principal, type PrincipalContext } from "agentic-identity";
 import { TablesError, type PrincipalKind } from "./model.js";
 
 const fail = (detail: string) => new TablesError("UNAUTHENTICATED", detail);
 
 function parseStep(text: string): { kind: PrincipalKind; id: string } {
   const at = text.indexOf(":");
-  const kind = text.slice(0, at) as PrincipalKind;
-  if (at < 1 || at === text.length - 1 || !PRINCIPAL_KINDS.includes(kind)) throw fail(`"${text.slice(0, 40)}" must look like kind:id with kind one of ${PRINCIPAL_KINDS.join(", ")}`);
-  return { kind, id: text.slice(at + 1) };
+  try {
+    return parsePrincipal({ kind: text.slice(0, at), id: text.slice(at + 1) });
+  } catch {
+    throw fail(`"${text.slice(0, 40)}" must look like kind:id with kind one of ${PRINCIPAL_KINDS.join(", ")}`);
+  }
 }
 
 /** The input of a caller, as text. The Worker reads it from headers, and the CLI and MCP server read it from the environment. */
@@ -26,8 +28,12 @@ export interface CallerInput {
  */
 export async function resolveCaller(input: CallerInput): Promise<PrincipalContext> {
   const id = input.id ?? "";
-  const kind = input.kind as PrincipalKind;
-  if (id === "" || !PRINCIPAL_KINDS.includes(kind)) throw fail(`name the principal as an id and a kind (one of ${PRINCIPAL_KINDS.join(", ")})`);
+  let kind: PrincipalKind;
+  try {
+    kind = parsePrincipal({ kind: input.kind, id }).kind;
+  } catch {
+    throw fail(`name the principal as an id and a kind (one of ${PRINCIPAL_KINDS.join(", ")})`);
+  }
   const ancestors = (input.chain ?? "").split(",").filter((s) => s !== "").map(parseStep);
   const everything = ["*:admin"];
   const scopes = input.scopes?.split(",").map((s) => s.trim()) ?? everything;

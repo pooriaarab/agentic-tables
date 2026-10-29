@@ -4,7 +4,6 @@ import {
   isEmpty,
   FIELD_TYPES,
   NotFoundError,
-  PRINCIPAL_KINDS,
   ValidationError,
   type Actor,
   type Field,
@@ -17,7 +16,7 @@ import {
   TablesError,
   type Values,
 } from "./model.js";
-import { assertId, type Doc, type Json, type Page, type Store, type StoreOps } from "agentic-identity";
+import { assertId, parsePrincipal, type Doc, type Json, type Page, type Store, type StoreOps } from "agentic-identity";
 import { compareKeys, decodeCursor, encodeCursor, matches, resolveFilter, resolveSort, sortKey, type Filter, type Sort, type SortSpec } from "./query.js";
 
 interface BaseDoc {
@@ -238,7 +237,11 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     updatedBy: doc.updatedBy,
   });
   const assertActor = (actor: Actor): void => {
-    if (typeof actor?.id !== "string" || actor.id === "" || !PRINCIPAL_KINDS.includes(actor.kind)) throw new Error("actor needs an id and a valid kind");
+    try {
+      parsePrincipal(actor);
+    } catch {
+      throw new Error("actor needs an id and a valid kind");
+    }
   };
   const checkLinkTables = async (ops: StoreOps, baseId: string, inputs: FieldInput[], issues: Issue[]): Promise<void> => {
     for (const input of inputs) {

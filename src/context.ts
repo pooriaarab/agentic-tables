@@ -1,18 +1,18 @@
-import { createSharing, hasScope } from "agentic-identity";
+import { createSharing, hasScope, parsePrincipal, PRINCIPAL_KINDS } from "agentic-identity";
 import { resolveCaller } from "./caller.js";
 import { createGuarded, type Guarded } from "./guarded.js";
-import { NotFoundError, PRINCIPAL_KINDS, TablesError, type Actor, type PrincipalKind, type Table } from "./model.js";
+import { NotFoundError, TablesError, type Actor, type Table } from "./model.js";
 import { createFileStore } from "./store-file.js";
 import { createTables } from "./tables.js";
 
 /** Read "kind:id", for example "agent:claude". */
 export function parseActor(spec: string): Actor {
   const at = spec.indexOf(":");
-  const kind = spec.slice(0, at) as PrincipalKind;
-  if (at < 1 || at === spec.length - 1 || !PRINCIPAL_KINDS.includes(kind)) {
+  try {
+    return parsePrincipal({ kind: spec.slice(0, at), id: spec.slice(at + 1) });
+  } catch {
     throw new TablesError("USAGE", `actor must look like "kind:id" with kind one of ${PRINCIPAL_KINDS.join(", ")}`);
   }
-  return { kind, id: spec.slice(at + 1) };
 }
 
 export interface Context {
