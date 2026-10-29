@@ -63,9 +63,9 @@ describe("views over the CLI", () => {
     expect(run(db, ["new-view", "Deals", "NoField", "--kind", "grid", "--sort", ":desc"]).code).toBe(2);
     expect(run(db, ["new-view", "Deals", "Extra", "--kind", "grid", "--sort", "Amount:desc:junk"]).code).toBe(2);
     for (const filter of ["null", "false", "0", '"x"']) {
-        const refused = run(db, ["new-view", "Deals", "Bad", "--kind", "grid", "--filter", filter]);
-        expect(refused.code).not.toBe(0);
-        expect(JSON.parse(refused.err).error.code).toBe("VALIDATION_FAILED");
+      const refused = run(db, ["new-view", "Deals", "Bad", "--kind", "grid", "--filter", filter]);
+      expect(refused.code).not.toBe(0);
+      expect(JSON.parse(refused.err).error.code).toBe("VALIDATION_FAILED");
     }
     expect(ok(db, ["views", "Deals"]).map((v: any) => v.name)).toEqual(["Big"]);
     const board = ok(db, ["new-view", "Deals", "By stage", "--kind", "board", "--group-by", "Stage"]);

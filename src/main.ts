@@ -35,7 +35,7 @@ Commands:
   views <table>                       List the views of a table.
   new-view <table> <name> --kind <grid|board> [--filter <json>] [--sort <Field[:desc]>] [--group-by <Field>]
                                       Save a filter and sort as a view. A board groups by a single select field.
-  view <viewId> [--limit <n>] [--cursor <c>]   Run a view: print its rows.
+  view <viewId> [--limit <n>] [--cursor <c>]   Run a view: print its rows. A board does not page.
   delete-view <viewId> --yes          Delete a view. Its rows stay.
   claim-base <baseId>                 Make a base from an earlier version usable. You must be its owner.
   share <subject> <role> --kind <human|agent> [--table <t>]  Give a person or agent a role (viewer, commenter, editor, owner) on the base, or on one table.
