@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `tablesAccount`: `exportAccount` and `eraseAccount` for a host that runs account export and erase across packages. They return plain JSON by collection and counts by collection, so the host does not read the table layout.
+
 ## 0.9.0
 
 No breaking changes.
