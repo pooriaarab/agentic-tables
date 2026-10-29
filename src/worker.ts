@@ -80,7 +80,7 @@ function pageOf(c: Context): { limit?: number; cursor?: string } {
  * What may reach a log: the known store failures, cut short. Any other message could hold a caller's
  * input, such as an id or an email address, so it is never written.
  */
-const LOGGABLE = /^(D1_ERROR[^"]{0,150}|transaction kept conflicting|the database served a query from \w+)/;
+const LOGGABLE = /^(D1_ERROR[^"]{0,150}|transaction kept conflicting after \d+ attempts|transaction kept conflicting|the database served a query from \w+)/;
 const loggable = (error: unknown): string => (error instanceof Error ? (LOGGABLE.exec(error.message)?.[0] ?? error.name) : "unknown");
 
 export function createApp(tables: Tables) {
@@ -172,6 +172,31 @@ export interface Env {
 
 class ConfigError extends Error {}
 
+const LOCAL_SERVED_BY = { eu: "WEUR", us: "WNAM" } as const;
+
+/**
+ * The D1 adapter checks the region that D1 reports for each query. `wrangler dev` reports none, so no
+ * local run could pass. In unsafe local mode only, a query that reports no region gets the declared one.
+ * A region that D1 does report is never changed.
+ */
+function reportingRegion(db: D1Like, region: "eu" | "us"): D1Like {
+  const inner = new WeakMap<object, ReturnType<D1Like["prepare"]>>();
+  const wrap = (statement: ReturnType<D1Like["prepare"]>): ReturnType<D1Like["prepare"]> => {
+    const wrapped: ReturnType<D1Like["prepare"]> = {
+      bind: (...values) => wrap(statement.bind(...values)),
+      first: <T>() => statement.first<T>(),
+      all: async <T>() => {
+        const answer = await statement.all<T>();
+        return { ...answer, meta: { ...answer.meta, served_by_region: answer.meta?.served_by_region ?? LOCAL_SERVED_BY[region] } };
+      },
+      run: () => statement.run(),
+    };
+    inner.set(wrapped, statement);
+    return wrapped;
+  };
+  return { prepare: (sql) => wrap(db.prepare(sql)), batch: (statements) => db.batch(statements.map((s) => inner.get(s) ?? s)) };
+}
+
 /** Open the store once per Worker instance. A bad setup fails here, before any request reads or writes. */
 async function open(env: Env) {
   if (!env.DB) throw new ConfigError("bind a D1 database as DB");
@@ -182,7 +207,7 @@ async function open(env: Env) {
     region = "unknown" as const;
   }
   if (region === "unknown") throw new ConfigError('set AGENTIC_TABLES_REGION to "eu" or "us"');
-  const store = createD1Store(env.DB, { region });
+  const store = createD1Store(env.AGENTIC_TABLES_UNSAFE_NO_AUTH === "1" ? reportingRegion(env.DB, region) : env.DB, { region });
   assertRegion(region, store);
   await env.DB.prepare(D1_SCHEMA).run();
   return createApp(createTables(store));
