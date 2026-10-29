@@ -1,6 +1,9 @@
+import { createSharing } from "agentic-identity";
+import { resolveCaller } from "./caller.js";
+import { createGuarded, type Guarded } from "./guarded.js";
 import { NotFoundError, PRINCIPAL_KINDS, TablesError, type Actor, type PrincipalKind, type Table } from "./model.js";
 import { createFileStore } from "./store-file.js";
-import { createTables, type Tables } from "./tables.js";
+import { createTables } from "./tables.js";
 
 /** Read "kind:id", for example "agent:claude". */
 export function parseActor(spec: string): Actor {
@@ -13,8 +16,10 @@ export function parseActor(spec: string): Actor {
 }
 
 export interface Context {
-  tables: Tables;
+  /** Who acts, for the label on each row. */
   actor: Actor;
+  /** The tables API for the actor. Every call checks the role of the actor, as the Worker does. */
+  tables: Guarded;
   /** Find a table in the default base by name or id. */
   table(ref: string): Promise<Table>;
   /** The base this actor works in. Create the actor's own default base on first use. */
@@ -23,24 +28,29 @@ export interface Context {
 
 /**
  * Open the database. `AGENTIC_TABLES_DB` is the file path (default `./agentic-tables.json`).
- * `AGENTIC_TABLES_ACTOR` is who writes, as "kind:id".
- * `AGENTIC_TABLES_BASE` names the base to work in. Without it, each actor id gets its own default base,
- * so two actors on one file never share data by accident.
+ * `AGENTIC_TABLES_ACTOR` is who acts, as "kind:id". An agent of a person also needs `AGENTIC_TABLES_CHAIN`
+ * (who it acts for, root first, as "kind:id,kind:id"). `AGENTIC_TABLES_SCOPES` narrows what the actor may do.
+ * Nothing proves these values: the file belongs to the person who runs the process.
+ * `AGENTIC_TABLES_BASE` names the base to work in. Without it, each actor (or the person it acts for) gets its own
+ * default base, so two actors on one file never share data by accident.
  */
-export function openContext(env: Record<string, string | undefined>, defaultActor: string): Context {
-  const tables = createTables(createFileStore(env.AGENTIC_TABLES_DB ?? "agentic-tables.json"));
+export async function openContext(env: Record<string, string | undefined>, defaultActor: string): Promise<Context> {
+  const store = createFileStore(env.AGENTIC_TABLES_DB ?? "agentic-tables.json");
   const actor = parseActor(env.AGENTIC_TABLES_ACTOR ?? defaultActor);
+  const principal = await resolveCaller({ id: actor.id, kind: actor.kind, chain: env.AGENTIC_TABLES_CHAIN, scopes: env.AGENTIC_TABLES_SCOPES });
+  const tables = createGuarded(createTables(store), createSharing(store))(principal);
+  const root = principal.chain[0]!;
   const baseId = async (): Promise<string> => {
-    const bases = await tables.listBases();
     if (env.AGENTIC_TABLES_BASE !== undefined) {
-      if (!bases.some((b) => b.id === env.AGENTIC_TABLES_BASE)) throw new NotFoundError(`base "${env.AGENTIC_TABLES_BASE}"`);
+      await tables.listTables(env.AGENTIC_TABLES_BASE);
       return env.AGENTIC_TABLES_BASE;
     }
-    return bases.find((b) => b.ownerId === actor.id)?.id ?? (await tables.createBase("default", actor)).id;
+    const mine = (await tables.listBases()).find((b) => b.ownerId === root.id && b.ownerKind === root.kind);
+    return mine?.id ?? (await tables.createBase("default")).id;
   };
   return {
-    tables,
     actor,
+    tables,
     baseId,
     async table(ref) {
       const all = await tables.listTables(await baseId());

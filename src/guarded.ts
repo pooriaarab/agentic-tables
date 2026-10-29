@@ -169,17 +169,17 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
        */
       async exportMyData() {
         const me = selfOnly("admin");
-        return tables.exportOwnerData(me.id, { baseIds: await ownedBases() });
+        return tables.exportOwnerData(me, { baseIds: await ownedBases() });
       },
       async eraseMyData() {
         const me = selfOnly("admin");
-        return tables.eraseOwnerData(me.id, { baseIds: await ownedBases() });
+        return tables.eraseOwnerData(me, { baseIds: await ownedBases() });
       },
     };
 
     async function ownedBases(): Promise<string[]> {
       const ids = [];
-      for (const base of await tables.listBases()) if (base.ownerId === owner.id && (await sharing.can(ctx, "admin", base.id)).allowed) ids.push(base.id);
+      for (const base of await tables.listBases()) if (base.ownerId === owner.id && base.ownerKind === owner.kind && (await sharing.can(ctx, "admin", base.id)).allowed) ids.push(base.id);
       return ids;
     }
     function selfOnly(action: Action): Actor {

@@ -17,7 +17,9 @@ Do not call a route that `src/worker.ts` does not define.
 
 `list_tables`, `describe_table`, `create_table`, `add_field`, `set_required`,
 `delete_table`, `insert_rows`, `update_row`, `delete_row`, `get_row`,
-`query_rows`, `export_my_data`, `erase_my_data`.
+`query_rows`, `share`, `unshare`, `export_my_data`, `erase_my_data`.
+
+Your role limits every tool. A `FORBIDDEN` answer means your role or scope is too low: ask an owner to `share`. `NOT_FOUND` can also mean you have no role at all.
 
 ## The loop
 

@@ -133,7 +133,7 @@ describe("tables Worker over wrangler dev", () => {
     expect((await call("DELETE", "/me/data", {})).status).toBe(401);
 
     const exported = (await call("GET", "/me/export", eve)).body;
-    expect(exported).toMatchObject({ format: "agentic-tables-export", ownerId: "eve", bases: [{ base: { id: theirs.id }, tables: [{ name: "Secret" }] }] });
+    expect(exported).toMatchObject({ format: "agentic-tables-export", owner: { id: "eve", kind: "human" }, bases: [{ base: { id: theirs.id }, tables: [{ name: "Secret" }] }] });
     expect(JSON.stringify(exported)).not.toContain("Mine");
     const adaExport = (await call("GET", "/me/export", HUMAN)).body;
     expect(JSON.stringify(adaExport)).not.toContain("Secret");

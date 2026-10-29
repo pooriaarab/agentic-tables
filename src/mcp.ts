@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { ROLES } from "agentic-identity";
 import { z } from "zod";
 import { type Context } from "./context.js";
 import { errorBody } from "./errors.js";
@@ -57,12 +58,22 @@ export function createMcpServer(ctx: Context): McpServer {
     ctx.tables.setRequired((await ctx.table(table)).id, field, required, { dryRun }),
   );
   tool("delete_table", "Delete a table with all its rows and views. It fails while another table links to it.", { table: tableRef }, "delete", async ({ table }) => ctx.tables.deleteTable((await ctx.table(table)).id));
-  tool("export_my_data", "Export every base owned by the acting principal, with tables, views, and rows, as JSON.", {}, "read", async () => ctx.tables.exportOwnerData(ctx.actor.id));
-  tool("erase_my_data", "Hard delete every base owned by the acting principal. This cannot be undone.", {}, "delete", async () => ctx.tables.eraseOwnerData(ctx.actor.id));
+  tool("export_my_data", "Export every base owned by the acting principal, with tables, views, and rows, as JSON.", {}, "read", async () => ctx.tables.exportMyData());
+  tool("erase_my_data", "Hard delete every base owned by the acting principal. This cannot be undone.", {}, "delete", async () => ctx.tables.eraseMyData());
+  tool("share", "Give a person or an agent a role on your base, or on one table. Only an owner can share. A role on the base passes down to its tables.", { subject: z.string().describe("The id of the person or agent."), role: z.enum(ROLES), table: tableRef.optional() }, "write", async ({ subject, role, table }) => {
+    const resource = table === undefined ? { type: "base" as const, id: await ctx.baseId() } : { type: "table" as const, id: (await ctx.table(table)).id };
+    await ctx.tables.grant(resource.type, resource.id, subject, role);
+    return { resourceId: resource.id, subject, role };
+  });
+  tool("unshare", "Take a role back from a person or an agent, on your base or on one table. On a base it also takes back the roles on its tables.", { subject: z.string(), table: tableRef.optional() }, "delete", async ({ subject, table }) => {
+    const resource = table === undefined ? { type: "base" as const, id: await ctx.baseId() } : { type: "table" as const, id: (await ctx.table(table)).id };
+    await ctx.tables.revokeGrant(resource.type, resource.id, subject);
+    return { resourceId: resource.id, subject };
+  });
   tool("insert_rows", "Insert rows. Keys are field names. All rows are checked first. If one fails, none is written, and the error names the row and field.", { table: tableRef, rows: z.array(z.record(z.any())).min(1).max(500) }, "write", async ({ table, rows }) => ({
-    rows: await ctx.tables.insertRows((await ctx.table(table)).id, rows as Values[], ctx.actor),
+    rows: await ctx.tables.insertRows((await ctx.table(table)).id, rows as Values[]),
   }));
-  tool("update_row", "Change fields of one row. Send only the fields to change. Send null to empty a field.", { rowId, values: z.record(z.any()) }, "write", ({ rowId: id, values }) => ctx.tables.updateRow(id, values as Values, ctx.actor));
+  tool("update_row", "Change fields of one row. Send only the fields to change. Send null to empty a field.", { rowId, values: z.record(z.any()) }, "write", ({ rowId: id, values }) => ctx.tables.updateRow(id, values as Values));
   tool("delete_row", "Delete one row. It leaves the links that point at it.", { rowId }, "delete", async ({ rowId: id }) => {
     await ctx.tables.deleteRow(id);
     return { deleted: id };

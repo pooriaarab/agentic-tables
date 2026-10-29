@@ -5,7 +5,7 @@ Typed tables that agents read and write as rows.
 Keywords: database,tables,airtable,rows,schema,agents,mcp,cli,structured-data.
 
 - SDK: import { createTables } from "agentic-tables", with a Store from "agentic-identity".
-- CLI: agentic-tables new | list | schema | add-field | insert | update | query | required | delete-table | export-data | erase-data | export | import.
+- CLI: agentic-tables new | list | schema | add-field | insert | update | query | required | delete-table | share | unshare | export-data | erase-data | export | import.
 - MCP: run agentic-tables mcp, then call describe_table.
 - HTTP: Worker from agentic-tables/worker, under /api/v1/tables. It answers 503 until AGENTIC_TABLES_UNSAFE_NO_AUTH=1 is set. Local use only.
 

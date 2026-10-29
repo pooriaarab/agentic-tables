@@ -65,7 +65,7 @@ describe.each(Object.entries(ADAPTERS))("a doc added during a change, %s store",
     await other.insertRow(table.id, { Name: "first" }, ada);
     const mine = open(shared);
     const t = createTables(interrupting(mine, "rows", () => other.insertRow(table.id, { Name: "late" }, ada)));
-    const summary = await t.eraseOwnerData("ada");
+    const summary = await t.eraseOwnerData(ada);
     expect(summary.rows).toBe(2);
     expect(await rowsOf(mine)).toBe(0);
   });
@@ -74,7 +74,7 @@ describe.each(Object.entries(ADAPTERS))("a doc added during a change, %s store",
     const { shared, other, table, rowsOf } = await setup(open);
     const mine = open(shared);
     const t = createTables(interrupting(mine, "rows", () => other.insertRows(table.id, [{ Name: "a" }, { Name: "b" }], ada)));
-    await t.eraseOwnerData("ada");
+    await t.eraseOwnerData(ada);
     expect(await rowsOf(mine)).toBe(0);
   });
 
@@ -96,7 +96,7 @@ describe.each(Object.entries(ADAPTERS))("a doc added during a change, %s store",
     const { shared, other, table } = await setup(open);
     const mine = open(shared);
     const t = createTables(interrupting(mine, "tables", () => other.createView(table.id, { name: "late", kind: "grid" })));
-    await t.eraseOwnerData("ada");
+    await t.eraseOwnerData(ada);
     expect((await mine.query("views")).items).toEqual([]);
   });
 
@@ -114,7 +114,7 @@ describe.each(Object.entries(ADAPTERS))("a doc added during a change, %s store",
     await other.insertRow(table.id, { Name: "x" }, ada);
     expect(Object.keys(await other.getTable(table.id))).not.toContain("rev");
     expect(Object.keys((await other.listBases())[0]!)).not.toContain("rev");
-    expect(JSON.stringify(await other.exportOwnerData("ada"))).not.toContain('"rev"');
+    expect(JSON.stringify(await other.exportOwnerData(ada))).not.toContain('"rev"');
     expect(base.id).toBeTruthy();
   });
 });
