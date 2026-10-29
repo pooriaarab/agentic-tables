@@ -12,9 +12,9 @@ export interface RunningWorker {
   stop(): Promise<void>;
 }
 
-export async function startWorker(options: { port: number; persistTo: string; vars?: string[] }): Promise<RunningWorker> {
-  const { port, persistTo, vars = [] } = options;
-  const args = ["dev", "--ip", "127.0.0.1", "--port", String(port), "--inspector-port", String(port + 100), "--persist-to", persistTo, ...vars.flatMap((v) => ["--var", v])];
+export async function startWorker(options: { port: number; persistTo: string; vars?: string[]; config?: string }): Promise<RunningWorker> {
+  const { port, persistTo, vars = [], config } = options;
+  const args = ["dev", ...(config ? ["--config", config] : []), "--ip", "127.0.0.1", "--port", String(port), "--inspector-port", String(port + 100), "--persist-to", persistTo, ...vars.flatMap((v) => ["--var", v])];
   const busy = await fetch(`http://127.0.0.1:${port}/`).then(() => true, () => false);
   if (busy) throw new Error(`port ${port} is already served`);
   const server: ChildProcess = spawn(process.execPath, [WRANGLER, ...args], {
