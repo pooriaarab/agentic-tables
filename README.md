@@ -7,7 +7,7 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: release 0.12.2. See [CHANGELOG.md](CHANGELOG.md) for the changes.
+> Status: release 0.13.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
 >
 > **The Worker checks every request.** It needs `Authorization: Bearer <token>`, and `agentic-identity` verifies the
 > token against credentials in the same store. A request with no valid token gets `401`. A token without the scope
@@ -283,6 +283,13 @@ const table = await tables.createTable(base.id, "People", [{ name: "Name", type:
 await tables.insertRow(table.id, { Name: "Ada" });
 const page = await tables.queryRows(table.id, { sort: { field: "Name" }, limit: 50 });
 
+// Sharing: members, invites, and share links. Each needs the owner role. A link token shows once.
+const { grants } = await tables.listBaseMembers(base.id);
+await tables.inviteToBase(base.id, { role: "viewer", handle: "claude" });
+const link = await tables.createBaseLink(base.id, { role: "viewer", expiresInMs: 86_400_000 });
+const { items } = await tables.listBaseLinks(base.id); // no tokens
+await tables.revokeBaseLink(base.id, link.id);
+
 try {
   await tables.getRow("row_0000000000000000");
 } catch (error) {
@@ -297,6 +304,10 @@ try {
 - A failed call throws `TablesClientError` with `code`, `status`, and, where the API sends them, `issues` and `report`. A call that gets no answer has code `NETWORK` and status `0`. An answer that is not JSON has code `BAD_RESPONSE`.
 - The client never retries. A repeat of a write could write twice, so retry in your own code where it is safe.
 
+## Share links
+
+A share link has a role (`viewer`, `commenter`, or `editor`), an optional expiry, and an optional sign-in rule. The token shows once, when the link is made. Only its hash is stored, so a list shows the id, role, sign-in rule, expiry, and revoke time. A list holds up to 200 links, live ones first, `truncated: true` says there are more, and `skipped` counts damaged records left out: a record that has a bad role, a bad expiry, or an id that differs from its key is never shown, even if its token still works. If `skipped` is above 0, ask the operator of the store to check the `links` records of that base. Only an owner of the base or table makes, lists, or revokes links, and a link of another resource is `404`. The link routes of an app made with `createApp` need `options.store`: without it, they answer `503 UNAVAILABLE`. Without it, the members and invite routes also skip the check that an id names a base on a base route and a table on a table route.
+
 ## Access
 
 A base and a table are shared resources, and a table sits inside its base. Roles come from `agentic-identity`: viewer, commenter, editor, owner. A role on a base passes down to its tables. The person who creates a base owns it. An agent that acts for a person has the role of that person, cut down by its scopes. A role belongs to a kind and an id together: the person `sam` and the agent `sam` hold separate roles, and a share names the kind (`human` or `agent`).
@@ -307,7 +318,7 @@ A base and a table are shared resources, and a table sits inside its base. Roles
 | editor | Also insert, change, and delete rows, and create and delete views. |
 | owner | Also create a table, change a schema (fields, types, options, required), delete a table or a base, and share. A link field also needs the right to read the table it points at. |
 
-Every call checks the role with `can()`, which writes an audit entry for each allow and each deny. A caller with no role gets `404`, the same answer as for an id that does not exist. A link value names a row, so it needs the right to read the linked table. A caller with a role that is too low, or a credential with too few scopes, gets `403` `FORBIDDEN`. `PUT /bases/:baseId/members/:kind/:subjectId` and `PUT /tables/:tableId/members/:kind/:subjectId` (`:kind` is `human` or `agent`) take `{"role": "viewer"}` and grant a role. `DELETE` on the same path takes it back. A comment role exists, but no route needs it yet.
+Every call checks the role with `can()`, which writes an audit entry for each allow and each deny. A caller with no role gets `404`, the same answer as for an id that does not exist. A link value names a row, so it needs the right to read the linked table. A caller with a role that is too low, or a credential with too few scopes, gets `403` `FORBIDDEN`. `PUT /bases/:baseId/members/:kind/:subjectId` and `PUT /tables/:tableId/members/:kind/:subjectId` (`:kind` is `human` or `agent`) take `{"role": "viewer"}` and grant a role. `DELETE` on the same path takes it back. `GET` on `/bases/:baseId/members` and `/tables/:tableId/members` lists the roles in id order (`limit`, `cursor`). `POST` on `/bases/:baseId/invites` and `/tables/:tableId/invites` takes `{"role", "email"}` or `{"role", "handle"}` and an optional `expiresInMs`, and answers the invite id, never the email. `GET`, `POST`, and `DELETE /…/links/:linkId` on the same two resources list, make, and revoke share links (see Share links). A comment role exists, but no route needs it yet.
 
 `GET /me/export` and `DELETE /me/data` work only for a person or an agent with its own identity, and need the `base:admin` scope (and `table:admin` for a base that has tables, since their grants go too), because they act on the bases the caller owns. An agent that acts for a person gets `403`: it must not export or erase its owner's data. They touch the bases the caller created and still holds the owner role on. A base the caller gave away is not theirs to erase. They also cover every row the caller wrote in any other base, whatever the caller's role is now: a person may take back what they wrote. The export holds those rows as they are now, with the values that others wrote in them.
 
@@ -387,6 +398,9 @@ npx agentic-tables share claude editor --kind agent                  # a role on
 npx agentic-tables share claude viewer --kind agent --table People   # or on one table
 npx agentic-tables shares                                            # who holds a role on your base (--table People: roles given on that table only)
 npx agentic-tables invite viewer --handle claude                     # an invite for an agent; use --email for a person
+npx agentic-tables link viewer --expires-in-ms 86400000             # a share link; prints the token once (--table People, --signed-in-only)
+npx agentic-tables links                                             # the links of your base, without tokens
+npx agentic-tables revoke-link <link-id>
 npx agentic-tables unshare claude --kind agent
 npx agentic-tables export People > people.csv
 npx agentic-tables import Copy --file people.csv --create
@@ -415,6 +429,7 @@ Run `npx agentic-tables mcp`. It uses the same database file as the CLI, and a C
 | `delete_table` | Delete a table with its rows and views. |
 | `share`, `unshare` | Give or take back a role on your base or on one table. Only an owner can. |
 | `list_shares` | List who holds a role on your base, or the roles given on one table. A role on the base also applies to its tables. Only an owner can. |
+| `list_links`, `create_link`, `revoke_link` | List the share links of your base or of one table (no tokens), make one (the token shows once), or revoke one. Only an owner can. |
 | `create_invite` | Make an invite for a person (email) or an agent (handle). The answer holds the invite id, never the email. Only an owner can. |
 | `claim_base` | Make a base from an earlier version usable. You must be its owner. |
 | `export_my_data`, `erase_my_data` | Export or hard delete the bases the acting principal owns. |

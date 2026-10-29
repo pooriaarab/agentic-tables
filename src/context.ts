@@ -39,7 +39,7 @@ export async function openContext(env: Record<string, string | undefined>, defau
   const store = createFileStore(env.AGENTIC_TABLES_DB ?? "agentic-tables.json");
   const actor = parseActor(env.AGENTIC_TABLES_ACTOR ?? defaultActor);
   const principal = await resolveCaller({ id: actor.id, kind: actor.kind, chain: env.AGENTIC_TABLES_CHAIN, scopes: env.AGENTIC_TABLES_SCOPES });
-  const tables = createGuarded(createTables(store), createSharing(store))(principal);
+  const tables = createGuarded(createTables(store), createSharing(store), store)(principal);
   const root = principal.chain[0]!;
   const baseId = async (): Promise<string> => {
     if (env.AGENTIC_TABLES_BASE !== undefined) {

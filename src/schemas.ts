@@ -39,6 +39,8 @@ export const schemas = {
     })
     .strict(),
   grant: z.object({ role: z.enum(ROLES) }).strict(),
+  invite: z.object({ role: z.enum(ROLES), email: z.string().max(320).optional(), handle: z.string().max(200).optional(), expiresInMs: z.number().optional() }).strict(),
+  link: z.object({ role: z.enum(ROLES), signedInOnly: z.boolean().optional(), expiresInMs: z.number().optional() }).strict(),
   setRequired: z.object({ required: z.boolean(), dryRun: z.boolean().optional() }).strict(),
   insertRows: z
     .object({ values: values.optional(), rows: z.array(values).min(1).max(MAX_BATCH_ROWS).optional() })

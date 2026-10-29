@@ -83,6 +83,64 @@ export interface Membership {
   role: Role;
 }
 
+/** One page of the roles on a base or a table, in id order. */
+export interface MemberPage {
+  grants: Membership[];
+  nextCursor?: string;
+}
+
+export interface InviteInput {
+  /** Not `owner`: only a share makes an owner. */
+  role: Exclude<Role, "owner">;
+  /** The person to invite. Give this or `handle`. */
+  email?: string;
+  /** The agent to invite. Give this or `email`. */
+  handle?: string;
+  /** How long the invite lives, in milliseconds. */
+  expiresInMs?: number;
+}
+
+/** An invite that was made. It never holds the email. */
+export interface Invited {
+  id: string;
+  resourceId: string;
+  role: Exclude<Role, "owner">;
+  for: "email" | "handle";
+}
+
+export interface LinkInput {
+  /** Not `owner`: only a share makes an owner. */
+  role: Exclude<Role, "owner">;
+  /** Only a signed-in visitor may use the link. */
+  signedInOnly?: boolean;
+  /** How long the link lives, in milliseconds. */
+  expiresInMs?: number;
+}
+
+/** A share link. The token shows once, when the link is made, and never in a list. */
+export interface ShareLink {
+  id: string;
+  role: Exclude<Role, "owner">;
+  signedInOnly: boolean;
+  expiresAt?: number;
+  revokedAt?: number;
+}
+
+/** The answer of a link create. Keep the token: it cannot be read again. */
+export interface CreatedLink {
+  id: string;
+  token: string;
+  resourceId: string;
+  role: Exclude<Role, "owner">;
+}
+
+/** The share links of a base or a table, live ones first, up to 200. `truncated` says there are more. `skipped` counts damaged records left out. */
+export interface LinkList {
+  items: ShareLink[];
+  truncated?: true;
+  skipped?: number;
+}
+
 /** The answer of an unshare. */
 export type Unshared = Omit<Membership, "role">;
 
@@ -129,6 +187,7 @@ export function createClient(options: ClientOptions) {
   }
 
   const id = encodeURIComponent;
+  const at = (kind: "bases" | "tables", resourceId: string, rest: string) => `/${kind}/${id(resourceId)}${rest}`;
   const members = (kind: "bases" | "tables", resourceId: string, who: Subject) => `/${kind}/${id(resourceId)}/members/${id(who.kind)}/${id(who.id)}`;
 
   return {
@@ -185,6 +244,21 @@ export function createClient(options: ClientOptions) {
     unshareBase: (baseId: string, who: Subject, o: CallOptions = {}) => call<Unshared>("DELETE", members("bases", baseId, who), { signal: o.signal }),
     shareTable: (tableId: string, who: Subject, role: Role, o: CallOptions = {}) => call<Membership>("PUT", members("tables", tableId, who), { body: { role }, signal: o.signal }),
     unshareTable: (tableId: string, who: Subject, o: CallOptions = {}) => call<Unshared>("DELETE", members("tables", tableId, who), { signal: o.signal }),
+    /** Who holds a role on a base, in id order. Needs the owner role. Page on with `nextCursor`. */
+    listBaseMembers: (baseId: string, o: PageOptions = {}) => call<MemberPage>("GET", at("bases", baseId, "/members"), { query: { limit: o.limit === undefined ? undefined : String(o.limit), cursor: o.cursor }, signal: o.signal }),
+    /** The roles given on one table. A role on its base also applies, and does not show here. Needs the owner role. */
+    listTableMembers: (tableId: string, o: PageOptions = {}) => call<MemberPage>("GET", at("tables", tableId, "/members"), { query: { limit: o.limit === undefined ? undefined : String(o.limit), cursor: o.cursor }, signal: o.signal }),
+    /** Invite a person by email or an agent by handle. The answer holds the invite id, never the email. Needs the owner role. */
+    inviteToBase: (baseId: string, input: InviteInput, o: CallOptions = {}) => call<Invited>("POST", at("bases", baseId, "/invites"), { body: input, signal: o.signal }),
+    inviteToTable: (tableId: string, input: InviteInput, o: CallOptions = {}) => call<Invited>("POST", at("tables", tableId, "/invites"), { body: input, signal: o.signal }),
+    /** Make a share link. The token comes back once and is never stored. Needs the owner role. */
+    createBaseLink: (baseId: string, input: LinkInput, o: CallOptions = {}) => call<CreatedLink>("POST", at("bases", baseId, "/links"), { body: input, signal: o.signal }),
+    createTableLink: (tableId: string, input: LinkInput, o: CallOptions = {}) => call<CreatedLink>("POST", at("tables", tableId, "/links"), { body: input, signal: o.signal }),
+    /** The share links, without their tokens. Needs the owner role. */
+    listBaseLinks: (baseId: string, o: CallOptions = {}) => call<LinkList>("GET", at("bases", baseId, "/links"), { signal: o.signal }),
+    listTableLinks: (tableId: string, o: CallOptions = {}) => call<LinkList>("GET", at("tables", tableId, "/links"), { signal: o.signal }),
+    revokeBaseLink: (baseId: string, linkId: string, o: CallOptions = {}) => call<{ id: string; resourceId: string }>("DELETE", at("bases", baseId, `/links/${id(linkId)}`), { signal: o.signal }),
+    revokeTableLink: (tableId: string, linkId: string, o: CallOptions = {}) => call<{ id: string; resourceId: string }>("DELETE", at("tables", tableId, `/links/${id(linkId)}`), { signal: o.signal }),
   };
 }
 

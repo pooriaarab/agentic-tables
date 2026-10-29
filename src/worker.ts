@@ -63,7 +63,7 @@ async function open(env: Env) {
   await env.DB.prepare(D1_SCHEMA).run();
   const origins = (env.AGENTIC_TABLES_ORIGINS ?? "").split(",").map((o) => o.trim()).filter((o) => o !== "");
   // Credentials and principals live in the same store as the data. Issue them with `issueCredential` from agentic-identity.
-  return createApp(createTables(store), createSharing(store), createStoreAuth(store), { origins });
+  return createApp(createTables(store), createSharing(store), createStoreAuth(store), { origins, store });
 }
 
 let app: ReturnType<typeof open> | undefined;

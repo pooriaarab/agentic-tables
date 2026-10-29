@@ -1,8 +1,21 @@
-import { assertId, createSharing, EraseRefusedError, hasScope, MAX_OWNERS_ON_ERASE, SUBJECT_KINDS, type Action, type PrincipalContext, type Role, type Subject, type SubjectKind } from "agentic-identity";
+import { assertId, createSharing, EraseRefusedError, hasScope, MAX_OWNERS_ON_ERASE, ROLES, SUBJECT_KINDS, type Action, type PrincipalContext, type Role, type Store, type Subject, type SubjectKind } from "agentic-identity";
 import { NotFoundError, TablesError, type Actor, type FieldInput, type Values } from "./model.js";
 import type { AddFieldInput, ChangeTypeOptions, ListRowsOptions, RowQuery, Tables, ViewInput } from "./tables.js";
 
 export type Sharing = ReturnType<typeof createSharing>;
+
+/** A share link without its token. `revokedAt` is set once the link is revoked. */
+export interface LinkSummary {
+  id: string;
+  role: Exclude<Role, "owner">;
+  signedInOnly: boolean;
+  expiresAt?: number;
+  revokedAt?: number;
+}
+
+const LINK_ROLES = ROLES.filter((r) => r !== "owner");
+/** The most links one list shows. */
+const MAX_LINKS = 200;
 
 /** The ids that sharing accepts as a subject. */
 const SUBJECT = /^[A-Za-z0-9_-]{1,128}$/;
@@ -15,7 +28,7 @@ const SUBJECT = /^[A-Za-z0-9_-]{1,128}$/;
  * Needs: read to look, write for rows, views, and new tables, admin (owner) to change a schema or delete.
  * A caller with no role at all gets "not found", so a stranger cannot learn that an id exists.
  */
-export function createGuarded(tables: Tables, sharing: Sharing) {
+export function createGuarded(tables: Tables, sharing: Sharing, store?: Store) {
   const missing = () => new NotFoundError("that resource");
   /** A credential without the scope is refused by name. This is checked first and does not depend on the id, so it tells nothing about the id. */
   function scoped(ctx: PrincipalContext, action: Action, type: "base" | "table"): void {
@@ -47,9 +60,14 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
     } catch (error) {
       if (error instanceof Error && error.message === "forbidden") throw new TablesError("FORBIDDEN", "your role does not allow this");
       if (error instanceof EraseRefusedError) throw new TablesError("BAD_REQUEST", error.message);
-      if (error instanceof Error && /^(invalid role|invalid subject|invalid resource|the last owner|give an email|invalid email|invalid handle|invalid cursor|expiresInMs|limit must)/.test(error.message)) throw new TablesError("BAD_REQUEST", error.message);
+      if (error instanceof Error && /^(invalid role|invalid subject|invalid resource|the last owner|give an email|invalid email|invalid handle|invalid cursor|expiresInMs|expiresAt must|limit must)/.test(error.message)) throw new TablesError("BAD_REQUEST", error.message);
       throw error;
     }
+  }
+
+  /** A link route for a table names a table, and one for a base names a base. A base id on a table route is not found. Needs the store to look. */
+  async function isOfType(type: "base" | "table", resourceId: string): Promise<void> {
+    if (store && (await store.get("resources", resourceId))?.type !== type) throw missing();
   }
 
   /** A subject is a kind and an id together: a person and an agent with one id hold separate roles. A missing or unknown kind is refused. */
@@ -202,13 +220,72 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
       /** Who holds a role on a base or a table, in id order. Needs owner. Page on with `nextCursor`. */
       listGrants: async (type: "base" | "table", resourceId: string, page: { limit?: number; cursor?: string } = {}) => {
         await need(ctx, "admin", resourceId, type);
+        await isOfType(type, resourceId);
         return shared(() => sharing.listGrants(ctx, resourceId, page));
       },
       /** Make an invite for an email or a handle on a base or a table. Needs owner. The answer holds the invite id and never the email. */
       createInvite: async (type: "base" | "table", resourceId: string, input: { role: Role; email?: string; handle?: string; expiresInMs?: number }) => {
         await need(ctx, "admin", resourceId, type);
+        await isOfType(type, resourceId);
         const { id } = await shared(() => sharing.createInvite(ctx, resourceId, input));
         return { id, resourceId, role: input.role, for: input.email === undefined ? ("handle" as const) : ("email" as const) };
+      },
+      /** Make a share link on a base or a table. Needs owner. The token shows once: only its hash is stored. */
+      createLink: async (type: "base" | "table", resourceId: string, input: { role: Exclude<Role, "owner">; signedInOnly?: boolean; expiresInMs?: number }) => {
+        await need(ctx, "admin", resourceId, type);
+        if (!store) throw new TablesError("UNAVAILABLE", "share links need the store");
+        await isOfType(type, resourceId);
+        if (!(LINK_ROLES as Role[]).includes(input?.role)) throw new TablesError("BAD_REQUEST", `role must be one of ${LINK_ROLES.join(", ")}`);
+        if (input.signedInOnly !== undefined && typeof input.signedInOnly !== "boolean") throw new TablesError("BAD_REQUEST", "signedInOnly must be true or false");
+        const { expiresInMs } = input;
+        if (expiresInMs !== undefined && !(Number.isSafeInteger(expiresInMs) && expiresInMs > 0 && Number.isSafeInteger(Date.now() + expiresInMs))) throw new TablesError("BAD_REQUEST", "expiresInMs must be a whole number of milliseconds above 0, and not so large that the end passes the safe range");
+        const { id, token } = await shared(() => sharing.createLink(ctx, resourceId, { role: input.role, signedInOnly: input.signedInOnly === true, ...(expiresInMs === undefined ? {} : { expiresAt: Date.now() + expiresInMs }) }));
+        return { id, token, resourceId, role: input.role };
+      },
+      /** The share links of a base or a table, without their tokens. Live links come first. Needs owner. `truncated` says there are more, and `skipped` counts the damaged records left out. */
+      listLinks: async (type: "base" | "table", resourceId: string) => {
+        await need(ctx, "admin", resourceId, type);
+        if (!store) throw new TablesError("UNAVAILABLE", "listing links needs the store");
+        await isOfType(type, resourceId);
+        const all: LinkSummary[] = [];
+        let cursor: string | undefined;
+        let skipped = 0;
+        for (let pages = 0; pages < 10; pages++) {
+          const page = await store.query("links", { where: { resourceId }, limit: 100, ...(cursor === undefined ? {} : { cursor }) });
+          for (const { id: key, data } of page.items) {
+            // A record that is not a share link of this resource is not shown. The list says it is not complete.
+            // A null `expiresAt` is no expiry, as in agentic-identity. Any other value that is not a time is a dead link there, so it is not shown as one that never ends.
+            const expiresOk = data.expiresAt == null || (typeof data.expiresAt === "number" && Number.isFinite(data.expiresAt));
+            if (data.id !== key || data.resourceId !== resourceId || typeof data.tokenHash !== "string" || typeof data.id !== "string" || !(LINK_ROLES as unknown[]).includes(data.role) || !expiresOk) {
+              skipped++;
+              continue;
+            }
+            all.push({
+              id: data.id,
+              role: data.role as LinkSummary["role"],
+              signedInOnly: data.signedInOnly === true,
+              ...(typeof data.expiresAt === "number" ? { expiresAt: data.expiresAt } : {}),
+              // Any value but null means revoked, as in agentic-identity. A value that is not a time shows as 0.
+              ...(data.revokedAt == null ? {} : { revokedAt: typeof data.revokedAt === "number" ? data.revokedAt : 0 }),
+            });
+          }
+          if ((cursor = page.nextCursor) === undefined) break;
+        }
+        const now = Date.now();
+        const live = (l: LinkSummary) => l.revokedAt === undefined && (l.expiresAt === undefined || l.expiresAt > now);
+        all.sort((x, y) => Number(live(y)) - Number(live(x)) || (y.expiresAt ?? Infinity) - (x.expiresAt ?? Infinity) || x.id.localeCompare(y.id));
+        return { items: all.slice(0, MAX_LINKS), ...(cursor !== undefined || all.length > MAX_LINKS ? { truncated: true as const } : {}), ...(skipped > 0 ? { skipped } : {}) };
+      },
+      /** Revoke a share link of this base or table. A link of another resource is not found, even for an owner of both. Needs owner. */
+      revokeLink: async (type: "base" | "table", resourceId: string, linkId: string) => {
+        await need(ctx, "admin", resourceId, type);
+        if (!store) throw new TablesError("UNAVAILABLE", "revoking links needs the store");
+        const link = SUBJECT.test(linkId) ? await store.get("links", linkId) : null;
+        if (!link || link.resourceId !== resourceId) throw missing();
+        await isOfType(type, resourceId);
+        // A repeat revoke made after the first keeps its revoke time and writes no second audit entry. Two revokes at the same moment can both write: only agentic-identity can close that.
+        if (link.revokedAt == null) await shared(() => sharing.revokeLink(ctx, linkId));
+        return { id: linkId, resourceId };
       },
       /**
        * Take a role back. On a base it also takes back the role on each table in it, such as the owner role of a table the person made.
