@@ -70,7 +70,7 @@
     "test": "vitest run",
     "clean": "rm -rf dist ui-dist",
     "prepack": "npm run build",
-    "ci:local": "npm run build && npm run typecheck && npm test"
+    "ci:local": "npm run build && npm run typecheck && npm test && npm run test:e2e"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
