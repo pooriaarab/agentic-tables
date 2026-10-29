@@ -103,7 +103,7 @@ The Worker needs no compatibility flags. Do not add `nodejs_compat`: the default
 
 Set `AGENTIC_TABLES_REGION` for each deploy, as in the HTTP API section. A missing `DB` binding or region answers `500`. A request with no valid token answers `401`.
 
-Run it on your machine:
+Run it on your machine (see also "Run locally" near the end of this file):
 
 ```sh
 npm ci
@@ -494,6 +494,20 @@ console.log(server.url); // http://127.0.0.1:8787/api/v1/tables
 ## Planned surfaces
 
 - **Open formats**: ODS and XLSX export next to CSV. The plan is to write both with a small zip library under a permissive license, with every cell typed (string, number, boolean, date) and no formula cells, so no cell can run as a formula. A flat `.fods` file needs no zip.
+
+## Run locally
+
+```sh
+bun install        # or: npm ci
+bun run dev        # or: npm run dev
+curl http://localhost:8787/health
+```
+
+The script builds the UI, then runs `wrangler dev` with `AGENTIC_TABLES_LOCAL_DEV=1` and `AGENTIC_TABLES_REGION=eu`. `/health` needs no token. Every other route needs one: see "Credentials" for how to issue it.
+
+The scripts call `npm` and `node` (Node 22 or newer), so install both, even if you use bun. They need a POSIX shell.
+
+Run `npm run dev:smoke` to check this path. It starts the dev server on port 8799, waits for `GET /health` to answer 200, and stops the server. CI runs it as the "dev smoke" step. Set `DEV_SMOKE_PORT` to use another port.
 
 ## Develop
 
