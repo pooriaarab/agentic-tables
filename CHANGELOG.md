@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Principal parsing uses `parsePrincipal` from agentic-identity 0.6. An id must now use only A-Z a-z 0-9 . _ - and must not start with a dot. An id such as an email address, or one with a colon, now fails with `UNAUTHENTICATED` (HTTP) or `USAGE` (CLI and MCP).
+
 ## 0.7.0
 
 No breaking changes.
