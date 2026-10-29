@@ -1,0 +1,22 @@
+/* App rules. Colors and sizes come from the agentic-design tokens. */
+.head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ad-space-3); margin-bottom: var(--ad-space-4); }
+.head h1 { margin: 0; font-size: var(--ad-font-size-xl); }
+.head__actions, .query { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ad-space-3); }
+.query { margin-bottom: var(--ad-space-4); }
+.query .ad-field, .query .ad-select { min-width: 9rem; }
+.hint { color: var(--ad-color-text-muted); font-size: var(--ad-font-size-sm); }
+.status { display: flex; align-items: center; gap: var(--ad-space-2); color: var(--ad-color-text-muted); }
+.form { display: grid; gap: var(--ad-space-4); }
+.form__error, .grid__problem { color: var(--ad-color-danger-text); margin: 0; }
+.grid-wrap { overflow-x: auto; border: 1px solid var(--ad-color-border); border-radius: var(--ad-radius-md); margin-bottom: var(--ad-space-4); }
+.grid { border-collapse: collapse; width: 100%; background: var(--ad-color-surface); }
+.grid__head { text-align: start; padding: var(--ad-space-2) var(--ad-space-3); background: var(--ad-color-surface-sunken); border-bottom: 1px solid var(--ad-color-border-strong); white-space: nowrap; font-weight: var(--ad-font-weight-semibold); }
+.grid__head > * { vertical-align: middle; }
+.grid__type { margin-inline: var(--ad-space-2); color: var(--ad-color-text-muted); font-size: var(--ad-font-size-xs); font-weight: var(--ad-font-weight-regular); }
+.grid__req { color: var(--ad-color-danger-text); }
+.grid__cell { padding: var(--ad-space-2) var(--ad-space-3); border-bottom: 1px solid var(--ad-color-border); min-width: 8rem; vertical-align: top; }
+.grid__cell:focus-visible { outline: 2px solid var(--ad-color-focus); outline-offset: -2px; }
+tr[data-agent] > td:first-child { box-shadow: inset 4px 0 0 var(--ad-color-agent); }
+tr[data-agent] { background: var(--ad-color-agent-subtle); }
+.grid__agent { display: inline-flex; align-items: center; gap: var(--ad-space-1); color: var(--ad-color-agent-text); }
+.grid__cell .ad-input { min-width: 8rem; }
