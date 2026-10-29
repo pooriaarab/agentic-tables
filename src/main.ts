@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { ROLES, type Role } from "agentic-identity";
 import { csvToValues, inferFields, parseCsv, toCsv } from "./csv.js";
 import { openContext, type Context } from "./context.js";
 import { errorBody } from "./errors.js";
@@ -23,6 +24,9 @@ Commands:
   import <table> --file <csv> [--create]
   required <table> <field> <true|false> [--dry-run]
   delete-table <table> --yes          Delete a table with its rows and views.
+  claim-base <baseId>                 Make a base from an earlier version usable. You must be its owner.
+  share <subject> <role> [--table <t>]  Give a person or agent a role (viewer, commenter, editor, owner) on the base, or on one table.
+  unshare <subject> [--table <t>]     Take the role back.
   export-data                         Print every base the actor owns, as JSON.
   erase-data --yes                    Hard delete every base the actor owns.
   mcp                                 Start the MCP server on stdio.
@@ -33,8 +37,12 @@ Example: --field "Stage:single_select!=lead|won"
 Types: ${FIELD_TYPES.join(", ")}.
 
 Environment:
-  AGENTIC_TABLES_DB     Database file. Default ./agentic-tables.json.
-  AGENTIC_TABLES_ACTOR  Who writes, as kind:id. Default human:cli.
+  AGENTIC_TABLES_DB      Database file. Default ./agentic-tables.json.
+  AGENTIC_TABLES_ACTOR   Who acts, as kind:id. Default human:cli.
+  AGENTIC_TABLES_CHAIN   Who an agent of a person acts for, root first, as kind:id,kind:id.
+                         The actor of such an agent has the kind agent_of_human, for example agent_of_human:bot.
+  AGENTIC_TABLES_SCOPES  What the actor may do, as table:read,base:read. Default: everything.
+  AGENTIC_TABLES_BASE    The base to work in. Default: your own base.
 `;
 
 class UsageError extends Error {}
@@ -102,14 +110,14 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
     case "insert": {
       const table = await ctx.table(need(0, "a table"));
       const body = json(flag("json"), "--json");
-      if (Array.isArray(body)) return { rows: await ctx.tables.insertRows(table.id, body as Values[], ctx.actor) };
-      return ctx.tables.insertRow(table.id, body as Values, ctx.actor);
+      if (Array.isArray(body)) return { rows: await ctx.tables.insertRows(table.id, body as Values[]) };
+      return ctx.tables.insertRow(table.id, body as Values);
     }
     case "update": {
       const table = await ctx.table(need(0, "a table"));
       const row = await ctx.tables.getRow(need(1, "a row id"));
       if (row.tableId !== table.id) throw new TablesError("NOT_FOUND", `row "${row.id}" is not in table "${table.name}"`);
-      return ctx.tables.updateRow(row.id, json(flag("json"), "--json") as Values, ctx.actor);
+      return ctx.tables.updateRow(row.id, json(flag("json"), "--json") as Values);
     }
     case "query": {
       const table = await ctx.table(need(0, "a table"));
@@ -132,11 +140,24 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
       if (flag("yes") === undefined) throw new UsageError(`delete-table removes "${table.name}" with all its rows. Add --yes to confirm`);
       return ctx.tables.deleteTable(table.id);
     }
+    case "claim-base":
+      return ctx.tables.claimBase(need(0, "a base id"));
+    case "share":
+    case "unshare": {
+      const table = flag("table") === undefined ? undefined : await ctx.table(flag("table")!);
+      const type = table ? "table" : "base";
+      const resourceId = table ? table.id : await ctx.baseId();
+      const subject = need(0, "a subject id");
+      if (command === "unshare") return (await ctx.tables.revokeGrant(type, resourceId, subject), { resourceId, subject });
+      const role = need(1, "a role") as Role;
+      if (!ROLES.includes(role)) throw new UsageError(`role must be one of ${ROLES.join(", ")}`);
+      return (await ctx.tables.grant(type, resourceId, subject, role), { resourceId, subject, role });
+    }
     case "export-data":
-      return ctx.tables.exportOwnerData(ctx.actor.id);
+      return ctx.tables.exportMyData();
     case "erase-data":
       if (flag("yes") === undefined) throw new UsageError(`erase-data deletes every base owned by "${ctx.actor.id}". Add --yes to confirm`);
-      return ctx.tables.eraseOwnerData(ctx.actor.id);
+      return ctx.tables.eraseMyData();
     case "export": {
       const table = await ctx.table(need(0, "a table"));
       const rows: Row[] = [];
@@ -157,7 +178,7 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
         return undefined;
       });
       table ??= await ctx.tables.createTable(await ctx.baseId(), name, inferFields(header, records));
-      const rows = await ctx.tables.insertRows(table.id, csvToValues(table, header, records), ctx.actor);
+      const rows = await ctx.tables.insertRows(table.id, csvToValues(table, header, records));
       return { inserted: rows.length, table };
     }
     default:
@@ -172,10 +193,10 @@ export async function main(argv: string[], env = process.env): Promise<number> {
     const parsed = parse(argv);
     if (parsed.command === "mcp") {
       const { startMcp } = await import("./mcp.js");
-      await startMcp(openContext(env, "agent:mcp"));
+      await startMcp(await openContext(env, "agent:mcp"));
       return 0;
     }
-    const result = await run(openContext(env, "human:cli"), parsed);
+    const result = await run(await openContext(env, "human:cli"), parsed);
     if (typeof result === "object" && result !== null && "raw" in result) process.stdout.write((result as { raw: string }).raw);
     else console.log(JSON.stringify(result));
     return 0;

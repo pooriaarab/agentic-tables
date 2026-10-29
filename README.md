@@ -65,12 +65,12 @@ const page = await tables.queryRows(people.id, {
 
 The `Store` port has equality filters, one `orderBy`, a limit, and a cursor. Field values are not top-level fields, so the port cannot filter on them.
 
-The store runs only queries of this shape: `where` on a top-level id field (`tableId`, `baseId`, `ownerId`), and `orderBy` on `createdAt` or `updatedAt`. A Firestore adapter needs one composite index for each of those pairs.
+The store runs only queries of this shape: `where` on a top-level id field (`tableId`, `baseId`, `ownerId` with `ownerKind`), and `orderBy` on `createdAt` or `updatedAt`. A Firestore adapter needs one composite index for each of those pairs.
 
 - **In the store** (`plan: "store"`): a query with no filter and no field sort. The store filters by table, orders by `createdAt` or `updatedAt`, and pages.
 - **In memory** (`plan: "memory"`): any filter, and any sort on a field. The library reads the rows of the table, then filters, sorts, and pages them.
 
-These also run in memory, because the port has no query for them: the export and the erase of one owner read every base, table, and row they touch, and a field-level filter or sort reads the whole table.
+These also run in memory, because the port has no query for them: the export and the erase of one principal read every base, table, and row they touch (the rows it wrote in other bases are found by a scan, matching author id and kind), and a field-level filter or sort reads the whole table.
 
 A memory query reads at most `maxScan` rows (10,000 by default). A larger table fails the query with `SCAN_LIMIT`. It never returns a partial answer. Empty values sort last in both directions.
 
@@ -134,29 +134,30 @@ A failure returns `{"error":{"code","message","issues"}}`: `422` for a validatio
 
 ## Your data (GDPR)
 
-A base has an owner, the id of the principal that created it. Two actions work by principal id:
+A base has an owner: the principal that created it, by id and kind together. An id can belong to a person and to an agent, so export, erase, and the rows a principal wrote match both. Roles do not yet: `agentic-identity` keys a role on the id alone, so `agent:x` holds every role that `human:x` holds, until identity keys a role by kind too. A base with no owner kind is never exported and never erased as a whole. Two actions work by principal:
 
-- **Export**: every base the principal owns, with its tables, views, and rows. It also lists `authoredRows`: the rows the principal wrote in bases it does not own. The output is one JSON object (`format: "agentic-tables-export"`, `version: 1`). Each row keeps the principal kind of its author.
+- **Export**: every base the principal owns, with its tables, views, and rows. It also lists `authoredRows`: the rows the principal wrote in bases it does not own. The output is one JSON object (`format: "agentic-tables-export"`, `version: 2`, `owner: {id, kind}`). Each row keeps the principal kind of its author.
 - **Hard delete**: every base the principal owns goes in one transaction, and so does every row the principal wrote in other bases. Links to a deleted row are removed. Other rows in those bases stay. The store keeps no copy and no marker. With the file store, the file is rewritten without the data.
 
 The result of a hard delete counts what it removed: `bases`, `tables`, `views`, `rows` (rows inside the owned bases), and `authoredRows` (rows in other bases).
 
 | Surface | Export | Hard delete |
 | --- | --- | --- |
-| Library | `exportOwnerData(principalId)` | `eraseOwnerData(principalId)` |
+| Library | `exportOwnerData({id, kind})` | `eraseOwnerData({id, kind})` |
 | CLI | `export-data` | `erase-data --yes` |
 | MCP | `export_my_data` | `erase_my_data` |
 | HTTP | `GET /me/export` | `DELETE /me/data` |
 
-The CLI, MCP, and HTTP actions act for the actor of the call only. In the unsafe mode the HTTP actor comes from an unchecked header, so anyone can name any id. The CLI and MCP give each actor id its own default base, so two actors on one file never share data by accident. Set `AGENTIC_TABLES_BASE` to a base id to work in a shared base. A base made before owners existed has no owner. It is never exported and never erased as a whole, but rows that the principal wrote in it are.
+The CLI, MCP, and HTTP actions act for the actor of the call only, and check the same roles as the HTTP API (see Access). In the unsafe mode the HTTP actor comes from unchecked headers, and the CLI and MCP actor comes from the environment, so anyone who can run the process can name any id. The CLI and MCP give each actor its own default base, so two actors on one file never share data by accident. Set `AGENTIC_TABLES_BASE` to a base id to work in a shared base: the owner shares it first.
 
 Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`) when another principal wrote them. File refs hold blob keys, and erase does not remove the blobs. A file store rewrite does not wipe old file blocks or backups. There is no retention setting. Rows that an agent writes for a person carry the id of the agent, so the person cannot export or erase them and the agent cannot either (it gets `403`). Erase keeps the audit entries that `can()` wrote and the sharing records: they hold ids, kinds, and roles, and no row content. The export holds all data in memory, so a very large export needs a streaming version later.
 
 ## Limits
 
+- **Upgrading from 0.1.0:** a base made by 0.1.0 (the CLI, the MCP server, or the Worker) has no owner kind and no sharing record, so nobody has a role on it. Until its owner claims it, creating a base, export, and erase answer `409 LEGACY_BASE` with the base ids, and change nothing. Claim a base with `agentic-tables claim-base <id>`, the MCP tool `claim_base`, or `POST /bases/:baseId/claim`. The caller must be a person or an agent with its own identity, with the base owner id, and it states its own kind as the owner. The base and its tables then get sharing records. Rows a principal wrote in a base that is not its own are still exported and erased as `authoredRows`.
 - A schema change runs in one store transaction. A very large table can exceed the transaction size of a backend.
 - Deleting a table or a base runs in one store transaction. A very large one can exceed the transaction size of a backend. The CLI and MCP server cannot delete a base yet. The library and HTTP API can.
-- Deleting a base or a table leaves its sharing records (the resource and its grants) in the store. They hold ids and roles only. `agentic-identity` 0.1.0 has no call to remove them. Listing bases checks each base, so it grows with the number of bases and writes an audit entry per check. Roles pass to a base or a table, not to a single row. Whoever creates a table owns it. Revoking a person on a base also revokes them on each table in it (the revoker becomes a direct owner of each table first, so the person is never its last owner). It needs the `table:admin` scope too. You cannot remove yourself from a base that has tables: ask another owner. If a step fails, call again. The CLI and the MCP server do not check roles yet.
+- Deleting a base or a table leaves its sharing records (the resource and its grants) in the store. They hold ids and roles only. `agentic-identity` 0.1.0 has no call to remove them. Listing bases checks each base, so it grows with the number of bases and writes an audit entry per check. Roles pass to a base or a table, not to a single row. Whoever creates a table owns it. Revoking a person on a base also revokes them on each table in it (the revoker becomes a direct owner of each table first, so the person is never its last owner). It needs the `table:admin` scope too. You cannot remove yourself from a base that has tables: ask another owner. If a step fails, call again.
 - A filter on a field value reads the whole table (up to `maxScan`). An index on field values comes later.
 - On D1, a transaction is one batch of statements. A very large erase or import can exceed the limits of a D1 batch. D1 has no index for the queries this package makes, so each query scans its collection. Inserts into one table take turns, because each one bumps the table (see above).
 - The file store (`agentic-tables/file-store`) keeps one JSON file. The CLI and the MCP server can share it: each write takes a lock file, reads the file again, and renames a new file into place. Each call reads the whole file, so use it for local work. It needs one machine: it does not work on a network disk. If a process dies, its lock is taken over when the process is gone or the lock is 30 seconds old. A lock with unreadable content is never taken: remove `<db>.lock` by hand.
@@ -166,7 +167,9 @@ Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`)
 
 ```sh
 export AGENTIC_TABLES_DB=./crm.json            # default ./agentic-tables.json
-export AGENTIC_TABLES_ACTOR=agent:claude       # who writes, as kind:id. Default human:cli.
+export AGENTIC_TABLES_ACTOR=agent_of_human:claude   # who acts, as kind:id. Default human:cli (agent:mcp for the MCP server).
+export AGENTIC_TABLES_CHAIN=human:ada          # who an agent of a person acts for, root first. Needs agent_of_human, not agent.
+export AGENTIC_TABLES_SCOPES=table:read,base:read   # optional. Narrows what the actor may do. Default: everything.
 export AGENTIC_TABLES_BASE=base_...            # optional. The base to work in. Default: one base per actor id.
 
 npx agentic-tables new People --field "Name:text!" --field "Age:number" --field "Stage:single_select=lead|won"
@@ -175,11 +178,14 @@ npx agentic-tables query People --filter '{"field":"Age","op":"gt","value":30}' 
 npx agentic-tables schema People
 npx agentic-tables required People Age true --dry-run   # lists rows with no Age
 npx agentic-tables delete-table People --yes
+npx agentic-tables share claude editor                  # a role on your base: viewer, commenter, editor, owner
+npx agentic-tables share claude viewer --table People   # or on one table
+npx agentic-tables unshare claude
 npx agentic-tables export People > people.csv
 npx agentic-tables import Parts --file parts.csv --create
 ```
 
-Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `delete-table`, `export-data`, `erase-data`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
+Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `delete-table`, `claim-base`, `share`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
 
 CSV import checks every cell first. If one cell fails, no row is written, and the error names the line and field. `--create` makes the table and guesses a type for each column: number, checkbox, date, single select, long text, or text. A column is a number only if every value is a plain decimal. `00123`, `0x1F`, and `1e3` stay text.
 
@@ -194,12 +200,14 @@ Run `npx agentic-tables mcp`. It uses the same database file as the CLI, and a C
 | `create_table`, `add_field` | Create a table. Add a field. |
 | `set_required` | Make a field required or optional. It lists the rows that block it. |
 | `delete_table` | Delete a table with its rows and views. |
+| `share`, `unshare` | Give or take back a role on your base or on one table. Only an owner can. |
+| `claim_base` | Make a base from an earlier version usable. You must be its owner. |
 | `export_my_data`, `erase_my_data` | Export or hard delete the bases the acting principal owns. |
 | `insert_rows` | Insert up to 500 rows at once. One bad row writes none. |
 | `update_row`, `delete_row`, `get_row` | Change, delete, or read one row. |
 | `query_rows` | Filter, sort, and page rows. |
 
-A failed call returns `isError` with a `code` and the `issues`. Rows written over MCP carry the actor from `AGENTIC_TABLES_ACTOR` (default `agent:mcp`).
+A failed call returns `isError` with a `code` and the `issues`. Rows written over MCP carry the actor from `AGENTIC_TABLES_ACTOR` (default `agent:mcp`). The server checks roles as the HTTP API does, and a refusal returns `isError` with the code `FORBIDDEN` or `NOT_FOUND`.
 
 ## Planned surfaces
 

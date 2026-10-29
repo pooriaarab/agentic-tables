@@ -82,6 +82,7 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
     return {
       async createBase(name: string) {
         if (!hasScope(ctx.scopes, "base:write")) throw new TablesError("FORBIDDEN", "this credential cannot create a base");
+        await noLegacyBases();
         const base = await tables.createBase(name, owner);
         try {
           await shared(() => sharing.createResource(ctx, { id: base.id, type: "base" }));
@@ -164,22 +165,66 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
       },
 
       /**
+       * Claim a base that an earlier version made: the caller states its own kind as the owner, and the base and its tables become
+       * shared resources the caller owns. Only a root principal can, and only for a base that carries its own id. If a step fails, call again. A claim that succeeded cannot be repeated.
+       */
+      async claimBase(baseId: string) {
+        selfOnly("admin");
+        // The scopes the claim needs, checked before anything is written, so a narrow credential cannot leave a half claim.
+        scoped(ctx, "write", "base");
+        scoped(ctx, "write", "table");
+        if (!(await tables.legacyBaseIds(owner.id)).includes(baseId)) throw missing();
+        /** True when the resource is new. A resource that exists is left as it is. */
+        const register = (id: string, parentId?: string) =>
+          shared(() => sharing.createResource(ctx, { id, type: parentId === undefined ? "base" : "table", ...(parentId === undefined ? {} : { parentId }) })).then(
+            () => true,
+            (error: unknown) => {
+              if (error instanceof Error && error.message === "resource exists") return false;
+              throw error;
+            },
+          );
+        // A base with a sharing record was made by a build that had sharing but no owner kind. Its owner may have given it away. Then the
+        // caller holds no role on it and cannot register a table. Such a build registered each table with its base, so the claim only
+        // records the kind. A table that was not registered stays unreachable. Where the caller holds a role, any failure stops the claim.
+        const registered = !(await register(baseId));
+        const mayRegister = !registered || (await sharing.can(ctx, "admin", baseId)).allowed;
+        for (const table of await tables.listTables(baseId)) {
+          await register(table.id, baseId).catch((error: unknown) => {
+            if (mayRegister) throw error;
+          });
+        }
+        await tables.setLegacyBaseOwnerKind(baseId, owner);
+        return { baseId, owner };
+      },
+
+      /**
        * Export or erase the data of the caller. Only a root principal may: an agent must not export or erase its owner's data.
        * Only the bases the caller owns and still holds the owner role on are touched: a base the caller gave away is not theirs to erase.
        */
       async exportMyData() {
         const me = selfOnly("admin");
-        return tables.exportOwnerData(me.id, { baseIds: await ownedBases() });
+        await noLegacyBases();
+        return tables.exportOwnerData(me, { baseIds: await ownedBases() });
       },
       async eraseMyData() {
         const me = selfOnly("admin");
-        return tables.eraseOwnerData(me.id, { baseIds: await ownedBases() });
+        await noLegacyBases();
+        return tables.eraseOwnerData(me, { baseIds: await ownedBases() });
       },
     };
 
+    /**
+     * A base made by an earlier version has this owner id and no owner kind. Export and erase would pass it over and report success,
+     * and a new base would hide it, so they all stop until each one is claimed.
+     */
+    async function noLegacyBases(): Promise<void> {
+      const ids = await tables.legacyBaseIds(owner.id);
+      if (ids.length > 0) throw new TablesError("LEGACY_BASE", `bases ${ids.join(", ")} were made by an earlier version and have no owner kind. Claim each one first`);
+    }
+
     async function ownedBases(): Promise<string[]> {
       const ids = [];
-      for (const base of await tables.listBases()) if (base.ownerId === owner.id && (await sharing.can(ctx, "admin", base.id)).allowed) ids.push(base.id);
+      for (const base of await tables.listBases()) if (base.ownerId === owner.id && base.ownerKind === owner.kind && (await sharing.can(ctx, "admin", base.id)).allowed) ids.push(base.id);
       return ids;
     }
     function selfOnly(action: Action): Actor {
