@@ -17,13 +17,20 @@ export interface TablesAccount {
   eraseAccount(subject: Actor, deps: TablesAccountDeps): Promise<Record<string, number>>;
 }
 
+// The export has collections only: no format, version, or time. The host's manifest holds the time.
 // Through JSON, so the records are what a file would hold: a key with no value is dropped, not left as `undefined`.
 const plain = (value: unknown): Json[] => JSON.parse(JSON.stringify(value)) as Json[];
 
+// A host that passes no tables fails with a clear error, not a TypeError.
+const need = (deps: TablesAccountDeps): Tables => {
+  if (typeof deps?.tables?.exportOwnerData !== "function") throw new Error("tablesAccount needs deps.tables");
+  return deps.tables;
+};
+
 export const tablesAccount: TablesAccount = {
   id: "tables",
-  async exportAccount(subject, { tables }) {
-    const out = await tables.exportOwnerData(subject);
+  async exportAccount(subject, deps) {
+    const out = await need(deps).exportOwnerData(subject);
     return {
       bases: plain(out.bases.map((b) => b.base)),
       tables: plain(out.bases.flatMap((b) => b.tables)),
@@ -32,8 +39,8 @@ export const tablesAccount: TablesAccount = {
       authored_rows: plain(out.authoredRows),
     };
   },
-  async eraseAccount(subject, { tables }) {
-    const { bases, tables: tableCount, views, rows, authoredRows } = await tables.eraseOwnerData(subject);
+  async eraseAccount(subject, deps) {
+    const { bases, tables: tableCount, views, rows, authoredRows } = await need(deps).eraseOwnerData(subject);
     return { bases, tables: tableCount, views, rows, authored_rows: authoredRows };
   },
 };

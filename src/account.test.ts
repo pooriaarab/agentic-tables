@@ -68,8 +68,11 @@ describe("exportAccount", () => {
 describe("eraseAccount", () => {
   test("counts what it removed, leaves others, and is safe to run twice", async () => {
     await fill(ada, "ada");
+    await fill(adaBot, "bot");
     const bobTable = await fill(bob, "bob");
     await tables.insertRow(bobTable.id, { Note: "from ada" }, ada);
+    const bobBefore = await tablesAccount.exportAccount(bob, deps());
+    const botBefore = await tablesAccount.exportAccount(adaBot, deps());
     const listed = await tablesAccount.exportAccount(ada, deps());
     const counts = await tablesAccount.eraseAccount(ada, deps());
     expect(counts).toEqual({ bases: 1, tables: 1, views: 1, rows: 1, authored_rows: 1 });
@@ -77,6 +80,14 @@ describe("eraseAccount", () => {
     const after = await tablesAccount.exportAccount(ada, deps());
     expect(Object.values(after).every((list) => list.length === 0)).toBe(true);
     expect(await tablesAccount.eraseAccount(ada, deps())).toEqual({ bases: 0, tables: 0, views: 0, rows: 0, authored_rows: 0 });
-    expect((await tablesAccount.exportAccount(bob, deps())).rows).toHaveLength(1);
+    // Bob keeps his bases, tables, and views whole. Only the row that ada wrote in his base goes.
+    const bobAfter = await tablesAccount.exportAccount(bob, deps());
+    expect(bobAfter).toEqual({ ...bobBefore, rows: bobBefore.rows!.filter((r) => (r as { values: { Note: string } }).values.Note !== "from ada") });
+    expect(await tablesAccount.exportAccount(adaBot, deps())).toEqual(botBefore);
+  });
+
+  test("a missing tables dependency is a clear error", async () => {
+    await expect(tablesAccount.exportAccount(ada, {} as never)).rejects.toThrow("needs deps.tables");
+    await expect(tablesAccount.eraseAccount(ada, undefined as never)).rejects.toThrow("needs deps.tables");
   });
 });
