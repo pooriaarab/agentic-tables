@@ -265,7 +265,10 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
         for (const baseId of baseIds) for (const t of await tables.listTables(baseId)) tableIds.push(t.id);
         await dropTableGrants(tableIds, baseIds);
         const summary = await tables.eraseOwnerData(me, { baseIds });
-        for (const id of baseIds) await shared(() => sharing.deleteResource(ctx, id));
+        // Every base is tried. The data is gone for all of them, so a base that fails is named: `DELETE /bases/:id` finishes it.
+        const left: string[] = [];
+        for (const id of baseIds) await shared(() => sharing.deleteResource(ctx, id)).catch(() => void left.push(id));
+        if (left.length > 0) throw new TablesError("ERASE_INCOMPLETE", `the data is erased, but the grants of bases ${left.join(", ")} remain. Delete each base to remove them`);
         return summary;
       },
     };

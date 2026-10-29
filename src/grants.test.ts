@@ -154,3 +154,24 @@ describe("a delete that stops half way", () => {
     expect([await count("grants"), await count("resources")]).toEqual([grants, resources]);
   });
 });
+
+test("an erase whose last step fails names the bases, and a base delete finishes them", async () => {
+  const first = await setup();
+  const second = await setup();
+  // A table resource made behind the erase: the base resource is refused while it has a child.
+  const sharing = createSharing(store);
+  const real = sharing.deleteResource.bind(sharing);
+  const failing = createSharing(store);
+  failing.deleteResource = async (ctx, id) => (id === first.base.id ? Promise.reject(new Error("store down")) : real(ctx, id));
+  app = createApp(createTables(store), failing);
+  const erased = await call("DELETE", "/me/data", ada);
+  expect([erased.status, erased.body.error.code]).toEqual([409, "ERASE_INCOMPLETE"]);
+  expect(erased.body.error.message).toContain(first.base.id);
+  expect(erased.body.error.message).not.toContain(second.base.id);
+  // The data is gone for both. The other base is clean, and the named one is finished by a base delete.
+  expect(await count("resources")).toBe(1);
+  app = createApp(createTables(store), createSharing(store));
+  expect((await call("DELETE", `/bases/${first.base.id}`, ada)).status).toBe(200);
+  expect(await count("grants")).toBe(0);
+  expect(await count("resources")).toBe(0);
+});
