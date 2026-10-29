@@ -10,7 +10,7 @@
 //  8. A half-valid old file and a file of an unknown format are left as they are, on a read and on a write.
 // The adapter of agentic-identity runs one call at a time on a path. A call on that path from inside a transaction
 // on it waits for the transaction. Nothing in this package makes one.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StoreConflictError } from "agentic-identity";
@@ -76,6 +76,7 @@ test("converts a file of the old shape and keeps every doc", async () => {
   expect(await createFileStore(path).get("rows", "b")).toEqual({ n: 3 });
   expect(JSON.parse(readFileSync(`${path}.bak`, "utf8")).rows.a).toEqual({ n: 1 });
   expect(existsSync(`${path}.migrate`)).toBe(false);
+  expect(statSync(`${path}.bak`).mode & 0o077).toBe(0);
 });
 
 test("takes over the mutex of a conversion that died", async () => {

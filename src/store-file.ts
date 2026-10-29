@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { resolve } from "node:path";
 import { createFileStore as createIdentityFileStore } from "agentic-identity/file";
 import { StoreConflictError, type AdapterOptions, type Store } from "agentic-identity";
@@ -60,6 +60,7 @@ function migrateLegacyFile(path: string): void {
     const collections = legacySnapshot(readFileSync(path, "utf8"));
     if (collections === undefined) return;
     copyFileSync(path, `${path}.bak`);
+    chmodSync(`${path}.bak`, 0o600);
     const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
     try {
       const fd = openSync(temp, "w", 0o600);
