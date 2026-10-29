@@ -164,9 +164,10 @@ describe("the CLI: links", () => {
     expect(codeOf(run(["links"], "human:owen", { AGENTIC_TABLES_SCOPES: "base:read,table:read" }))).toBe("FORBIDDEN");
     expect(run(["link", "owner"]).code).toBe(2);
     expect(run(["link"]).code).toBe(2);
+    expect(run(["link", "viewer", "--signed-in-only", "false"]).code).toBe(2);
     expect(run(["link", "viewer", "--expires-in-ms", "soon"]).code).toBe(2);
     expect(run(["revoke-link"]).code).toBe(2);
-    for (const bad of ["-5", "0"]) expect(run(["link", "viewer", "--expires-in-ms", bad]).code).toBe(2);
+    for (const bad of ["-5", "0", String(Number.MAX_SAFE_INTEGER)]) expect(run(["link", "viewer", "--expires-in-ms", bad]).code).toBe(2);
   });
 });
 
