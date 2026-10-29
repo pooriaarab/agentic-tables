@@ -1,7 +1,7 @@
 import { Button, EmptyState, IconButton, Input, Menu, MoreIcon, PlusIcon, Select, useToast } from "agentic-design/react";
 import type { Field, FieldInput, Row, Sort, Table } from "agentic-tables/client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { client, failure } from "./api";
+import { failure, useClient } from "./api";
 import { ConfirmDialog, NewColumnDialog, NewRowDialog } from "./Dialogs";
 import { Grid } from "./Grid";
 import { filterOf, OP_LABEL, OPS, SORTABLE, type Condition } from "./values";
@@ -11,6 +11,7 @@ type Load = { state: "loading" } | { state: "error"; message: string } | { state
 const NO_FILTER: Condition = { field: "", op: "contains", value: "" };
 
 export function TableView({ tableId, onGone }: { tableId: string; onGone: () => void }) {
+  const client = useClient();
   const toast = useToast();
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [draft, setDraft] = useState<Condition>(NO_FILTER);
@@ -52,7 +53,7 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
         if (mine === latest.current) setBusy(false);
       }
     },
-    [tableId, applied, sort],
+    [client, tableId, applied, sort],
   );
   useEffect(() => {
     // Keep the old rows on screen during a reload, so a control that changed the query keeps its focus.
