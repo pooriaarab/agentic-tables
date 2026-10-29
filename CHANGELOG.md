@@ -11,7 +11,8 @@ No breaking changes.
 ### Changed
 
 - The route code moved from `src/worker.ts` to `src/app.ts`, so the Node server does not load the D1 adapter. `createApp` is still exported from `agentic-tables/worker`.
-- The `agentic-identity` dependency is now `^0.5.0`.
+- The `agentic-identity` dependency is now `^0.5.0`. If your project also depends on `agentic-identity`, upgrade it to 0.5 too, so that one copy of it is installed.
+- The Worker no longer needs the `nodejs_compat` compatibility flag. The README says not to add it.
 
 ## 0.5.0
 
