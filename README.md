@@ -7,7 +7,7 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: release 0.7.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
+> Status: release 0.7.1. See [CHANGELOG.md](CHANGELOG.md) for the changes.
 >
 > **Warning: the HTTP API has no authentication yet.** It reads the caller from
 > `x-principal-*` headers and does not check who sent them. The Worker refuses every request with
@@ -191,7 +191,7 @@ npx wrangler dev --var AGENTIC_TABLES_UNSAFE_NO_AUTH:1 --var AGENTIC_TABLES_REGI
 curl -X POST localhost:8787/api/v1/tables/bases -H 'x-principal-id: ada' -H 'x-principal-kind: human' -d '{"name":"Crm"}'
 ```
 
-Every call needs `x-principal-id` and `x-principal-kind` (one of `human`, `agent_of_human`, `agent_of_agent`, `agent`, `user_token`). A missing or unknown kind returns `401`. The kind is kept on every row, so an agent write stays labeled. These headers stand in for sign-in until the identity package has it: nothing proves them.
+Every call needs `x-principal-id` and `x-principal-kind` (one of `human`, `agent_of_human`, `agent_of_agent`, `agent`, `user_token`). A missing or unknown kind returns `401`. An id uses only A-Z a-z 0-9 . _ - and does not start with a dot, so an email address or an id with a colon returns `401`. The kind is kept on every row, so an agent write stays labeled. These headers stand in for sign-in until the identity package has it: nothing proves them.
 
 - `x-principal-chain`: who the caller acts for, root first, as `human:ada` or `agent:a1,agent_of_agent:a2`. An agent of a person needs it. `resolveChain` from `agentic-identity` checks the parent kinds and the depth.
 - `x-principal-scopes`: what the caller may do, as `table:read,base:read`. It defaults to everything. A caller never has more than its owner's role.

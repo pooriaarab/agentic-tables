@@ -1,10 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.7.1
+
+**Read the changed id rule below before you upgrade.** A principal id that worked in 0.7.0 can now fail.
 
 ### Changed
 
 - Principal parsing uses `parsePrincipal` from agentic-identity 0.6. An id must now use only A-Z a-z 0-9 . _ - and must not start with a dot. An id such as an email address, or one with a colon, now fails with `UNAUTHENTICATED` (HTTP) or `USAGE` (CLI and MCP).
+- The `agentic-identity` dependency is now `^0.6.0`. If your project also depends on `agentic-identity`, upgrade it to 0.6 too, so that one copy of it is installed.
+- The local copy of the principal kind and id checks is gone. `parsePrincipal` is the one check.
 
 ## 0.7.0
 
