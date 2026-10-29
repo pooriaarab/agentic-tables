@@ -7,7 +7,7 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: release 0.11.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
+> Status: release 0.12.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
 >
 > **The Worker checks every request.** It needs `Authorization: Bearer <token>`, and `agentic-identity` verifies the
 > token against credentials in the same store. A request with no valid token gets `401`. A token without the scope
@@ -153,6 +153,9 @@ const tables = mount(document.getElementById("tables")!, {
   // getToken: () => "<token>",   // the Worker needs a token on every request
   // themePicker: true,                                 // show a theme control; the app then sets data-theme on the page
   // frame: false,                                      // no banner, main landmark, or skip link: for a page with its own landmarks
+  // baseId: "base_...",                                 // open this base (a shared one too). Without it: the base of tableId, else the first
+  // tableId: "tbl_...",                                 // open this table: a deep link or a search hit. The URL hash #/t/<id> wins on mount
+  // baseSwitcher: true,                                 // list every readable base, to switch between them
 });
 
 tables.update({ baseUrl: "https://other.example.com", getToken });  // use other options in the same place
@@ -227,6 +230,42 @@ curl -X POST localhost:8787/api/v1/tables/bases -H "authorization: Bearer $TOKEN
 - Each route checks the scope of the token for its action, before it looks at any id: `base:read`, `base:write`, `base:admin`, `table:read`, `table:write`, `table:admin`. A token without it returns `403`. After that, the role on the base or table decides. A caller with no role gets `404`.
 - A session cookie (`session=<token>`) works for reads. A write with a cookie needs an `Origin` that is listed in `AGENTIC_TABLES_ORIGINS` (comma separated), else it returns `403`. A bearer token needs no origin.
 - The kind of the principal is kept on every row, so an agent write stays labeled.
+
+### Mount the API in your own Worker
+
+`createApp` from `agentic-tables/worker` builds the Hono app of `/api/v1/tables`. It takes:
+
+- `tables`: what `createTables(store)` returns. `store` is a `Store` of `agentic-identity`.
+- `sharing`: `createSharing(store)` from `agentic-identity`. It holds the roles.
+- `auth`: an `Auth` port of `agentic-identity`, such as `createStoreAuth(store)`. A request with no valid credential answers 401. A credential without the scope of a route answers 403.
+- `options.origins` (optional): the origins that may send a write with a session cookie. A bearer token needs none. A cookie write from another origin answers 403.
+
+```ts
+import type { Store } from "agentic-identity";
+import { createSharing, createStoreAuth } from "agentic-identity";
+import { createTables } from "agentic-tables";
+import { createApp } from "agentic-tables/worker";
+
+// Your code: open an agentic-identity Store on env.DB, after the setup steps below.
+declare function openStore(env: unknown): Promise<Store>;
+
+// One app per Worker instance. A failed build is cleared, so the next request tries again.
+let app: Promise<ReturnType<typeof createApp>> | undefined;
+
+export default {
+  async fetch(request: Request, env: unknown): Promise<Response> {
+    app ??= openStore(env)
+      .then((store) => createApp(createTables(store), createSharing(store), createStoreAuth(store), { origins: ["https://tables.example.com"] }))
+      .catch((error: unknown) => {
+        app = undefined;
+        throw error;
+      });
+    return (await app).fetch(request);
+  },
+};
+```
+
+`createApp` does not open the database or check the region. The default export of `agentic-tables/worker` does both, and it reads `DB`, `AGENTIC_TABLES_REGION`, `AGENTIC_TABLES_ORIGINS`, and `AGENTIC_TABLES_LOCAL_DEV`. Do the same in your Worker: run `D1_SCHEMA` from `agentic-identity/cloudflare` on the database, and check the region claim with `assertRegion` from `agentic-identity`. Local D1 under `wrangler dev` reports no region, so every read fails the D1 store's region check. With `AGENTIC_TABLES_LOCAL_DEV=1`, the default export wraps the database with `reportingRegion`. The wrap gives the declared region to a query that reports none. `reportingRegion` is exported from `agentic-tables/worker`.
 
 ## SDK
 
