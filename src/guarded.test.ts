@@ -15,6 +15,8 @@
 // 11. A revoke on a base removes some table grants, then fails: a self-revoke, a missing scope, a bad subject id.
 // 12. A body names a link field twice, an empty list under one key and a row id under the other. Clearing a link with null or [] needs the right to read the linked table.
 //  9. An agent that acts for a person exports or erases that person's data.
+// 14. Two claims of one base at the same time: one of them answers 404 instead of success.
+// 15. A base gets another owner kind while a claim runs: the claim must refuse, and must not overwrite the kind.
 import { createMemoryStore, createSharing } from "agentic-identity";
 import { beforeEach, describe, expect, test } from "vitest";
 import { createTables } from "./index.js";
@@ -318,5 +320,48 @@ describe("a base from an earlier version", () => {
     expect(first).toMatchObject({ status: 200, body: { baseId: old.id, owner: { id: "ada", kind: "human" } } });
     expect((await call("GET", `/tables/${table.id}/rows`, ada)).status).toBe(200);
     expect((await call("GET", "/me/export", ada)).body.bases).toHaveLength(1);
+  });
+
+  // Failure case 14: two claims of one base start at the same time. Both answer 200 with the same result, and the base keeps one kind.
+  test("two claims at once both succeed", async () => {
+    const raw = createTables(store);
+    const old = await raw.createBase("old", { id: "ada", kind: "human" });
+    const table = await raw.createTable(old.id, "T", [{ name: "N", type: "text" }]);
+    await raw.insertRow(table.id, { N: "old row" }, { id: "ada", kind: "human" });
+    const { ownerKind: _kind, ...legacy } = (await store.get("bases", old.id))!;
+    await store.put("bases", old.id, legacy);
+
+    const [first, second] = await Promise.all([call("POST", `/bases/${old.id}/claim`, ada), call("POST", `/bases/${old.id}/claim`, ada)]);
+    expect(first).toEqual({ status: 200, body: { baseId: old.id, owner: { id: "ada", kind: "human" } } });
+    expect(second).toEqual(first);
+    expect((await store.get("bases", old.id))!.ownerKind).toBe("human");
+    expect((await call("GET", `/tables/${table.id}/rows`, ada)).body.items.map((r: any) => r.values.N)).toEqual(["old row"]);
+  });
+
+  // Failure case 15: the base gets the kind "agent" while the human claim runs. The claim must refuse with 404 and keep "agent".
+  test("a claim with a different kind is refused during a race", async () => {
+    const raw = createTables(store);
+    const old = await raw.createBase("old", { id: "ada", kind: "human" });
+    await raw.createTable(old.id, "T", [{ name: "N", type: "text" }]);
+    const { ownerKind: _kind, ...legacy } = (await store.get("bases", old.id))!;
+    await store.put("bases", old.id, legacy);
+
+    // The claim reads the legacy list. Then another claim of the same base, by the same owner id with a different kind, writes its kind.
+    let started = false;
+    const racing = {
+      ...store,
+      query: async (...args: Parameters<typeof store.query>) => {
+        const page = await store.query(...args);
+        if (args[0] === "bases" && !started) {
+          started = true;
+          await store.put("bases", old.id, { ...legacy, ownerKind: "agent" });
+        }
+        return page;
+      },
+    } as typeof store;
+    app = createApp(createTables(racing), createSharing(racing));
+
+    expect((await call("POST", `/bases/${old.id}/claim`, ada)).status).toBe(404);
+    expect((await store.get("bases", old.id))!.ownerKind).toBe("agent");
   });
 });

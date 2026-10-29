@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `setLegacyBaseOwnerKind` on `createTables` succeeds when the base already has the same owner kind. It did throw `NotFoundError` before. It still throws when the base has a different kind, or is not the owner's. A duplicate claim that races the first one now succeeds. Code that calls this method directly must not expect the throw.
+
 ## 0.2.0
 
 ### Breaking changes
