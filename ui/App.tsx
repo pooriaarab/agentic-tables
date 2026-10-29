@@ -60,7 +60,7 @@ export function App({ themePicker = false, frame = true }: { themePicker?: boole
   );
 
   let body;
-  if (load.state === "loading") body = <p role="status" className="status"><span className="ad-spinner" aria-hidden="true" /> Loading tables…</p>;
+  if (load.state === "loading") body = <p role="status" className="status"><span className="agd-spinner" aria-hidden="true" /> Loading tables…</p>;
   else if (load.state === "error")
     body = <EmptyState title="The tables did not load" description={<span role="alert">{load.message}</span>} action={<Button onClick={() => { setLoad({ state: "loading" }); void read(); }}>Try again</Button>} />;
   else if (current) body = <TableView key={current.id} tableId={current.id} onGone={() => { location.hash = ""; void read(); }} />;
