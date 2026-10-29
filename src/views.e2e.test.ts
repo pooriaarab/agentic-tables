@@ -186,6 +186,23 @@ describe("views and CSV import over MCP", () => {
     expect(ok(db, ["query", "Deals"]).items).toHaveLength(3);
   });
 
+  test("an editor imports into a table and cannot make one", async () => {
+    const db = fresh();
+    seed(db);
+    const base = ok(db, ["bases"])[0].id;
+    ok({ ...db, AGENTIC_TABLES_BASE: base }, ["share", "eve", "editor", "--kind", "human"]);
+    const eve = { ...db, AGENTIC_TABLES_ACTOR: "human:eve", AGENTIC_TABLES_BASE: base };
+    await mcp(eve, async (call) => {
+      const added = await call("import_csv", { table: "Deals", csv: "Name,Amount\nz,1\n" });
+      expect(added.isError).toBe(false);
+      expect(added.body.inserted).toBe(1);
+      const made = await call("import_csv", { table: "Nope", csv: "A\n1\n", create: true });
+      expect(made.isError).toBe(true);
+      expect(made.body.code).toBe("FORBIDDEN");
+    });
+    expect(ok(db, ["query", "Deals"]).items).toHaveLength(4);
+  });
+
   test("the CLI import still works from a file", () => {
     const db = fresh();
     writeFileSync(join(dir, "in.csv"), "Item,Qty\nbolt,3\n");

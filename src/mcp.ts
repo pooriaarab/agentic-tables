@@ -80,14 +80,14 @@ export function createMcpServer(ctx: Context): McpServer {
     "write",
     async ({ table, ...view }) => ctx.tables.createView((await ctx.table(table)).id, view),
   );
-  tool("run_view", "Read the rows of a view. A grid pages with nextCursor. A board returns the rows in groups and does not page.", { viewId: z.string().describe("View id, from list_views or create_view."), limit: z.number().int().optional(), cursor: z.string().optional() }, "read", ({ viewId, ...page }) => ctx.tables.runView(viewId, page));
+  tool("run_view", "Read the rows of a view. A grid pages with nextCursor. A board returns the rows in groups, up to limit rows per group (default 50), and does not page. Each group's count is its full total.", { viewId: z.string().describe("View id, from list_views or create_view."), limit: z.number().int().optional(), cursor: z.string().optional() }, "read", ({ viewId, ...page }) => ctx.tables.runView(viewId, page));
   tool("delete_view", "Delete a view. Its rows stay.", { viewId: z.string() }, "delete", async ({ viewId }) => {
     await ctx.tables.deleteView(viewId);
     return { deleted: viewId };
   });
   tool(
     "import_csv",
-    "Insert the rows of CSV text, with a header line, into a table. All cells are checked first: one bad cell writes no row, and the error names the line and field. With create, a missing table is made and each column gets a guessed type. Making a table needs the owner role. That table stays if a cell then fails. At most 500 rows.",
+    "Insert the rows of CSV text, with a header line, into a table. All cells are checked first: one bad cell writes no row, and the error names the line and field. With create, a missing table is made and each column gets a guessed type. Making a table needs the owner role. That table stays if a cell then fails. At most 500 rows and 1 MB of CSV.",
     { table: tableRef, csv: z.string(), create: z.boolean().optional() },
     "write",
     async ({ table, csv, create }) => {
