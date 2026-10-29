@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0
+
+No breaking changes.
+
+### Added
+
+- **A remote client for the Worker API.** `createClient` from `agentic-tables/client` has one typed method for each route under `/api/v1/tables`. It uses only `fetch`, so it runs in browsers, Workers, and Node 22. Options: `baseUrl`, `token`, `principal`, `fetch`.
+- **Typed errors.** A failed call throws `TablesClientError` with the API `code` and the HTTP `status`, and with `issues` or `report` when the API sends them. A call with no answer has code `NETWORK` and status `0`.
+- **Cancel and no retry.** Every method takes `{ signal }` last. The client sends each call once and never retries.
+- **`principal` sets the caller.** The Worker reads `x-principal-*` headers, so the client sends them from `principal`. `token` is sent as `Authorization: Bearer`. The Worker does not read it yet.
+- **New subpath export `agentic-tables/client`.** This is why the release is a minor one.
+
 ## 0.3.0
 
 ### Breaking changes
