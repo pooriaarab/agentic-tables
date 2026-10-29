@@ -7,14 +7,22 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: in development. Not on npm yet.
+> Status: first release, 0.1.0.
 >
 > **Warning: the HTTP API has no authentication yet.** It reads the caller from
 > two headers and does not check them. The Worker refuses every request with
 > `503` until you set `AGENTIC_TABLES_UNSAFE_NO_AUTH=1`. Use that for local work
 > only. Do not put the Worker on the public internet.
 
-## What works
+## Install
+
+```sh
+npm install agentic-tables agentic-identity
+```
+
+Node 22 or newer. The CLI runs with `npx agentic-tables --help`.
+
+## Quick start
 
 The library, the CLI, the MCP server, and the HTTP API work. The web UI is planned.
 
@@ -33,6 +41,8 @@ const people = await tables.createTable(base.id, "People", [
 ]);
 await tables.insertRow(people.id, { Name: "Ada", Stage: "lead" }, { id: "u1", kind: "human" });
 ```
+
+## Features
 
 - Field types: text, long text, number, checkbox, date, single select, multi select, link to another table, file ref.
 - Every row keeps who created it and who last changed it, with the principal kind. An agent edit is labeled as an agent edit.
@@ -77,7 +87,9 @@ npx wrangler d1 create agentic-tables --location weur
 npx wrangler deploy --var AGENTIC_TABLES_REGION:eu
 ```
 
-D1 cannot report where it lives, so `AGENTIC_TABLES_REGION` (`eu` or `us`) is a claim that you make. The Worker answers `500` with `MISCONFIGURED` when the claim or the `DB` binding is missing, and when the claim is not exactly `eu` or `us`. If the table cannot be created, it answers `503`. It creates the table it needs on first use. The adapter checks the region of a query only, so a wrong claim about where D1 lives is not caught on a write: create the database with the location hint.
+`AGENTIC_TABLES_REGION` (`eu` or `us`) is a claim that you make. On each query, the adapter checks the region that D1 reports, and fails the query if it is outside the claim. The Worker answers `500` with `MISCONFIGURED` when the claim or the `DB` binding is missing, and when the claim is not exactly `eu` or `us`. If the table cannot be created, it answers `503`. It creates the table it needs on first use. The adapter checks queries only, so a wrong claim is not caught on a write: create the database with the location hint.
+
+With the unsafe flag set, the Worker fills in the region of a query when D1 reports none, because `wrangler dev` reports none. A region that D1 reports is never changed. The flag is for local work only. A Worker without it serves nothing.
 
 Local `wrangler dev` needs the same `--var` and keeps its own copy of the database and ignores the id. Two `wrangler dev` runs with the same `--persist-to` folder share it.
 

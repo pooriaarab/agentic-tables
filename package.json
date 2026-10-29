@@ -1,6 +1,6 @@
 {
   "name": "agentic-tables",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Typed tables that agents read and write as rows.",
   "keywords": [
     "database",
@@ -22,10 +22,12 @@
   "type": "module",
   "private": false,
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "files": [
-    "dist"
+    "dist",
+    "llms.txt",
+    "SKILL.md"
   ],
   "publishConfig": {
     "access": "public"
@@ -56,7 +58,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
-    "agentic-identity": "^0.1.0",
+    "agentic-identity": "^0.2.0",
     "hono": "^4.13.14",
     "zod": "^3.25.0"
   },

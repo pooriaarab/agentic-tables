@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { link, open, readFile, rename, unlink } from "node:fs/promises";
-import { assertCollection, assertId, createMemoryStore, parseRegion, type AdapterOptions, type Doc, type Query, type Store, type StoreOps } from "agentic-identity";
+import { assertCollection, assertId, createMemoryStore, parseRegion, StoreConflictError, type AdapterOptions, type Doc, type Query, type Store, type StoreOps } from "agentic-identity";
 
 /** The file as it sits in memory: collection, then id. A Map, so an id such as "constructor" is plain data. */
 type Snapshot = Map<string, Map<string, Doc>>;
@@ -256,7 +256,7 @@ export function createFileStore(path: string, options: FileStoreOptions = {}): S
         });
         if (done) return result;
       }
-      throw new Error("transaction kept conflicting");
+      throw new StoreConflictError(`transaction kept conflicting after ${MAX_TRANSACTION_RUNS} attempts`);
     },
   };
 }
