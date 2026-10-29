@@ -76,6 +76,41 @@ A memory query reads at most `maxScan` rows (10,000 by default). A larger table 
 
 Operators by type: text `eq neq contains starts_with is_empty not_empty`; number and date `eq neq gt gte lt lte is_empty not_empty`; checkbox `eq neq`; single select `eq neq in is_empty not_empty`; multi select `has has_any has_all is_empty not_empty`; link `has is_empty not_empty`; file `is_empty not_empty`.
 
+## UI
+
+A small web app for your tables. It is built on [`agentic-design`](https://www.npmjs.com/package/agentic-design) and talks to the Worker through `agentic-tables/client`. The Worker serves it at `/`, next to the API under `/api/v1/tables`.
+
+Run it on your machine:
+
+```sh
+npm ci
+npm run dev:ui
+```
+
+Open the address that `wrangler dev` prints. The script builds the app, then starts the Worker with `AGENTIC_TABLES_UNSAFE_NO_AUTH=1` and `AGENTIC_TABLES_REGION=eu`. Use it for local work only. The Worker has no sign-in yet, so the app acts as the person `local-user` and anyone who can reach the Worker can read and write.
+
+What it does:
+
+- Lists your tables. The first visit makes a base called "My tables" to hold them.
+- Shows a table as a grid with typed cells: text, long text, number, checkbox, date, single select, and multi select.
+- Adds a table, a column, and a row. Edits a cell. Deletes a row, a column, or a table after a confirm.
+- Filters on one column and sorts on one column or on the time of the last edit.
+- Shows loading, empty, and error states. A failed call shows its reason.
+- Marks a row whose last edit an agent made with the word "Agent" and an icon. Colour is never the only sign.
+- Works with the keyboard. In the grid, the arrow keys, Home, and End move. Enter edits a cell (or toggles a checkbox). Enter saves and Escape cancels.
+- Follows the system light or dark theme, or the pick in the top bar.
+
+Run the browser tests, which start `wrangler dev` with a fresh local database:
+
+```sh
+npx playwright install chromium
+npm run build && npm run test:e2e
+```
+
+They create a table, add a row, edit a cell, and reload to check that it stays. They also run an axe check for WCAG 2.2 AA on each view in both themes, and write screenshots to [`docs/screenshots`](docs/screenshots) (light and dark).
+
+Limits of the UI: link and file cells show their value and cannot be edited. A column cannot be renamed or change type. Filters take one condition. It does not refresh when another caller writes: reload to see new rows.
+
 ## HTTP API
 
 A Cloudflare Worker (Hono) serves `/api/v1/tables`. Data lives in D1, so it survives a restart and every Worker instance sees the same data.
@@ -242,7 +277,6 @@ A failed call returns `isError` with a `code` and the `issues`. Rows written ove
 ## Planned surfaces
 
 - **Open formats**: ODS and XLSX export next to CSV. The plan is to write both with a small zip library under a permissive license, with every cell typed (string, number, boolean, date) and no formula cells, so no cell can run as a formula. A flat `.fods` file needs no zip.
-- **Web UI**: a small app served by the same Worker.
 
 ## Develop
 
@@ -250,6 +284,8 @@ A failed call returns `isError` with a `code` and the `issues`. Rows written ove
 npm ci
 npm run build && npm run typecheck && npm test
 ```
+
+`npm run build` also builds the UI into `ui-dist`. The Worker config serves that folder, so build before you run `wrangler dev` or the tests.
 
 ## License
 

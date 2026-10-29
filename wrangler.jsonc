@@ -10,6 +10,8 @@
   // Create the database in the EU, then put its id below:
   //   wrangler d1 create agentic-tables --location weur
   // Local `wrangler dev` keeps its own copy and ignores the id.
+  // The web UI. `npm run build` makes ui-dist. The Worker answers /api/* first, and assets answer the rest.
+  "assets": { "directory": "./ui-dist", "run_worker_first": ["/api/*"] },
   "d1_databases": [{ "binding": "DB", "database_name": "agentic-tables", "database_id": "00000000-0000-0000-0000-000000000000" }]
   // Set AGENTIC_TABLES_REGION ("eu" or "us") for each deploy, for example with --var. It is the region
   // the database lives in. D1 cannot report it, so it is a claim you make, and no default is set here.
