@@ -1,4 +1,4 @@
-import { assertId, assertRegion, createSharing, parseRegion, type Role } from "agentic-identity";
+import { assertId, assertRegion, createSharing, parseRegion, type Role, type SubjectKind } from "agentic-identity";
 import { createD1Store, D1_SCHEMA, type D1Like } from "agentic-identity/cloudflare";
 import { Hono, type Context } from "hono";
 import { errorBody } from "./errors.js";
@@ -13,6 +13,7 @@ const STATUS: Record<string, 400 | 401 | 403 | 404 | 409 | 413 | 422> = {
   UNAUTHENTICATED: 401,
   FORBIDDEN: 403,
   LEGACY_BASE: 409,
+  ERASE_INCOMPLETE: 409,
   PAYLOAD_TOO_LARGE: 413,
   NOT_FOUND: 404,
   VALIDATION_FAILED: 422,
@@ -162,15 +163,17 @@ export function createApp(tables: Tables, sharing: Sharing) {
 
   // Roles. The caller must own the base or the table. A role on a base passes down to its tables.
   for (const [kind, type, param] of [["bases/:baseId", "base", "baseId"], ["tables/:tableId", "table", "tableId"]] as const) {
-    api.put(`/${kind}/members/:subjectId`, async (c) => {
+    // The subject is a kind (`human` or `agent`) and an id: a person and an agent with one id hold separate roles.
+    const subjectOf = (c: Context) => ({ kind: c.req.param("subjectKind") as SubjectKind, id: c.req.param("subjectId") as string });
+    api.put(`/${kind}/members/:subjectKind/:subjectId`, async (c) => {
       const g = await as(c);
       const { role } = await jsonBody(c, schemas.grant);
-      await g.grant(type, idParam(c, param), c.req.param("subjectId"), role as Role);
-      return c.json({ resourceId: idParam(c, param), subjectId: c.req.param("subjectId"), role });
+      await g.grant(type, idParam(c, param), subjectOf(c), role as Role);
+      return c.json({ resourceId: idParam(c, param), subjectKind: subjectOf(c).kind, subjectId: subjectOf(c).id, role });
     });
-    api.delete(`/${kind}/members/:subjectId`, async (c) => {
-      await (await as(c)).revokeGrant(type, idParam(c, param), c.req.param("subjectId"));
-      return c.json({ resourceId: idParam(c, param), subjectId: c.req.param("subjectId") });
+    api.delete(`/${kind}/members/:subjectKind/:subjectId`, async (c) => {
+      await (await as(c)).revokeGrant(type, idParam(c, param), subjectOf(c));
+      return c.json({ resourceId: idParam(c, param), subjectKind: subjectOf(c).kind, subjectId: subjectOf(c).id });
     });
   }
 

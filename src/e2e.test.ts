@@ -43,9 +43,9 @@ describe("cli", () => {
     expect(table.fields.map((f: any) => f.name)).toEqual(["Name", "Age", "Stage"]);
     sharedBase = ok(["export-data"]).bases[0].base.id;
     // The other actors in this test write into this base, so the owner shares it with them.
-    ok(["share", "claude", "editor"]);
-    ok(["share", "me", "editor"]);
-    ok(["share", "e2e", "editor"]);
+    ok(["share", "claude", "editor", "--kind", "agent"]);
+    ok(["share", "me", "editor", "--kind", "human"]);
+    ok(["share", "e2e", "editor", "--kind", "agent"]);
     expect(ok(["schema", "People"]).fields[0]).toMatchObject({ name: "Name", required: true });
 
     const row = ok(["insert", "People", "--json", '{"Name":"Ada","Age":36,"Stage":"won"}'], "agent:claude");
@@ -160,7 +160,7 @@ describe("data rights across two principals", () => {
         await call("insert_rows", { table: "Notes", rows: [{ Body: "mcp-secret" }] });
       });
       // The human shares the base with the agent as an editor. The agent then writes one row into it, by naming that base.
-      cli3(["share", "mcp", "editor"]);
+      cli3(["share", "mcp", "editor", "--kind", "agent"]);
       await mcp({ AGENTIC_TABLES_BASE: humanBase }, async (call) => {
         await call("insert_rows", { table: "People", rows: [{ Name: "mcp-in-human-base" }] });
       });
@@ -212,7 +212,7 @@ describe("roles over the CLI and MCP", () => {
       cli4(["insert", "Notes", "--json", '{"Body":"first"}'], owner);
       // A base made by this version is not a base from an earlier one, so there is nothing to claim.
       expect(cli4(["claim-base", base], owner).err.error.code).toBe("NOT_FOUND");
-      expect(cli4(["share", "vera", "viewer"], owner).code).toBe(0);
+      expect(cli4(["share", "vera", "viewer", "--kind", "agent"], owner).code).toBe(0);
       const viewer = { AGENTIC_TABLES_ACTOR: "agent:vera", AGENTIC_TABLES_BASE: base };
       const stranger = { AGENTIC_TABLES_ACTOR: "agent:sam", AGENTIC_TABLES_BASE: base };
 
@@ -220,7 +220,7 @@ describe("roles over the CLI and MCP", () => {
       expect(cli4(["query", "Notes"], viewer).out.items).toHaveLength(1);
       const denied = cli4(["insert", "Notes", "--json", '{"Body":"viewer was here"}'], viewer);
       expect([denied.code, denied.err.error.code]).toEqual([1, "FORBIDDEN"]);
-      expect(cli4(["share", "sam", "editor"], viewer).err.error.code).toBe("FORBIDDEN");
+      expect(cli4(["share", "sam", "editor", "--kind", "agent"], viewer).err.error.code).toBe("FORBIDDEN");
       expect(cli4(["add-field", "Notes", "--field", "X:text"], viewer).err.error.code).toBe("FORBIDDEN");
       expect(cli4(["query", "Notes"], stranger).err.error.code).toBe("NOT_FOUND");
       expect(cli4(["query", "Notes"], owner).out.items).toHaveLength(1);
@@ -243,13 +243,13 @@ describe("roles over the CLI and MCP", () => {
         expect((await call("query_rows", { table: "Notes" })).isError).toBe(false);
         const refused = await call("insert_rows", { table: "Notes", rows: [{ Body: "mcp viewer" }] });
         expect([refused.isError, refused.body.code]).toEqual([true, "FORBIDDEN"]);
-        expect((await call("share", { subject: "sam", role: "viewer" })).body.code).toBe("FORBIDDEN");
+        expect((await call("share", { subject: "sam", kind: "agent", role: "viewer" })).body.code).toBe("FORBIDDEN");
       } finally {
         await client.close();
       }
 
       // Revoke: the viewer loses access, and the rows stay as they were.
-      expect(cli4(["unshare", "vera"], owner).code).toBe(0);
+      expect(cli4(["unshare", "vera", "--kind", "agent"], owner).code).toBe(0);
       expect(cli4(["query", "Notes"], viewer).err.error.code).toBe("NOT_FOUND");
       expect(cli4(["query", "Notes"], owner).out.items.map((r: any) => r.values.Body)).toEqual(["first", "from the agent"]);
     } finally {
@@ -302,7 +302,7 @@ describe("one file, many processes", () => {
     const client = new Client({ name: "e2e-shared", version: "0.0.0" });
     try {
       expect(cliRun(["new", "Log", "--field", "Msg:text"]).status).toBe(0);
-      expect(cliRun(["share", "mcp", "editor"]).status).toBe(0);
+      expect(cliRun(["share", "mcp", "editor", "--kind", "agent"]).status).toBe(0);
       const sharedBase = JSON.parse(cliRun(["export-data"]).stdout).bases[0].base.id as string;
       await client.connect(new StdioClientTransport({ command: "node", args: [cli, "mcp"], env: { ...sharedEnv, AGENTIC_TABLES_ACTOR: "agent:mcp", AGENTIC_TABLES_BASE: sharedBase } }));
       // The server has loaded the file. Now the CLI writes, then the server writes.

@@ -47,11 +47,11 @@ async function adaBase() {
 describe("export and erase", () => {
   test("only touch bases the caller still owns", async () => {
     const { base, a } = await adaBase();
-    await call("PUT", `/bases/${base.id}/members/bob`, ada, { role: "owner" });
+    await call("PUT", `/bases/${base.id}/members/human/bob`, ada, { role: "owner" });
     await call("POST", `/tables/${a.id}/rows`, bob, { values: { N: "bob secret" } });
-    await call("PUT", `/tables/${a.id}/members/bob`, bob, { role: "owner" });
-    expect((await call("DELETE", `/bases/${base.id}/members/ada`, bob)).status).toBe(200);
-    expect((await call("DELETE", `/tables/${a.id}/members/ada`, bob)).status).toBe(200);
+    await call("PUT", `/tables/${a.id}/members/human/bob`, bob, { role: "owner" });
+    expect((await call("DELETE", `/bases/${base.id}/members/human/ada`, bob)).status).toBe(200);
+    expect((await call("DELETE", `/tables/${a.id}/members/human/ada`, bob)).status).toBe(200);
     expect((await call("GET", `/tables/${a.id}/rows`, ada)).status).toBe(404);
 
     expect((await call("GET", "/me/export", ada)).body.bases).toEqual([]);
@@ -102,7 +102,7 @@ describe("a stranger", () => {
 describe("a link field", () => {
   test("needs the right to read the table it points at", async () => {
     const { base, a, b } = await adaBase();
-    await call("PUT", `/tables/${a.id}/members/eve`, ada, { role: "owner" });
+    await call("PUT", `/tables/${a.id}/members/human/eve`, ada, { role: "owner" });
     expect((await call("GET", `/tables/${b.id}`, eve)).status).toBe(404);
     expect((await call("POST", `/tables/${a.id}/fields`, eve, { name: "L", type: "link", linkTable: b.id })).status).toBe(404);
     await call("POST", `/tables/${a.id}/fields`, ada, { name: "T", type: "text" });
@@ -118,10 +118,10 @@ describe("a link field", () => {
 describe("creating a table", () => {
   test("needs the owner role on the base", async () => {
     const { base } = await adaBase();
-    await call("PUT", `/bases/${base.id}/members/bob`, ada, { role: "editor" });
+    await call("PUT", `/bases/${base.id}/members/human/bob`, ada, { role: "editor" });
     const refused = await call("POST", `/bases/${base.id}/tables`, bob, { name: "T" });
     expect([refused.status, refused.body.error.code]).toEqual([403, "FORBIDDEN"]);
-    await call("PUT", `/bases/${base.id}/members/bob`, ada, { role: "owner" });
+    await call("PUT", `/bases/${base.id}/members/human/bob`, ada, { role: "owner" });
     expect((await call("POST", `/bases/${base.id}/tables`, bob, { name: "T" })).status).toBe(201);
   });
 });
@@ -129,10 +129,10 @@ describe("creating a table", () => {
 describe("a revoke", () => {
   test("on a base also takes back the tables the person made", async () => {
     const { base } = await adaBase();
-    await call("PUT", `/bases/${base.id}/members/bob`, ada, { role: "owner" });
+    await call("PUT", `/bases/${base.id}/members/human/bob`, ada, { role: "owner" });
     const t = (await call("POST", `/bases/${base.id}/tables`, bob, { name: "Bobs" })).body;
-    expect((await call("DELETE", `/bases/${base.id}/members/bob`, ada)).status).toBe(200);
-    for (const [method, path, body] of [["GET", `/tables/${t.id}`], ["PUT", `/tables/${t.id}/members/eve`, { role: "owner" }], ["DELETE", `/tables/${t.id}`]] as const) {
+    expect((await call("DELETE", `/bases/${base.id}/members/human/bob`, ada)).status).toBe(200);
+    for (const [method, path, body] of [["GET", `/tables/${t.id}`], ["PUT", `/tables/${t.id}/members/human/eve`, { role: "owner" }], ["DELETE", `/tables/${t.id}`]] as const) {
       expect((await call(method, path, bob, body)).status).toBe(404);
     }
     expect((await call("GET", `/tables/${t.id}`, ada)).status).toBe(200);
@@ -143,9 +143,9 @@ describe("rows a caller wrote in a base they gave away", () => {
   test("are still exported and erased for the caller", async () => {
     const { base, a } = await adaBase();
     await call("POST", `/tables/${a.id}/rows`, ada, { values: { N: "mine" } });
-    await call("PUT", `/bases/${base.id}/members/bob`, ada, { role: "owner" });
-    await call("DELETE", `/bases/${base.id}/members/ada`, bob);
-    await call("DELETE", `/tables/${a.id}/members/ada`, bob);
+    await call("PUT", `/bases/${base.id}/members/human/bob`, ada, { role: "owner" });
+    await call("DELETE", `/bases/${base.id}/members/human/ada`, bob);
+    await call("DELETE", `/tables/${a.id}/members/human/ada`, bob);
     const exported = (await call("GET", "/me/export", ada)).body;
     expect([exported.bases, exported.authoredRows.map((r: any) => r.values.N)]).toEqual([[], ["mine"]]);
     expect((await call("DELETE", "/me/data", ada)).body).toMatchObject({ bases: 0, authoredRows: 1 });
@@ -158,7 +158,7 @@ describe("link values", () => {
     const { a, b } = await adaBase();
     await call("POST", `/tables/${a.id}/fields`, ada, { name: "L", type: "link", linkTable: b.id });
     const target = (await call("POST", `/tables/${b.id}/rows`, ada, { values: { N: "t" } })).body;
-    await call("PUT", `/tables/${a.id}/members/eve`, ada, { role: "editor" });
+    await call("PUT", `/tables/${a.id}/members/human/eve`, ada, { role: "editor" });
     for (const id of [target.id, "row_0000000000000000"]) {
       const res = await call("POST", `/tables/${a.id}/rows`, eve, { values: { L: [id] } });
       expect([res.status, res.body.error.code]).toEqual([404, "NOT_FOUND"]);
@@ -191,19 +191,19 @@ describe("an agent that acts for a person", () => {
 describe("a revoke on a base", () => {
   test("changes nothing when it must fail, and says why", async () => {
     const { base, a } = await adaBase();
-    await call("PUT", `/bases/${base.id}/members/bob`, ada, { role: "owner" });
+    await call("PUT", `/bases/${base.id}/members/human/bob`, ada, { role: "owner" });
     const bobs = (await call("POST", `/bases/${base.id}/tables`, bob, { name: "Bobs" })).body;
     // Leaving yourself from a base with tables is refused before any grant is touched.
-    const self = await call("DELETE", `/bases/${base.id}/members/bob`, bob);
+    const self = await call("DELETE", `/bases/${base.id}/members/human/bob`, bob);
     expect([self.status, self.body.error.code]).toEqual([400, "BAD_REQUEST"]);
     expect((await call("GET", `/tables/${bobs.id}`, bob)).status).toBe(200);
     // A credential that cannot admin tables is refused with 403, not 500, and nothing is revoked.
-    const scoped = await call("DELETE", `/bases/${base.id}/members/bob`, person("ada", "base:admin"));
+    const scoped = await call("DELETE", `/bases/${base.id}/members/human/bob`, person("ada", "base:admin"));
     expect([scoped.status, scoped.body.error.code]).toEqual([403, "FORBIDDEN"]);
     expect((await call("GET", `/tables/${bobs.id}`, bob)).status).toBe(200);
     expect((await call("GET", `/tables/${a.id}`, bob)).status).toBe(200);
     // A subject id that grant would refuse is a 400 here too.
-    for (const bad of ["a%2Fb", "x".repeat(250), "x%20y"]) expect((await call("DELETE", `/bases/${base.id}/members/${bad}`, ada)).status).toBe(400);
+    for (const bad of ["a%2Fb", "x".repeat(250), "x%20y"]) expect((await call("DELETE", `/bases/${base.id}/members/human/${bad}`, ada)).status).toBe(400);
   });
 });
 
@@ -212,7 +212,7 @@ describe("clearing a link", () => {
     const { a, b } = await adaBase();
     await call("POST", `/tables/${a.id}/fields`, ada, { name: "L", type: "link", linkTable: b.id });
     const row = (await call("POST", `/tables/${a.id}/rows`, ada, { values: { N: "x" } })).body;
-    await call("PUT", `/tables/${a.id}/members/eve`, ada, { role: "editor" });
+    await call("PUT", `/tables/${a.id}/members/human/eve`, ada, { role: "editor" });
     for (const empty of [null, []]) expect((await call("PATCH", `/rows/${row.id}`, eve, { values: { L: empty } })).status).toBe(200);
 
     // One field under two keys, its name and its id: an empty list under one must not hide a row id under the other.
@@ -260,8 +260,8 @@ describe("a base from an earlier version", () => {
   // cannot register the tables again. It must still clear the block, or export and erase stay closed for good.
   test("can be claimed by an owner who gave it away", async () => {
     const { base } = await adaBase();
-    await call("PUT", `/bases/${base.id}/members/bob`, ada, { role: "owner" });
-    expect((await call("DELETE", `/bases/${base.id}/members/ada`, bob)).status).toBe(200);
+    await call("PUT", `/bases/${base.id}/members/human/bob`, ada, { role: "owner" });
+    expect((await call("DELETE", `/bases/${base.id}/members/human/ada`, bob)).status).toBe(200);
     const { ownerKind: _kind, ...legacy } = (await store.get("bases", base.id))!;
     await store.put("bases", base.id, legacy);
 
