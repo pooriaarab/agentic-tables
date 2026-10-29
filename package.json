@@ -1,6 +1,6 @@
 {
   "name": "agentic-tables",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Typed tables that agents read and write as rows.",
   "keywords": [
     "database",
