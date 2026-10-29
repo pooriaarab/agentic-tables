@@ -171,7 +171,8 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
             return failure(error);
           }
           // A filter or a sort on the deleted column would fail the next read. Clear it now that the column is gone.
-          const used = applied.field === gone || draft.field === gone || sort.field === gone;
+          // The draft is not read by `read`, so a draft alone does not change the query.
+          const used = applied.field === gone || sort.field === gone;
           if (applied.field === gone || draft.field === gone) { setDraft(NO_FILTER); setApplied(NO_FILTER); }
           if (sort.field === gone) setSort({ field: "", direction: "asc" });
           // A changed query reads again by itself. Otherwise read here.

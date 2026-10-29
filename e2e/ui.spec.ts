@@ -182,6 +182,14 @@ test("filter, sort, delete a row and a column", async ({ page }) => {
   await expect(page.getByLabel("Sort by")).toHaveValue("");
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByRole("grid", { name: "Tasks rows" })).toBeVisible();
+
+  // Delete a column that is only picked in the filter control, not applied. The view reads again.
+  await page.getByLabel("Filter column").selectOption({ label: "Status" });
+  await page.getByRole("button", { name: "Column options for Status" }).click();
+  await page.getByRole("menuitem", { name: "Delete column" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete column" }).click();
+  await expect(page.getByRole("columnheader", { name: /Status/ })).toHaveCount(0);
+  await expect(page.getByLabel("Filter column").locator("option", { hasText: "Status" })).toHaveCount(0);
 });
 
 test("a failed load shows an error with a retry", async ({ page }) => {
