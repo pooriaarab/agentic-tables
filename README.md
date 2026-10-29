@@ -89,12 +89,14 @@ export { default } from "agentic-tables/worker";
 
 ```jsonc
 // wrangler.jsonc of your own Worker
-"name": "my-tables",
-"main": "src/worker.ts",
-"compatibility_date": "2026-01-01",
-"compatibility_flags": ["nodejs_compat"],
-"assets": { "directory": "./node_modules/agentic-tables/ui-dist", "run_worker_first": ["/api/*"] },
-"d1_databases": [{ "binding": "DB", "database_name": "agentic-tables", "database_id": "<your id>" }]
+{
+  "name": "my-tables",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "directory": "./node_modules/agentic-tables/ui-dist", "run_worker_first": ["/api/*"] },
+  "d1_databases": [{ "binding": "DB", "database_name": "agentic-tables", "database_id": "<your id>" }]
+}
 ```
 
 Set `AGENTIC_TABLES_REGION` for each deploy, as in the HTTP API section. The Worker answers `503` until `AGENTIC_TABLES_UNSAFE_NO_AUTH=1` is set. After that, a missing `DB` binding or region answers `500`.

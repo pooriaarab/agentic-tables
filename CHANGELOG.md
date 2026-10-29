@@ -11,7 +11,7 @@ No breaking changes.
 
 ### Changed
 
-- **The repository's Worker needs the UI build.** Its `wrangler.jsonc` serves `ui-dist`, which `npm run build` makes. Run `npm run build` before `wrangler dev` or `wrangler deploy` in this repository. The build now needs the dev dependencies. The API and the package exports did not change.
+- **The repository's Worker needs the UI build.** Its `wrangler.jsonc` serves `ui-dist`, which `npm run build` makes. Run `npm run build` before `wrangler dev` or `wrangler deploy` in this repository. The build also runs `vite build` now, so it needs the dev dependencies `vite`, `@vitejs/plugin-react`, `react`, `react-dom` and `agentic-design`. The API and the package exports did not change.
 
 ## 0.4.0
 
