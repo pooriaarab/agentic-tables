@@ -7,7 +7,7 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: first release, 0.1.0.
+> Status: release 0.2.0. See [CHANGELOG.md](CHANGELOG.md) for the breaking changes.
 >
 > **Warning: the HTTP API has no authentication yet.** It reads the caller from
 > two headers and does not check them. The Worker refuses every request with
