@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmdirSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { resolve } from "node:path";
 import { createFileStore as createIdentityFileStore } from "agentic-identity/file";
 import { StoreConflictError, type AdapterOptions, type Store } from "agentic-identity";
@@ -7,8 +7,8 @@ import { StoreConflictError, type AdapterOptions, type Store } from "agentic-ide
 export type FileStoreOptions = AdapterOptions;
 
 const MAX_RUNS = 50;
-const MIGRATE_WAIT_MS = 5_000;
 const MIGRATE_STALE_MS = 10_000;
+const MIGRATE_WAIT_MS = MIGRATE_STALE_MS + 2_000;
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -32,7 +32,7 @@ const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuf
 
 /**
  * Before 0.8 the file held `{ collection: { id: doc } }`. The shared adapter reads `{ format, collections }` and refuses the
- * old shape. Convert a file of the old shape once, in place, only when it parses in full. A mutex folder keeps two
+ * old shape. Convert a file of the old shape once, in place, only when it parses in full. The original is kept as `<db>.bak`. A mutex folder keeps two
  * processes from converting at the same time. A file of any other shape is left for the adapter to accept or refuse.
  */
 function migrateLegacyFile(path: string): void {
@@ -59,11 +59,31 @@ function migrateLegacyFile(path: string): void {
     // Read again under the mutex: another process may have converted it.
     const collections = legacySnapshot(readFileSync(path, "utf8"));
     if (collections === undefined) return;
+    copyFileSync(path, `${path}.bak`);
     const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
-    writeFileSync(temp, JSON.stringify({ format: 1, collections }));
-    renameSync(temp, path);
+    try {
+      const fd = openSync(temp, "w", 0o600);
+      try {
+        writeSync(fd, JSON.stringify({ format: 1, collections }));
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+      renameSync(temp, path);
+    } catch (error) {
+      try {
+        unlinkSync(temp);
+      } catch {
+        // Never written, or gone already.
+      }
+      throw error;
+    }
   } finally {
-    rmdirSync(mutex);
+    try {
+      rmdirSync(mutex);
+    } catch {
+      // Removed by a process that found it stale.
+    }
   }
 }
 

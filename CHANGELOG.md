@@ -4,7 +4,7 @@
 
 ### Changed
 
-- `agentic-tables/file-store` now wraps `createFileStore` from `agentic-identity/file`. The local copy is gone. The call `createFileStore(path, { region })` is the same. The options `lockTimeoutMs` and `staleAfterMs` are removed, because the lock timings are now fixed inside the shared adapter. It runs one call at a time on a path in one process. A call on that path made from inside a transaction on it waits for the transaction. Do not make one. A write that meets a save from another process runs again, up to 50 times, then fails with the conflict error. The file format changed: the shared adapter writes `{ format, collections }`. A file of the old shape is converted when the store opens, and an earlier version cannot read it after that. Back up the file first.
+- `agentic-tables/file-store` now wraps `createFileStore` from `agentic-identity/file`. The local copy is gone. The call `createFileStore(path, { region })` is the same. The options `lockTimeoutMs` and `staleAfterMs` are removed, because the lock timings are now fixed inside the shared adapter. It runs one call at a time on a path in one process. A call on that path made from inside a transaction on it waits for the transaction. Do not make one. A write that meets a save from another process runs again, up to 50 times, then fails with the conflict error. The file format changed: the shared adapter writes `{ format, collections }`. A file of the old shape is converted when the store opens, and an earlier version cannot read it after that. The original stays as `<db>.bak`.
 
 ### Removed
 

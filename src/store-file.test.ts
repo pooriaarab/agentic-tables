@@ -6,10 +6,11 @@
 //  4. A file that is not JSON is never replaced.
 //  5. A conflict from another process runs again, then gives up after 50 runs. Another error is not run again.
 //  6. A lock that another process holds is not run again.
-//  7. A file of the old shape is converted once and keeps every doc. A half-valid old file is left alone.
+//  7. A file of the old shape is converted once, keeps every doc, and is saved as <db>.bak. A mutex left by a dead conversion is taken over.
+//  8. A half-valid old file and a file of an unknown format are left as they are, on a read and on a write.
 // The adapter of agentic-identity runs one call at a time on a path. A call on that path from inside a transaction
 // on it waits for the transaction. Nothing in this package makes one.
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StoreConflictError } from "agentic-identity";
@@ -73,12 +74,31 @@ test("converts a file of the old shape and keeps every doc", async () => {
   await store.put("rows", "b", { n: 3 });
   expect(JSON.parse(readFileSync(path, "utf8")).format).toBe(1);
   expect(await createFileStore(path).get("rows", "b")).toEqual({ n: 3 });
+  expect(JSON.parse(readFileSync(`${path}.bak`, "utf8")).rows.a).toEqual({ n: 1 });
+  expect(existsSync(`${path}.migrate`)).toBe(false);
+});
+
+test("takes over the mutex of a conversion that died", async () => {
+  writeFileSync(path, JSON.stringify({ rows: { a: { n: 1 } } }));
+  mkdirSync(`${path}.migrate`);
+  const old = new Date(Date.now() - 60_000);
+  utimesSync(`${path}.migrate`, old, old);
+  expect(await createFileStore(path).get("rows", "a")).toEqual({ n: 1 });
+  expect(existsSync(`${path}.migrate`)).toBe(false);
 });
 
 test("leaves a half-valid old file alone", async () => {
   const text = JSON.stringify({ rows: { a: 5 } });
   writeFileSync(path, text);
   await expect(createFileStore(path).get("rows", "a")).rejects.toThrow();
+  await expect(createFileStore(path).put("rows", "b", { n: 1 })).rejects.toThrow();
+  expect(readFileSync(path, "utf8")).toBe(text);
+});
+
+test("leaves a file of an unknown format alone", async () => {
+  const text = JSON.stringify({ format: 2, collections: {} });
+  writeFileSync(path, text);
+  await expect(createFileStore(path).put("rows", "b", { n: 1 })).rejects.toThrow();
   expect(readFileSync(path, "utf8")).toBe(text);
 });
 
