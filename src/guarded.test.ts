@@ -7,6 +7,10 @@
 //  3. A row or view id answers differently for a stranger when it exists and when it does not.
 //  4. A caller with a role on table A links a field to table B, and learns B exists.
 //  5. An editor creates a table in a base.
+//  6. A person is revoked on a base and keeps the owner role on a table they made.
+//  7. A caller gave a base away, and the rows they wrote there are neither exported nor erased.
+//  8. A caller with a role on table A inserts a link value and learns that a row of table B exists.
+//  9. An agent that acts for a person exports or erases that person's data.
 import { createMemoryStore, createSharing } from "agentic-identity";
 import { beforeEach, describe, expect, test } from "vitest";
 import { createTables } from "./index.js";
@@ -110,5 +114,67 @@ describe("creating a table", () => {
     expect([refused.status, refused.body.error.code]).toEqual([403, "FORBIDDEN"]);
     await call("PUT", `/bases/${base.id}/members/bob`, ada, { role: "owner" });
     expect((await call("POST", `/bases/${base.id}/tables`, bob, { name: "T" })).status).toBe(201);
+  });
+});
+
+describe("a revoke", () => {
+  test("on a base also takes back the tables the person made", async () => {
+    const { base } = await adaBase();
+    await call("PUT", `/bases/${base.id}/members/bob`, ada, { role: "owner" });
+    const t = (await call("POST", `/bases/${base.id}/tables`, bob, { name: "Bobs" })).body;
+    expect((await call("DELETE", `/bases/${base.id}/members/bob`, ada)).status).toBe(200);
+    for (const [method, path, body] of [["GET", `/tables/${t.id}`], ["PUT", `/tables/${t.id}/members/eve`, { role: "owner" }], ["DELETE", `/tables/${t.id}`]] as const) {
+      expect((await call(method, path, bob, body)).status).toBe(404);
+    }
+    expect((await call("GET", `/tables/${t.id}`, ada)).status).toBe(200);
+  });
+});
+
+describe("rows a caller wrote in a base they gave away", () => {
+  test("are still exported and erased for the caller", async () => {
+    const { base, a } = await adaBase();
+    await call("POST", `/tables/${a.id}/rows`, ada, { values: { N: "mine" } });
+    await call("PUT", `/bases/${base.id}/members/bob`, ada, { role: "owner" });
+    await call("DELETE", `/bases/${base.id}/members/ada`, bob);
+    await call("DELETE", `/tables/${a.id}/members/ada`, bob);
+    const exported = (await call("GET", "/me/export", ada)).body;
+    expect([exported.bases, exported.authoredRows.map((r: any) => r.values.N)]).toEqual([[], ["mine"]]);
+    expect((await call("DELETE", "/me/data", ada)).body).toMatchObject({ bases: 0, authoredRows: 1 });
+    expect((await call("GET", `/tables/${a.id}/rows`, bob)).body.items).toEqual([]);
+  });
+});
+
+describe("link values", () => {
+  test("need the right to read the linked table", async () => {
+    const { a, b } = await adaBase();
+    await call("POST", `/tables/${a.id}/fields`, ada, { name: "L", type: "link", linkTable: b.id });
+    const target = (await call("POST", `/tables/${b.id}/rows`, ada, { values: { N: "t" } })).body;
+    await call("PUT", `/tables/${a.id}/members/eve`, ada, { role: "editor" });
+    for (const id of [target.id, "row_0000000000000000"]) {
+      const res = await call("POST", `/tables/${a.id}/rows`, eve, { values: { L: [id] } });
+      expect([res.status, res.body.error.code]).toEqual([404, "NOT_FOUND"]);
+    }
+    expect((await call("POST", `/tables/${a.id}/rows`, eve, { values: { N: "no link" } })).status).toBe(201);
+    expect((await call("POST", `/tables/${a.id}/rows`, ada, { values: { L: [target.id] } })).status).toBe(201);
+  });
+});
+
+describe("an agent that acts for a person", () => {
+  test("cannot export or erase the data of that person", async () => {
+    await adaBase();
+    const agent = { "x-principal-id": "ag1", "x-principal-kind": "agent_of_human", "x-principal-chain": "human:ada" };
+    expect((await call("GET", "/me/export", agent)).status).toBe(403);
+    expect((await call("DELETE", "/me/data", agent)).status).toBe(403);
+    expect((await call("GET", "/me/export", ada)).body.bases).toHaveLength(1);
+  });
+
+  test("with a narrow scope gets one refusal for a view that exists and one that does not", async () => {
+    const { a } = await adaBase();
+    const view = (await call("POST", `/tables/${a.id}/views`, ada, { name: "V", kind: "grid" })).body;
+    const narrow = person("ada", "base:read");
+    const real = await call("GET", `/views/${view.id}/rows`, narrow);
+    const fake = await call("GET", `/views/view_0000000000000000/rows`, narrow);
+    expect([real.status, fake.status]).toEqual([403, 403]);
+    expect(real.body).toEqual(fake.body);
   });
 });

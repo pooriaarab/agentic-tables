@@ -50,6 +50,13 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
     // The scope is checked before the lookup, and a failed lookup looks like no role, so neither shows if an id exists.
     const tableOfRow = async (rowId: string) => (await tables.getRow(rowId).catch(() => Promise.reject(missing()))).tableId;
     const tableOfView = async (viewId: string) => (await tables.getView(viewId).catch(() => Promise.reject(missing()))).tableId;
+    /** A link value tells whether a row exists in the linked table, so the caller needs to read that table. */
+    const linkValues = async (tableId: string, lists: Values[]) => {
+      const table = await tables.getTable(tableId);
+      for (const field of table.fields) {
+        if (field.type === "link" && field.linkTable !== undefined && lists.some((v) => field.name in v || field.id in v)) await need(ctx, "read", field.linkTable, "table");
+      }
+    };
     const linkTargets = async (inputs: { type: string; linkTable?: string }[]) => {
       // A link field names a table, and the caller learns that table exists when the field is accepted.
       for (const input of inputs) if (input.type === "link" && input.linkTable !== undefined) await need(ctx, "read", input.linkTable, "table");
@@ -107,9 +114,9 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
       setRequired: (tableId: string, ref: string, required: boolean, opts: { dryRun?: boolean } = {}) => onTable("admin", tableId, () => tables.setRequired(tableId, ref, required, opts)),
       setOptions: (tableId: string, ref: string, options: string[], opts: { onInUse?: "abort" | "clear" } = {}) => onTable("admin", tableId, () => tables.setOptions(tableId, ref, options, opts)),
 
-      insertRow: (tableId: string, values: Values) => onTable("write", tableId, () => tables.insertRow(tableId, values, actor)),
-      insertRows: (tableId: string, list: Values[]) => onTable("write", tableId, () => tables.insertRows(tableId, list, actor)),
-      updateRow: (rowId: string, values: Values) => onRow("write", rowId, () => tables.updateRow(rowId, values, actor)),
+      insertRow: (tableId: string, values: Values) => onTable("write", tableId, async () => (await linkValues(tableId, [values]), tables.insertRow(tableId, values, actor))),
+      insertRows: (tableId: string, list: Values[]) => onTable("write", tableId, async () => (await linkValues(tableId, list), tables.insertRows(tableId, list, actor))),
+      updateRow: (rowId: string, values: Values) => onRow("write", rowId, async () => (await linkValues((await tables.getRow(rowId)).tableId, [values]), tables.updateRow(rowId, values, actor))),
       deleteRow: (rowId: string) => onRow("write", rowId, () => tables.deleteRow(rowId)),
       getRow: (rowId: string) => onRow("read", rowId, () => tables.getRow(rowId)),
       listRows: (tableId: string, options: ListRowsOptions = {}) => onTable("read", tableId, () => tables.listRows(tableId, options)),
@@ -125,8 +132,10 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
         await need(ctx, "admin", resourceId, type);
         await shared(() => sharing.grant(ctx, resourceId, subjectId, role));
       },
+      /** Take a role back. On a base it also takes back the role on each table in it, such as the owner role of a table the person made. */
       revokeGrant: async (type: "base" | "table", resourceId: string, subjectId: string) => {
         await need(ctx, "admin", resourceId, type);
+        if (type === "base") for (const table of await tables.listTables(resourceId)) await dropTableRole(table.id, subjectId);
         await shared(() => sharing.revokeGrant(ctx, resourceId, subjectId));
       },
 
@@ -143,6 +152,17 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
         return tables.eraseOwnerData(me.id, { baseIds: await ownedBases() });
       },
     };
+
+    /** A table has its own owner grant for the person who made it. The last owner cannot be removed, so the caller takes a grant first. */
+    async function dropTableRole(tableId: string, subjectId: string): Promise<void> {
+      try {
+        await sharing.revokeGrant(ctx, tableId, subjectId);
+      } catch (error) {
+        if (!(error instanceof Error && error.message.startsWith("the last owner"))) throw error;
+        await shared(() => sharing.grant(ctx, tableId, owner.id, "owner"));
+        await shared(() => sharing.revokeGrant(ctx, tableId, subjectId));
+      }
+    }
 
     async function ownedBases(): Promise<string[]> {
       const ids = [];

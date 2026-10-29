@@ -321,10 +321,11 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     return [...writes, ...doomed.map((r): Write => ["rows", r.id, null])];
   };
   /** Rows the principal wrote in bases it does not own, with the table of each. */
-  const authoredElsewhere = async (ops: StoreOps, principalId: string): Promise<{ id: string; data: RowDoc; table: TableDoc }[]> => {
+  /** `skip` holds the bases that are exported or dropped as a whole, so their rows are not counted twice. */
+  const authoredElsewhere = async (ops: StoreOps, principalId: string, skip: Set<string>): Promise<{ id: string; data: RowDoc; table: TableDoc }[]> => {
     const found: { id: string; data: RowDoc; table: TableDoc }[] = [];
     for (const base of await all<{ ownerId?: string }>(ops, "bases", {}, "createdAt")) {
-      if (base.data.ownerId === principalId) continue;
+      if (skip.has(base.id)) continue;
       for (const { id: tableId, data: table } of await all<TableDoc>(ops, "tables", { baseId: base.id }, "createdAt")) {
         for (const r of await all<RowDoc>(ops, "rows", { tableId }, "createdAt")) if (r.data.createdBy?.id === principalId) found.push({ ...r, table });
       }
@@ -384,7 +385,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
           }
           bases.push(out);
         }
-        const authoredRows = (await authoredElsewhere(ops, ownerId)).map((r) => rowView(r.table, r.id, r.data));
+        const authoredRows = (await authoredElsewhere(ops, ownerId, new Set(bases.map((b) => b.base.id)))).map((r) => rowView(r.table, r.id, r.data));
         return { format: "agentic-tables-export", version: 1, exportedAt: stamp(), ownerId, bases, authoredRows };
       });
     },
@@ -394,7 +395,9 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       return store.transaction(async (ops) => {
         const total: EraseSummary = { bases: 0, tables: 0, rows: 0, views: 0, authoredRows: 0 };
         const writes: Write[] = [];
+        const dropped = new Set<string>();
         for (const { id } of (await all<object>(ops, "bases", { ownerId }, "createdAt")).filter((b) => only.baseIds?.includes(b.id) ?? true)) {
+          dropped.add(id);
           const gone = await planDropBase(ops, id);
           writes.push(...gone.writes);
           total.bases += 1;
@@ -402,7 +405,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
           total.rows += gone.summary.rows;
           total.views += gone.summary.views;
         }
-        const authored = await authoredElsewhere(ops, ownerId);
+        const authored = await authoredElsewhere(ops, ownerId, dropped);
         writes.push(...(await planRemoveRows(ops, authored)));
         total.authoredRows = authored.length;
         await apply(ops, writes);
