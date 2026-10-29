@@ -108,10 +108,10 @@ export function createMcpServer(ctx: Context): McpServer {
     await ctx.tables.revokeGrant(resource.type, resource.id, { kind, id: subject });
     return { resourceId: resource.id, subject, kind };
   });
-  tool("insert_rows", "Insert rows. Keys are field names. All rows are checked first. If one fails, none is written, and the error names the row and field.", { table: tableRef, rows: z.array(z.record(z.any())).min(1).max(500) }, "write", async ({ table, rows }) => ({
+  tool("insert_rows", "Insert rows. Keys are field names. All rows are checked first. If one fails, none is written, and the error names the row and field.", { table: tableRef, rows: z.array(z.record(z.string(), z.any())).min(1).max(500) }, "write", async ({ table, rows }) => ({
     rows: await ctx.tables.insertRows((await ctx.table(table)).id, rows as Values[]),
   }));
-  tool("update_row", "Change fields of one row. Send only the fields to change. Send null to empty a field.", { rowId, values: z.record(z.any()) }, "write", ({ rowId: id, values }) => ctx.tables.updateRow(id, values as Values));
+  tool("update_row", "Change fields of one row. Send only the fields to change. Send null to empty a field.", { rowId, values: z.record(z.string(), z.any()) }, "write", ({ rowId: id, values }) => ctx.tables.updateRow(id, values as Values));
   tool("delete_row", "Delete one row. It leaves the links that point at it.", { rowId }, "delete", async ({ rowId: id }) => {
     await ctx.tables.deleteRow(id);
     return { deleted: id };
