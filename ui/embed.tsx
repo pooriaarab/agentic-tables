@@ -38,7 +38,7 @@ function checkBaseUrl(value: unknown): void {
 }
 
 /** A client that asks the callback for the token on each request, so a token that expires is replaced and never kept. */
-export function clientFor(options: TablesUiOptions): TablesClient {
+function clientFor(options: TablesUiOptions): TablesClient {
   if (!options) throw new TypeError("the tables UI needs options with a baseUrl");
   checkBaseUrl(options.baseUrl);
   if (options.getToken !== undefined && typeof options.getToken !== "function") throw new TypeError("getToken must be a function");
@@ -56,7 +56,7 @@ export function clientFor(options: TablesUiOptions): TablesClient {
 }
 
 /** The app with a client above it. It needs the theme, tooltip, and toast providers above it. `mount` adds them. */
-export function TablesApp({ client, themePicker }: { client: TablesClient; themePicker?: boolean }) {
+function TablesApp({ client, themePicker }: { client: TablesClient; themePicker?: boolean }) {
   return (
     <ClientContext.Provider value={client}>
       <App themePicker={themePicker} />
