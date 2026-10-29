@@ -201,7 +201,7 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
         name: need(1, "a view name"),
         kind,
         ...(flag("filter") === undefined ? {} : { filter: json(flag("filter"), "--filter") as never }),
-        ...(field ? { sort: { field, direction: direction === "desc" ? "desc" : "asc" } } : {}),
+        ...(field ? { sort: { field, ...(direction === undefined ? {} : { direction: direction as "asc" | "desc" }) } } : {}),
         ...(flag("group-by") === undefined ? {} : { groupBy: flag("group-by") }),
       });
     }

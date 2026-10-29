@@ -29,7 +29,9 @@ async function mcp<T>(db: Record<string, string>, fn: (call: (name: string, args
   try {
     return await fn(async (name, args = {}) => {
       const res = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { text: string }[] };
-      return { isError: res.isError === true, body: JSON.parse(res.content[0]!.text) };
+      const text = res.content[0]!.text;
+      // The SDK sends an input the schema refuses as plain text, not JSON.
+      return { isError: res.isError === true, body: text.startsWith("MCP error") ? text : JSON.parse(text) };
     });
   } finally {
     await client.close();
@@ -57,6 +59,9 @@ describe("views over the CLI", () => {
     seed(db);
     const grid = ok(db, ["new-view", "Deals", "Big", "--kind", "grid", "--filter", '{"field":"Amount","op":"gt","value":10}', "--sort", "Amount:desc"]);
     expect(grid).toMatchObject({ name: "Big", kind: "grid" });
+    const typo = run(db, ["new-view", "Deals", "Typo", "--kind", "grid", "--sort", "Amount:dsc"]);
+    expect(typo.code).not.toBe(0);
+    expect(ok(db, ["views", "Deals"]).map((v: any) => v.name)).toEqual(["Big"]);
     const board = ok(db, ["new-view", "Deals", "By stage", "--kind", "board", "--group-by", "Stage"]);
     expect(ok(db, ["views", "Deals"]).map((v: any) => v.name)).toEqual(["Big", "By stage"]);
 
@@ -141,6 +146,8 @@ describe("views and CSV import over MCP", () => {
       const big = await call("import_csv", { table: "Parts", csv: `Item,Qty,Done\n${"x,1,true\n".repeat(501)}` });
       expect(big.isError).toBe(true);
       expect(big.body.code).toBe("PAYLOAD_TOO_LARGE");
+      const wide = await call("import_csv", { table: "Parts", csv: `Item\n${"€".repeat(350_000)}\n` });
+      expect(wide.isError).toBe(true);
       expect((await call("query_rows", { table: "Parts" })).body.items).toHaveLength(2);
     });
   });
