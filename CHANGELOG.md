@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.0
+
+No breaking changes.
+
+### Added
+
+- `mount` in `agentic-tables/ui` takes `frame: false`. The app then draws no banner, no `main` landmark, and no skip link, so a host page that has its own landmarks passes the axe landmark checks. The default stays `true`.
+
+### Changed
+
+- The `agentic-design` dependency is now `^0.3.2`.
+
+### Fixed
+
+- `agentic-tables mcp --help`, `-h`, `--version`, `-V`, and `-v` print their output and exit `0`. Before, `mcp --help` exited `2`, because the CLI read `--help` as a flag that needs a value. The top-level `agentic-tables -v` and `agentic-tables-mcp -v` print the version. Before, `agentic-tables-mcp -v` started the server.
+
 ## 0.8.0
 
 **Read the breaking changes below before you upgrade.** The file store options and file format changed, and `agentic-tables/ui` no longer exports `clientFor` or `TablesApp`.
@@ -28,10 +44,6 @@
 ### Changed
 
 - **Breaking:** `agentic-tables/file-store` now wraps `createFileStore` from `agentic-identity/file`. The local copy is gone. The call `createFileStore(path, { region })` is the same. The options `lockTimeoutMs` and `staleAfterMs` are removed, because the lock timings are now fixed inside the shared adapter. It runs one call at a time on a path in one process. A call on that path made from inside a transaction on it waits for the transaction. Do not make one. A write that meets a save from another process runs again, up to 50 times, then fails with the conflict error. The file format changed: the shared adapter writes `{ format, collections }`. A file of the old shape is converted when the store opens, and an earlier version cannot read it after that. The original stays as `<db>.bak`.
-
-### Added
-
-- `mount` in `agentic-tables/ui` takes `frame: false`. The app then draws no banner, no `main` landmark, and no skip link, so a host page that has its own landmarks passes the axe landmark checks. The default stays `true`.
 
 ### Removed
 

@@ -7,12 +7,12 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: release 0.8.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
+> Status: release 0.9.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
 >
 > **The Worker checks every request.** It needs `Authorization: Bearer <token>`, and `agentic-identity` verifies the
 > token against credentials in the same store. A request with no valid token gets `401`. A token without the scope
 > of a route gets `403`. The Worker no longer reads `x-principal-*` headers, and `AGENTIC_TABLES_UNSAFE_NO_AUTH` is gone:
-> see "Upgrading the Worker" under Unreleased in [CHANGELOG.md](CHANGELOG.md). The Node server (`agentic-tables/node`) still
+> see "Upgrading the Worker" under 0.8.0 in [CHANGELOG.md](CHANGELOG.md). The Node server (`agentic-tables/node`) still
 > trusts headers, so it refuses to start without `unsafeNoAuth: true`. Use it for local work only.
 
 ## Install
@@ -152,7 +152,7 @@ const tables = mount(document.getElementById("tables")!, {
   getToken,
   // getToken: () => "<token>",   // the Worker needs a token on every request
   // themePicker: true,                                 // show a theme control; the app then sets data-theme on the page
-  // frame: false,                                      // no banner, main landmark, or skip link: for a page with its own
+  // frame: false,                                      // no banner, main landmark, or skip link: for a page with its own landmarks
 });
 
 tables.update({ baseUrl: "https://other.example.com", getToken });  // use other options in the same place

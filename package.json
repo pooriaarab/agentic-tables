@@ -1,6 +1,6 @@
 {
   "name": "agentic-tables",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Typed tables that agents read and write as rows.",
   "keywords": [
     "database",
@@ -91,6 +91,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
+    "axe-core": "^4.14.0",
     "jsdom": "^26.1.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
