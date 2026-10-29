@@ -144,6 +144,10 @@ describe("a delete that stops half way", () => {
       expect([await count("grants"), await count("resources")]).toEqual([grants, resources]);
     }
     expect((await call("GET", `/tables/${table.id}`, ada)).status).toBe(200);
+    const single = await call("DELETE", `/tables/${extra.id}`, ada);
+    expect([single.status, single.body.error.code]).toEqual([400, "BAD_REQUEST"]);
+    expect([await count("grants"), await count("resources")]).toEqual([grants, resources]);
+    expect((await call("GET", `/tables/${extra.id}`, ada)).status).toBe(200);
   });
 
   test("is refused before any grant goes for a credential without table:admin", async () => {

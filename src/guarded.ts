@@ -59,16 +59,9 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
   }
 
   return (ctx: PrincipalContext) => {
-    /**
-     * Remove the grants of tables whose data goes. A table whose resource is already gone (an earlier call stopped, or a claim never
-     * registered it) is skipped: a missing resource denies the owner of its base. Every limit is checked before the first write, so a
-     * refusal leaves the tables as they were.
-     */
-    const dropTableGrants = async (tableIds: string[], baseIds: string[]) => {
-      if (tableIds.length > 0) scoped(ctx, "admin", "table");
-      const present: string[] = [];
-      for (const id of tableIds) if ((await sharing.can(ctx, "admin", id)).allowed) present.push(id);
-      for (const id of [...present, ...baseIds]) {
+    /** `deleteResource` refuses a resource with too many owners. Check that before the first write, so a refusal changes nothing. */
+    const checkOwners = async (ids: string[]) => {
+      for (const id of ids) {
         let owners = 0;
         let cursor: string | undefined;
         do {
@@ -78,6 +71,17 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
         } while (cursor !== undefined && owners <= MAX_OWNERS_ON_ERASE);
         if (owners > MAX_OWNERS_ON_ERASE) throw new TablesError("BAD_REQUEST", `a base or a table has more than ${MAX_OWNERS_ON_ERASE} owners. Take some back first`);
       }
+    };
+    /**
+     * Remove the grants of tables whose data goes. A table whose resource is already gone (an earlier call stopped, or a claim never
+     * registered it) is skipped: a missing resource denies the owner of its base. Every limit is checked before the first write, so a
+     * refusal leaves the tables as they were.
+     */
+    const dropTableGrants = async (tableIds: string[], baseIds: string[]) => {
+      if (tableIds.length > 0) scoped(ctx, "admin", "table");
+      const present: string[] = [];
+      for (const id of tableIds) if ((await sharing.can(ctx, "admin", id)).allowed) present.push(id);
+      await checkOwners([...present, ...baseIds]);
       for (const id of present) await shared(() => sharing.deleteResource(ctx, id));
     };
     // Roles belong to the root of the chain. The leaf is who acted, and it stays on every row.
@@ -161,6 +165,7 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
       /** Delete the table and every grant on it. A repeat call finishes a delete that stopped half way. */
       deleteTable: (tableId: string) =>
         onTable("admin", tableId, async () => {
+          await checkOwners([tableId]);
           const summary = await tables.deleteTable(tableId).catch(ignoreGone);
           await shared(() => sharing.deleteResource(ctx, tableId));
           return summary ?? { rows: 0, views: 0 };
