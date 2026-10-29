@@ -60,7 +60,7 @@ export function createGuarded(tables: Tables, sharing: Sharing, store?: Store) {
     } catch (error) {
       if (error instanceof Error && error.message === "forbidden") throw new TablesError("FORBIDDEN", "your role does not allow this");
       if (error instanceof EraseRefusedError) throw new TablesError("BAD_REQUEST", error.message);
-      if (error instanceof Error && /^(invalid role|invalid subject|invalid resource|the last owner|give an email|invalid email|invalid handle|invalid cursor|expiresInMs|limit must)/.test(error.message)) throw new TablesError("BAD_REQUEST", error.message);
+      if (error instanceof Error && /^(invalid role|invalid subject|invalid resource|the last owner|give an email|invalid email|invalid handle|invalid cursor|expiresInMs|expiresAt must|limit must)/.test(error.message)) throw new TablesError("BAD_REQUEST", error.message);
       throw error;
     }
   }
