@@ -11,7 +11,21 @@ No breaking changes.
 - Client methods for members and invites: `listBaseMembers`, `listTableMembers`, `inviteToBase`, and `inviteToTable`. Client methods for links: `createBaseLink`, `createTableLink`, `listBaseLinks`, `listTableLinks`, `revokeBaseLink`, and `revokeTableLink`.
 - HTTP routes `GET /…/members` and `POST /…/invites` for a base and a table.
 - `createApp` takes `options.store`, and `createUnsafeApp` and `createGuarded` take a store, so the link routes can read the links. The Worker, the Node server, and the CLI pass it. Without it the link routes answer `503 UNAVAILABLE`.
+
+## 0.12.1 - 2026-10-29
+
+No breaking changes to the API. This release also adds `tablesAccount`, listed under Added.
+
+### Added
+
 - `tablesAccount`: `exportAccount` and `eraseAccount` for a host that runs account export and erase across packages. They run on the guarded path and return plain JSON by collection and counts by collection, so the host does not read the table layout.
+
+### Changed
+
+- The `agentic-identity` dependency is now `^0.9.0`.
+- The `agentic-design` dependency is now `^0.5.0`. It has a calmer look in light and dark, with an indigo accent and softer borders. The token names and the `agd-` prefix do not change.
+- The `agentic-identity` 0.9 release adds optional sign-in settings, such as magic-link sign-in. This package does not use them, so its behavior does not change.
+- The `zod` dependency and its override are `^4.6.7`, the floor that `agentic-design` 0.5 needs.
 
 ## 0.12.0
 
