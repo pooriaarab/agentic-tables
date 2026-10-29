@@ -68,7 +68,7 @@ async function open(env: Env) {
 
 let app: ReturnType<typeof open> | undefined;
 
-// Every request needs a credential that `agentic-identity` verifies. A request with none gets 401, before any route runs.
+// Every request except `GET /health` needs a credential that `agentic-identity` verifies. A request with none gets 401, before any route runs.
 export default {
   async fetch(request: Request, env: Env = {}): Promise<Response> {
     // Liveness. It needs no credential and no database, so it answers even when the Worker is not set up yet.
