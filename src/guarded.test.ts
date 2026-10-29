@@ -290,7 +290,6 @@ describe("a base from an earlier version", () => {
     expect((await call("GET", `/tables/${table.id}/rows`, ada)).status).toBe(200);
   });
 
-
   // Makes a base look like one from an earlier version: no owner kind. The store still holds its sharing record.
   async function makeLegacy(baseId: string): Promise<void> {
     const { ownerKind: _kind, ...legacy } = (await store.get("bases", baseId))!;
