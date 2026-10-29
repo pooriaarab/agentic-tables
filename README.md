@@ -323,7 +323,7 @@ value such as `table:read,base:read` makes `new` fail with `FORBIDDEN`, and it b
 is optional too. Leave it unset to use the default base, one for each actor or for the person it acts for. Or set it to
 the id of a base that its owner shared with you.
 
-Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `delete-table`, `claim-base`, `share`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
+Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `delete-table`, `views`, `new-view`, `view`, `delete-view`, `claim-base`, `share`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
 
 CSV import checks every cell first. If one cell fails, no row is written, and the error names the line and field. `--create` makes the table and guesses a type for each column: number, checkbox, date, single select, long text, or text. A column is a number only if every value is a plain decimal. `00123`, `0x1F`, and `1e3` stay text.
 
@@ -370,6 +370,26 @@ npx agentic-tables delete-field People Age --yes
 | `change_field_type` | Change the type of a field. It has `dryRun` and `onFailure`. |
 
 Renaming a base is not available yet.
+
+## Views and CSV import on every face
+
+The CLI and the MCP server save and run views, as the HTTP API does. A view keeps a filter and a sort. A board view groups rows by a single select field. A board shows up to 50 rows per group by default, up to `--limit`. It does not page.
+
+```sh
+npx agentic-tables new-view People Adults --kind grid --filter '{"field":"Age","op":"gt","value":17}' --sort Name
+npx agentic-tables new-view People "By stage" --kind board --group-by Stage
+npx agentic-tables views People                       # list the views of a table
+npx agentic-tables view view_... --limit 20           # run a view
+npx agentic-tables delete-view view_... --yes         # the rows stay
+```
+
+| MCP tool | Use it for |
+| --- | --- |
+| `list_views`, `create_view` | List the views of a table. Save a view. |
+| `run_view`, `delete_view` | Read the rows of a view. Delete a view. |
+| `import_csv` | Insert rows from CSV text. It has the same checks as `import`, and `create` makes a missing table, which needs the owner role. A call takes at most 500 rows and 1 MB of CSV. |
+
+Changing a view after you make it is not available yet. Delete the view and make it again.
 
 ## Run on Firebase
 

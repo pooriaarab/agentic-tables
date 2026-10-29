@@ -49,6 +49,10 @@ const findField = (table: Table, ref: string): Field | undefined => table.fields
 
 /** Check a filter against the schema. Returns it with field ids, so a rename cannot break it. */
 export function resolveFilter(table: Table, filter: Filter, issues: Issue[]): Filter {
+  if (typeof filter !== "object" || filter === null || Array.isArray(filter)) {
+    issues.push({ field: "filter", code: "type", message: 'must be an object: {field, op, value}, {and: [...]} or {or: [...]}' });
+    return filter;
+  }
   if ("and" in filter || "or" in filter) {
     const key = "and" in filter ? "and" : "or";
     const list = "and" in filter ? filter.and : (filter as { or: Filter[] }).or;

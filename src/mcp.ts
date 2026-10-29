@@ -3,9 +3,11 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { ROLES, SUBJECT_KINDS } from "agentic-identity";
 import { z } from "zod";
 import { type Context } from "./context.js";
+import { importCsv } from "./csv-import.js";
 import { errorBody } from "./errors.js";
-import { FIELD_TYPES, type Table, type Values } from "./model.js";
+import { FIELD_TYPES, TablesError, type Table, type Values } from "./model.js";
 import { OPERATORS } from "./query.js";
+import { MAX_BATCH_ROWS, MAX_BODY_BYTES } from "./schemas.js";
 import { VERSION } from "./version.js";
 
 const fieldShape = z.object({
@@ -70,6 +72,29 @@ export function createMcpServer(ctx: Context): McpServer {
     async ({ table, field, linkTable, ...change }) => ctx.tables.changeFieldType((await ctx.table(table)).id, field, { ...change, ...(linkTable !== undefined ? { linkTable: (await ctx.table(linkTable)).id } : {}) }),
   );
   tool("delete_table", "Delete a table with all its rows and views. It fails while another table links to it.", { table: tableRef }, "delete", async ({ table }) => ctx.tables.deleteTable((await ctx.table(table)).id));
+  tool("list_views", "List the saved views of a table.", { table: tableRef }, "read", async ({ table }) => ctx.tables.listViews((await ctx.table(table)).id));
+  tool(
+    "create_view",
+    "Save a filter and sort as a view. A board view groups rows by a single select field (groupBy). Filter and sort have the same shape as in query_rows.",
+    { table: tableRef, name: z.string(), kind: z.enum(["grid", "board"]), filter: z.any().optional(), sort: z.object({ field: z.string(), direction: z.enum(["asc", "desc"]).optional() }).optional(), groupBy: z.string().optional() },
+    "write",
+    async ({ table, ...view }) => ctx.tables.createView((await ctx.table(table)).id, view),
+  );
+  tool("run_view", "Read the rows of a view. A grid pages with nextCursor. A board returns the rows in groups, up to limit rows per group (default 50), and does not page. Each group's count is its full total.", { viewId: z.string().describe("View id, from list_views or create_view."), limit: z.number().int().optional(), cursor: z.string().optional() }, "read", ({ viewId, ...page }) => ctx.tables.runView(viewId, page));
+  tool("delete_view", "Delete a view. Its rows stay.", { viewId: z.string() }, "delete", async ({ viewId }) => {
+    await ctx.tables.deleteView(viewId);
+    return { deleted: viewId };
+  });
+  tool(
+    "import_csv",
+    "Insert the rows of CSV text, with a header line, into a table. All cells are checked first: one bad cell writes no row, and the error names the line and field. With create, a missing table is made and each column gets a guessed type. Making a table needs the owner role. That table stays if a cell then fails. At most 500 rows and 1 MB of CSV.",
+    { table: tableRef, csv: z.string(), create: z.boolean().optional() },
+    "write",
+    async ({ table, csv, create }) => {
+      if (Buffer.byteLength(csv, "utf8") > MAX_BODY_BYTES) throw new TablesError("PAYLOAD_TOO_LARGE", `the CSV must be at most ${MAX_BODY_BYTES} bytes`);
+      return importCsv(ctx, table, csv, create === true, MAX_BATCH_ROWS);
+    },
+  );
   tool("export_my_data", "Export every base owned by the acting principal, with tables, views, and rows, as JSON.", {}, "read", async () => ctx.tables.exportMyData());
   tool("erase_my_data", "Hard delete every base owned by the acting principal. This cannot be undone.", {}, "delete", async () => ctx.tables.eraseMyData());
   tool("claim_base", "Make a base from an earlier version usable. You must be the owner by id. A base with no owner kind blocks export, erase, and new bases until you claim it.", { baseId: z.string() }, "write", ({ baseId }) => ctx.tables.claimBase(baseId));
