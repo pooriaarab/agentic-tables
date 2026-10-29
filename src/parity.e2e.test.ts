@@ -93,13 +93,51 @@ describe("field edits over the CLI", () => {
     expect(JSON.parse(blocked.err).error).toMatchObject({ code: "MIGRATION_ABORTED" });
     expect(ok(["change-type", "People", "Age", "--to", "number", "--dry-run"])).toMatchObject({ applied: false });
     expect(ok(["schema", "People"]).fields[1].type).toBe("text");
-    expect(ok(["change-type", "People", "Age", "--to", "number", "--on-failure", "clear"])).toMatchObject({ applied: true });
+    expect(run(["change-type", "People", "Age", "--to", "number", "--on-failure", "clear"]).code).toBe(2);
+    expect(ok(["change-type", "People", "Age", "--to", "number", "--on-failure", "clear", "--yes"])).toMatchObject({ applied: true });
     expect(ok(["query", "People", "--sort", "Full name"]).items.map((r: any) => r.values.Age)).toEqual([36, null]);
 
     expect(run(["delete-field", "People", "Age"]).code).toBe(2);
     expect(ok(["schema", "People"]).fields).toHaveLength(2);
     expect(ok(["delete-field", "People", "Age", "--yes"]).fields.map((f: any) => f.name)).toEqual(["Full name"]);
     expect(ok(["query", "People"]).items[0].values).toEqual({ "Full name": "Ada" });
+  });
+});
+
+describe("the work base", () => {
+  // Each test uses its own database file, so the actor owns no base at the start.
+  const fresh = () => ({ AGENTIC_TABLES_DB: join(dir, `work-${Math.random().toString(36).slice(2)}.json`) });
+  const tableNames = (extra: Record<string, string>, baseId: string) => ok(["list"], { ...extra, AGENTIC_TABLES_BASE: baseId }).map((t: any) => t.name);
+
+  test("the first base an actor makes is its work base", () => {
+    const db = fresh();
+    const sales = ok(["new-base", "Sales"], db);
+    ok(["new", "Leads", "--field", "Name:text"], db);
+    expect(tableNames(db, sales.id)).toEqual(["Leads"]);
+    expect(ok(["bases"], db)).toHaveLength(1);
+  });
+
+  test("a later base is not the work base until AGENTIC_TABLES_BASE names it", () => {
+    const db = fresh();
+    ok(["new", "First", "--field", "Name:text"], db);
+    const [first] = ok(["bases"], db);
+    const second = ok(["new-base", "Second"], db);
+    ok(["new", "Second table", "--field", "Name:text"], db);
+    expect(tableNames(db, first.id)).toEqual(["First", "Second table"]);
+    expect(tableNames(db, second.id)).toEqual([]);
+  });
+
+  test("after the work base is deleted, the next oldest base is the work base", () => {
+    const db = fresh();
+    ok(["new", "First", "--field", "Name:text"], db);
+    const [first] = ok(["bases"], db);
+    const second = ok(["new-base", "Second"], db);
+    ok(["delete-base", first.id, "--yes"], db);
+    ok(["new", "After", "--field", "Name:text"], db);
+    expect(tableNames(db, second.id)).toEqual(["After"]);
+    const named = run(["list"], { ...db, AGENTIC_TABLES_BASE: first.id });
+    expect(named.code).toBe(1);
+    expect(JSON.parse(named.err).error.code).toBe("NOT_FOUND");
   });
 });
 
@@ -116,7 +154,10 @@ describe("bases and field edits over MCP", () => {
   });
 
   test("runs the same operations and reports failures as errors", async () => {
+    const db = { AGENTIC_TABLES_DB: join(dir, "mcp-ops.json") };
     await mcp(async (call) => {
+      // The actor owns no base yet, so a table made first goes into its own work base, and Ops stays empty.
+      await call("create_table", { name: "Seed", fields: [] });
       const made = await call("create_base", { name: "Ops" });
       expect(made.body).toMatchObject({ name: "Ops" });
       expect((await call("list_bases")).body.map((b: any) => b.name)).toContain("Ops");
@@ -136,12 +177,12 @@ describe("bases and field edits over MCP", () => {
       const gone = await call("delete_field", { table: "Items", field: "Qty" });
       expect(gone.isError).toBe(true);
 
-      // create_base does not switch the default base, so Ops is empty.
+      // create_base does not switch the work base, so Ops is empty.
       const bases = (await call("list_bases")).body as { id: string; name: string }[];
       const ops = bases.find((b) => b.name === "Ops")!;
       expect((await call("delete_base", { baseId: ops.id })).body).toEqual({ tables: 0, rows: 0, views: 0 });
       expect((await call("list_bases")).body.map((b: any) => b.id)).not.toContain(ops.id);
       expect((await call("delete_base", { baseId: ops.id })).isError).toBe(true);
-    });
+    }, db);
   });
 });

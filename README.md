@@ -350,15 +350,15 @@ The CLI and the MCP server manage bases and edit fields, as the HTTP API does.
 
 ```sh
 npx agentic-tables bases                              # the bases you can read
-npx agentic-tables new-base Sales                     # prints the base; set its id as AGENTIC_TABLES_BASE to work in it
+npx agentic-tables new-base Sales                     # prints the base. Your work base is the oldest base you own; set AGENTIC_TABLES_BASE to use another
 npx agentic-tables delete-base base_... --yes         # removes the base with its tables, rows and views
 npx agentic-tables rename-field People Name "Full name"
 npx agentic-tables change-type People Age --to number --dry-run
-npx agentic-tables change-type People Age --to number --on-failure clear
+npx agentic-tables change-type People Age --to number --on-failure clear --yes
 npx agentic-tables delete-field People Age --yes
 ```
 
-`change-type` converts every value. By default it changes nothing if one value fails, and it lists the rows that fail. `--on-failure clear` empties the failed values. `--dry-run` writes nothing. A select target takes `--options "a|b"`. A link target takes `--link-table`.
+`change-type` converts every value. By default it changes nothing if one value fails, and it lists the rows that fail. `--on-failure clear` empties the failed values and needs `--yes`. `--dry-run` writes nothing. A select target takes `--options "a|b"`. A link target takes `--link-table`.
 
 | MCP tool | Use it for |
 | --- | --- |

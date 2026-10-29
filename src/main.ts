@@ -25,11 +25,11 @@ Commands:
   required <table> <field> <true|false> [--dry-run]
   rename-field <table> <field> <newName>   Rename a field. Rows and views keep working.
   delete-field <table> <field> --yes  Delete a field and its values in every row.
-  change-type <table> <field> --to <type> [--options <a|b>] [--link-table <t>] [--on-failure <abort|clear>] [--dry-run]
+  change-type <table> <field> --to <type> [--options <a|b>] [--link-table <t>] [--on-failure <abort|clear>] [--dry-run] [--yes]
                                       Convert every value. "abort" (default) changes nothing if one fails. "clear" empties failed values.
   delete-table <table> --yes          Delete a table with its rows and views.
   bases                               List the bases you can read.
-  new-base <name>                     Create a base. Use its id as AGENTIC_TABLES_BASE.
+  new-base <name>                     Create a base. Your work base is the oldest one you own. Set its id as AGENTIC_TABLES_BASE to work in another.
   delete-base <baseId> --yes          Delete a base with its tables, rows and views.
   claim-base <baseId>                 Make a base from an earlier version usable. You must be its owner.
   share <subject> <role> --kind <human|agent> [--table <t>]  Give a person or agent a role (viewer, commenter, editor, owner) on the base, or on one table.
@@ -166,6 +166,7 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
       const select = to === "single_select" || to === "multi_select";
       if (flag("options") !== undefined && !select) throw new UsageError("--options needs --to single_select or multi_select");
       if (flag("link-table") !== undefined && to !== "link") throw new UsageError("--link-table needs --to link");
+      if (onFailure === "clear" && flag("dry-run") === undefined && flag("yes") === undefined) throw new UsageError("--on-failure clear empties the values that fail. Add --yes to confirm, or --dry-run to see them first");
       return ctx.tables.changeFieldType(table.id, need(1, "a field"), {
         to: to as FieldType,
         ...(flag("options") === undefined ? {} : { options: flag("options")!.split("|").filter(Boolean) }),
