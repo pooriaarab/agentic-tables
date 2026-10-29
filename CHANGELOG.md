@@ -2,7 +2,7 @@
 
 ## 0.10.0
 
-BREAKING: design class prefix is now agd-. The classes, custom properties, and data attributes of `agentic-design` that began with `ad-` now begin with `agd-` (for example `.agd-button` and `--agd-color-text`). Ad blockers hide `ad-` classes, so the prefix changed. The `./ui` output changes. A host that styles those names must use the new ones. There are no aliases.
+BREAKING: design class prefix is now agd-. The classes, custom properties, and data attributes of `agentic-design` that began with the old prefix now begin with `agd-` (for example `.agd-button` and `--agd-color-text`). Ad blockers hide the old class names, so the prefix changed. The `./ui` output changes. A host that styles those names must use the new ones. There are no aliases.
 
 ### Changed
 
