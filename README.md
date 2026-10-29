@@ -70,18 +70,19 @@ Operators by type: text `eq neq contains starts_with is_empty not_empty`; number
 
 A Cloudflare Worker (Hono) serves `/api/v1/tables`. Data lives in D1, so it survives a restart and every Worker instance sees the same data.
 
-Create the database in the EU, put its id in `wrangler.jsonc`, and keep `AGENTIC_TABLES_REGION` set to the region you chose:
+Create the database in the EU, put its id in `wrangler.jsonc`, and set `AGENTIC_TABLES_REGION` for each deploy. There is no default, so a deploy cannot claim a region you did not state:
 
 ```sh
 npx wrangler d1 create agentic-tables --location weur
+npx wrangler deploy --var AGENTIC_TABLES_REGION:eu
 ```
 
-D1 cannot report where it lives, so `AGENTIC_TABLES_REGION` (`eu` or `us`) is a claim that you make. The Worker answers `500` with `MISCONFIGURED` when the claim or the `DB` binding is missing, and when the claim is `unknown`. It creates the table it needs on first use.
+D1 cannot report where it lives, so `AGENTIC_TABLES_REGION` (`eu` or `us`) is a claim that you make. The Worker answers `500` with `MISCONFIGURED` when the claim or the `DB` binding is missing, and when the claim is not exactly `eu` or `us`. If the table cannot be created, it answers `503`. It creates the table it needs on first use. The adapter checks the region of a query only, so a wrong claim about where D1 lives is not caught on a write: create the database with the location hint.
 
-Local `wrangler dev` keeps its own copy of the database and ignores the id. Two `wrangler dev` runs with the same `--persist-to` folder share it.
+Local `wrangler dev` needs the same `--var` and keeps its own copy of the database and ignores the id. Two `wrangler dev` runs with the same `--persist-to` folder share it.
 
 ```sh
-npx wrangler dev --var AGENTIC_TABLES_UNSAFE_NO_AUTH:1
+npx wrangler dev --var AGENTIC_TABLES_UNSAFE_NO_AUTH:1 --var AGENTIC_TABLES_REGION:eu
 curl -X POST localhost:8787/api/v1/tables/bases -H 'x-principal-id: ada' -H 'x-principal-kind: human' -d '{"name":"Crm"}'
 ```
 

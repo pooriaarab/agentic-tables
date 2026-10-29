@@ -27,7 +27,7 @@ const persistTo = mkdtempSync(join(tmpdir(), "agentic-tables-e2e-"));
 const workers: RunningWorker[] = [];
 
 beforeAll(async () => {
-  workers.push(await startWorker({ port: PORT, persistTo, vars: ["AGENTIC_TABLES_UNSAFE_NO_AUTH:1"] }));
+  workers.push(await startWorker({ port: PORT, persistTo, vars: ["AGENTIC_TABLES_UNSAFE_NO_AUTH:1", "AGENTIC_TABLES_REGION:eu"] }));
   workers.push(await startWorker({ port: PORT + 1, persistTo }));
 }, 240_000);
 

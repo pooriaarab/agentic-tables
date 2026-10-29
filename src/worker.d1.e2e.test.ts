@@ -4,19 +4,21 @@
 //  1. Data written through one Worker is not visible through the other.
 //  2. A restart loses the data.
 //  3. Many writes at once through one Worker lose a row.
-//  4. A Worker without a region setting, or with "unknown", serves requests anyway.
+//  4. A Worker without a region setting, or with "unknown" or "EU", serves requests anyway.
 //  5. A Worker without a D1 binding serves requests anyway.
+//  6. A path id the store refuses ends as a 500 and puts the id in a log. It must be a 404.
 //
 // The run writes a JSON record of each request (status only) to $TMPDIR/agentic-tables-d1-e2e.json.
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
+import worker from "./worker.js";
 import { startWorker, type RunningWorker } from "./wrangler-harness.js";
 
 const A = 18790;
 const B = 18791;
-const OPEN = ["AGENTIC_TABLES_UNSAFE_NO_AUTH:1"];
+const OPEN = ["AGENTIC_TABLES_UNSAFE_NO_AUTH:1", "AGENTIC_TABLES_REGION:eu"];
 const ADA = { "x-principal-id": "ada", "x-principal-kind": "human" };
 const steps: { step: string; status: number }[] = [];
 const persistTo = mkdtempSync(join(tmpdir(), "agentic-tables-d1-"));
@@ -74,13 +76,33 @@ describe("two Workers on one D1 database", () => {
     const [again] = running as [RunningWorker, RunningWorker];
     expect((await call(again, "GET", "/bases")).body.items.map((b: any) => b.name)).toEqual(["Crm"]);
     expect(await rowCount(again, table.id)).toBe(20);
+
+    // An id the store refuses is a missing resource, and its text stays out of the log.
+    expect((await call(again, "GET", "/rows/__secret__")).status).toBe(404);
+    expect((await call(again, "GET", "/tables/__secret__/rows")).status).toBe(404);
+    expect(again.log()).not.toContain("invalid id");
   }, 360_000);
 
-  test("refuses to serve without a region claim", async () => {
-    const worker = await startWorker({ port: A + 10, persistTo: mkdtempSync(join(tmpdir(), "agentic-tables-d1-noregion-")), vars: [...OPEN, "AGENTIC_TABLES_REGION:unknown"] });
-    running.push(worker);
-    const res = await call(worker, "GET", "/bases");
-    expect(res.status).toBe(500);
-    expect(res.body.error.code).toBe("MISCONFIGURED");
-  }, 120_000);
+  test("refuses to serve without a region claim, in a real Worker", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agentic-tables-d1-noregion-"));
+    const unknown = await startWorker({ port: A + 10, persistTo: dir, vars: [OPEN[0]!, "AGENTIC_TABLES_REGION:unknown"] });
+    running.push(unknown);
+    const first = await call(unknown, "GET", "/bases");
+    expect([first.status, first.body.error.code]).toEqual([500, "MISCONFIGURED"]);
+    const missing = await startWorker({ port: A + 11, persistTo: dir, vars: [OPEN[0]!] });
+    running.push(missing);
+    const second = await call(missing, "GET", "/bases");
+    expect([second.status, second.body.error.code]).toEqual([500, "MISCONFIGURED"]);
+  }, 180_000);
+
+  // The handler itself, with the environment a bad deploy would give it.
+  test.each([
+    ["no database", { AGENTIC_TABLES_UNSAFE_NO_AUTH: "1", AGENTIC_TABLES_REGION: "eu" }],
+    ["no region", { AGENTIC_TABLES_UNSAFE_NO_AUTH: "1", DB: {} }],
+    ["an upper case region", { AGENTIC_TABLES_UNSAFE_NO_AUTH: "1", AGENTIC_TABLES_REGION: "EU", DB: {} }],
+    ["an unknown region", { AGENTIC_TABLES_UNSAFE_NO_AUTH: "1", AGENTIC_TABLES_REGION: "unknown", DB: {} }],
+  ])("answers 500 MISCONFIGURED with %s", async (_name, env) => {
+    const res = await worker.fetch(new Request("http://x/api/v1/tables/bases"), env as never);
+    expect([res.status, ((await res.json()) as any).error.code]).toEqual([500, "MISCONFIGURED"]);
+  });
 });

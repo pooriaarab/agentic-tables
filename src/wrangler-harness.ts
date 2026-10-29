@@ -15,16 +15,25 @@ export interface RunningWorker {
 export async function startWorker(options: { port: number; persistTo: string; vars?: string[] }): Promise<RunningWorker> {
   const { port, persistTo, vars = [] } = options;
   const args = ["dev", "--ip", "127.0.0.1", "--port", String(port), "--inspector-port", String(port + 100), "--persist-to", persistTo, ...vars.flatMap((v) => ["--var", v])];
+  const busy = await fetch(`http://127.0.0.1:${port}/`).then(() => true, () => false);
+  if (busy) throw new Error(`port ${port} is already served`);
   const server: ChildProcess = spawn(process.execPath, [WRANGLER, ...args], {
     env: { ...process.env, WRANGLER_SEND_METRICS: "false", CI: "1" },
     stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
   });
   let log = "";
   for (const stream of [server.stdout, server.stderr]) stream?.on("data", (chunk: Buffer) => (log = (log + chunk.toString()).slice(-2000)));
   const exited = new Promise<void>((resolve) => server.once("exit", () => resolve()));
+  // A Worker that is still running holds its port, and the next one would answer from the old process.
   const stop = async () => {
-    server.kill("SIGTERM");
-    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 10_000))]);
+    const gone = (ms: number) => Promise.race([exited.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms))]);
+    // Wrangler starts workerd and esbuild. A signal to the whole group stops them too.
+    const signal = (name: NodeJS.Signals) => (server.pid === undefined ? server.kill(name) : process.kill(-server.pid, name));
+    signal("SIGTERM");
+    if (await gone(10_000)) return;
+    signal("SIGKILL");
+    if (!(await gone(5_000))) throw new Error(`wrangler dev on port ${port} did not stop`);
   };
   const deadline = Date.now() + 90_000;
   for (;;) {
