@@ -102,9 +102,20 @@ describe("remote client over wrangler dev", () => {
 
   test("imports no runtime module, so it stays free of Node and store code", () => {
     const source = readFileSync(new URL("./client.ts", import.meta.url), "utf8");
-    const imports = source.split("\n").filter((line) => /^\s*(import|export)\b.*\bfrom\b/.test(line));
-    expect(imports.length).toBeGreaterThan(0);
-    for (const line of imports) expect(line).toMatch(/^(import|export) type /);
+    const statements = source.match(/^(import|export)\b[^;]*?\bfrom\s*"[^"]+";/gms) ?? [];
+    expect(statements.length).toBeGreaterThan(0);
+    for (const statement of statements) expect(statement).toMatch(/^(import|export) type /);
+  });
+
+  test("sends an empty scope list, so the call has no scopes", async () => {
+    const c = createClient({ baseUrl: `http://127.0.0.1:${PORT}`, principal: { id: "ada", kind: "human", scopes: "" } });
+    const base = await ada().createBase("Scoped");
+    expect(await failure(c.deleteBase(base.id))).toMatchObject({ code: "UNAUTHENTICATED", status: 401 });
+    expect((await ada().listTables(base.id))).toEqual([]);
+  });
+
+  test("refuses a sort field with a colon", async () => {
+    expect(await failure(ada().queryRows("table_0000000000000000", { sort: { field: "a:b" } }))).toMatchObject({ code: "BAD_REQUEST", status: 0 });
   });
 
   test("cancels with an AbortSignal and does not retry", async () => {

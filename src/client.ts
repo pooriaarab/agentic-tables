@@ -1,12 +1,12 @@
 // A typed client for the Worker HTTP API. It uses only `fetch`, so it runs in browsers, Workers and Node 22.
 // Keep this file free of runtime imports: types only, so no Node or store code reaches a browser bundle.
 import type { Role, SubjectKind } from "agentic-identity";
-import type { Field, FieldInput, PrincipalKind, Row, Table, Values } from "./model.js";
+import type { Field, FieldInput, Issue, PrincipalKind, Row, Table, Values } from "./model.js";
 import type { MigrationReport } from "./migrate.js";
 import type { Filter, Sort } from "./query.js";
 import type { AddFieldInput, Base, ChangeTypeOptions, EraseSummary, OwnerExport, RowPage, View, ViewInput, ViewRun } from "./tables.js";
 
-export type { Field, FieldInput, Row, Table, Values, MigrationReport, Filter, Sort, AddFieldInput, Base, ChangeTypeOptions, EraseSummary, OwnerExport, RowPage, View, ViewInput, ViewRun, Role, SubjectKind };
+export type { Issue, Field, FieldInput, Row, Table, Values, MigrationReport, Filter, Sort, AddFieldInput, Base, ChangeTypeOptions, EraseSummary, OwnerExport, RowPage, View, ViewInput, ViewRun, Role, SubjectKind };
 
 const PREFIX = "/api/v1/tables";
 
@@ -19,11 +19,13 @@ export class TablesClientError extends Error {
     /** The HTTP status, or 0 when no answer came. */
     readonly status: number,
     /** Field issues of a `VALIDATION_FAILED` answer. */
-    readonly issues?: unknown,
+    readonly issues?: Issue[],
     /** The migration report of a `MIGRATION_ABORTED` answer. */
     readonly report?: MigrationReport,
+    /** The error that `fetch` threw, for a `NETWORK` failure. */
+    cause?: unknown,
   ) {
-    super(message);
+    super(message, cause === undefined ? undefined : { cause });
     this.name = "TablesClientError";
   }
 }
@@ -78,8 +80,11 @@ export interface Membership {
   resourceId: string;
   subjectKind: SubjectKind;
   subjectId: string;
-  role?: Role;
+  role: Role;
 }
+
+/** The answer of an unshare. */
+export type Unshared = Omit<Membership, "role">;
 
 export function createClient(options: ClientOptions) {
   const doFetch = options.fetch ?? globalThis.fetch?.bind(globalThis);
@@ -93,7 +98,7 @@ export function createClient(options: ClientOptions) {
     auth["x-principal-id"] = p.id;
     auth["x-principal-kind"] = p.kind;
     if (p.chain) auth["x-principal-chain"] = p.chain;
-    if (p.scopes) auth["x-principal-scopes"] = p.scopes;
+    if (p.scopes !== undefined) auth["x-principal-scopes"] = p.scopes;
   }
 
   /** One request, no retry: a repeat of a write could write twice. */
@@ -107,12 +112,13 @@ export function createClient(options: ClientOptions) {
       response = await doFetch(url, { method, headers, body: opts.body === undefined ? undefined : JSON.stringify(opts.body), signal: opts.signal });
     } catch (error) {
       if (opts.signal?.aborted) throw error;
-      throw new TablesClientError("NETWORK", "the request did not reach the API", 0);
+      throw new TablesClientError("NETWORK", "the request did not reach the API", 0, undefined, undefined, error);
     }
     let body: any;
     try {
       body = await response.json();
-    } catch {
+    } catch (error) {
+      if (opts.signal?.aborted) throw error;
       throw new TablesClientError("BAD_RESPONSE", "the API answer is not JSON", response.status);
     }
     if (!response.ok) {
@@ -152,8 +158,10 @@ export function createClient(options: ClientOptions) {
     /** All rows are written, or none. */
     insertRows: async (tableId: string, rows: Values[], o: CallOptions = {}) =>
       (await call<{ items: Row[] }>("POST", `/tables/${id(tableId)}/rows`, { body: { rows }, signal: o.signal })).items,
-    queryRows: (tableId: string, q: QueryOptions = {}) =>
-      call<RowPage>("GET", `/tables/${id(tableId)}/rows`, {
+    queryRows: async (tableId: string, q: QueryOptions = {}) => {
+      // The Worker reads `Field:desc`, so a colon in the field name would be cut.
+      if (q.sort?.field.includes(":")) throw new TablesClientError("BAD_REQUEST", "a sort field cannot contain a colon", 0);
+      return call<RowPage>("GET", `/tables/${id(tableId)}/rows`, {
         query: {
           filter: q.filter === undefined ? undefined : JSON.stringify(q.filter),
           sort: q.sort === undefined ? undefined : q.sort.direction === "desc" ? `${q.sort.field}:desc` : q.sort.field,
@@ -161,7 +169,8 @@ export function createClient(options: ClientOptions) {
           cursor: q.cursor,
         },
         signal: q.signal,
-      }),
+      });
+    },
     getRow: (rowId: string, o: CallOptions = {}) => call<Row>("GET", `/rows/${id(rowId)}`, { signal: o.signal }),
     updateRow: (rowId: string, values: Values, o: CallOptions = {}) => call<Row>("PATCH", `/rows/${id(rowId)}`, { body: { values }, signal: o.signal }),
     deleteRow: (rowId: string, o: CallOptions = {}) => call<{ deleted: string }>("DELETE", `/rows/${id(rowId)}`, { signal: o.signal }),
@@ -173,9 +182,9 @@ export function createClient(options: ClientOptions) {
     deleteView: (viewId: string, o: CallOptions = {}) => call<{ deleted: string }>("DELETE", `/views/${id(viewId)}`, { signal: o.signal }),
 
     shareBase: (baseId: string, who: Subject, role: Role, o: CallOptions = {}) => call<Membership>("PUT", members("bases", baseId, who), { body: { role }, signal: o.signal }),
-    unshareBase: (baseId: string, who: Subject, o: CallOptions = {}) => call<Membership>("DELETE", members("bases", baseId, who), { signal: o.signal }),
+    unshareBase: (baseId: string, who: Subject, o: CallOptions = {}) => call<Unshared>("DELETE", members("bases", baseId, who), { signal: o.signal }),
     shareTable: (tableId: string, who: Subject, role: Role, o: CallOptions = {}) => call<Membership>("PUT", members("tables", tableId, who), { body: { role }, signal: o.signal }),
-    unshareTable: (tableId: string, who: Subject, o: CallOptions = {}) => call<Membership>("DELETE", members("tables", tableId, who), { signal: o.signal }),
+    unshareTable: (tableId: string, who: Subject, o: CallOptions = {}) => call<Unshared>("DELETE", members("tables", tableId, who), { signal: o.signal }),
   };
 }
 
