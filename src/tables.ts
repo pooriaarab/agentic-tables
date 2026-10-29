@@ -165,12 +165,13 @@ const findField = (table: TableDoc, ref: string): Field => {
 };
 
 function checkFields(inputs: FieldInput[], taken: string[], issues: Issue[]): void {
-  const names = taken.map((n) => n.toLowerCase());
+  const names = taken.map((n) => n.trim().toLowerCase());
   for (const input of inputs) {
     const at = (code: Issue["code"], message: string) => issues.push({ field: input.name, code, message });
-    if (typeof input.name !== "string" || input.name.trim() === "") at("type", "needs a name");
-    else if (names.includes(input.name.toLowerCase())) at("duplicate_field", "a field with this name exists");
-    names.push(String(input.name).toLowerCase());
+    const key = typeof input.name === "string" ? input.name.trim().toLowerCase() : "";
+    if (key === "") at("type", "needs a name");
+    else if (names.includes(key)) at("duplicate_field", "a field with this name exists");
+    names.push(key);
     if (!FIELD_TYPES.includes(input.type)) at("type", `type must be one of ${FIELD_TYPES.join(", ")}`);
     const select = input.type === "single_select" || input.type === "multi_select";
     if (select && (!Array.isArray(input.options) || new Set(input.options).size !== input.options.length || input.options.some((o) => o.trim() === "")))
@@ -435,7 +436,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
     },
     async listRows(tableId: string, listOptions: ListRowsOptions = {}): Promise<{ items: Row[]; nextCursor?: string }> {
       const table = await loadTable(store, tableId);
-      const page = await store.query("rows", { where: { tableId }, orderBy: { field: "createdAt" }, ...listOptions });
+      const page = await store.query("rows", { where: { tableId }, orderBy: { field: "createdAt" }, limit: listOptions.limit, cursor: listOptions.cursor });
       return { items: page.items.map((e) => rowView(table, e.id, e.data as unknown as RowDoc)), ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) };
     },
     /**

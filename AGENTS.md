@@ -7,13 +7,16 @@ Typed tables that agents read and write as rows.
 - SDK: `import { createTables, createMemoryStore } from "agentic-tables"`.
 - CLI: `npx agentic-tables --help`.
 - MCP: `npx agentic-tables mcp`.
+- HTTP: a Worker from `agentic-tables/worker`, under `/api/v1/tables`. It answers
+  `503` until `AGENTIC_TABLES_UNSAFE_NO_AUTH=1` is set. Use that for local work only.
 
-The HTTP API does not exist yet. Do not call a route that is not here.
+Do not call a route that `src/worker.ts` does not define.
 
 ## MCP tools
 
-`list_tables`, `describe_table`, `create_table`, `add_field`, `insert_rows`,
-`update_row`, `delete_row`, `get_row`, `query_rows`.
+`list_tables`, `describe_table`, `create_table`, `add_field`, `set_required`,
+`delete_table`, `insert_rows`, `update_row`, `delete_row`, `get_row`,
+`query_rows`, `export_my_data`, `erase_my_data`.
 
 ## The loop
 

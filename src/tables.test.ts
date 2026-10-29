@@ -31,6 +31,8 @@
 // 23. Point a link at another table: refused.
 // 24. Number or checkbox to select converts. Blank text cells count as empty.
 // 19. A required field set to "" or [] (the same emptiness rule as the query layer).
+// 25. A list call with extra options reads only the rows of its own table.
+// 26. Field names that differ only by surrounding spaces are duplicates.
 import { beforeEach, describe, expect, test } from "vitest";
 import {
   createMemoryStore,
@@ -39,6 +41,7 @@ import {
   NotFoundError,
   ValidationError,
   type Actor,
+  type ListRowsOptions,
   type Tables,
 } from "./index.js";
 
@@ -315,5 +318,24 @@ describe("schema migrations", () => {
       "a",
       "duplicate_field",
     );
+  });
+
+  test("field names that differ only by surrounding spaces are duplicates", async () => {
+    await expectIssue(
+      t.createTable(baseId, "Spaced", [{ name: "A", type: "text" }, { name: " a ", type: "number" }]),
+      " a ",
+      "duplicate_field",
+    );
+    const table = await t.createTable(baseId, "Solo", [{ name: "A", type: "text" }]);
+    await expectIssue(t.addField(table.id, { name: " a", type: "text" }), " a", "duplicate_field");
+  });
+
+  test("a list call with extra options reads only its own table", async () => {
+    const pets = await t.createTable(baseId, "Pets", [{ name: "Kind", type: "text" }]);
+    await t.insertRow(pets.id, { Kind: "cat" }, human);
+    const owners = await t.createTable(baseId, "Owners", [{ name: "Name", type: "text" }]);
+    await t.insertRow(owners.id, { Name: "Ada" }, human);
+    const page = await t.listRows(owners.id, { where: { tableId: pets.id } } as unknown as ListRowsOptions);
+    expect(page.items.map((r) => r.values)).toEqual([{ Name: "Ada" }]);
   });
 });
