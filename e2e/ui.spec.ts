@@ -1,8 +1,21 @@
 import AxeBuilder from "@axe-core/playwright";
 import { createClient } from "../src/client.js";
+import { seedD1 } from "../src/seed-d1.js";
 import { expect, test, type Page } from "@playwright/test";
 
 test.describe.configure({ mode: "serial" });
+
+// The Worker needs a credential. The first request makes its table, then the people of the tests get tokens in the same database.
+const PERSIST = ".wrangler/e2e";
+let tokens: { local: string; helper: string };
+test.beforeAll(async ({ baseURL }) => {
+  await fetch(`${baseURL}/api/v1/tables/bases`);
+  const seed = seedD1(PERSIST);
+  tokens = { local: seed.issue({ id: "local-user", kind: "human" }), helper: seed.issue({ id: "helper", kind: "agent" }) };
+});
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript((token) => sessionStorage.setItem("agentic-tables-token", token), tokens.local);
+});
 
 const SHOTS = "docs/screenshots";
 const THEMES = ["light", "dark"] as const;
@@ -86,7 +99,7 @@ test("add columns and a row, edit by keyboard, reload keeps it", async ({ page }
 
 test("a refused value shows the issue and keeps the cell", async ({ page, baseURL }) => {
   const id = await tableId(page);
-  const human = createClient({ baseUrl: baseURL!, principal: { id: "local-user", kind: "human" } });
+  const human = createClient({ baseUrl: baseURL!, token: tokens.local });
   await human.setRequired(id, (await human.getTable(id)).fields.find((f) => f.name === "Title")!.id, true);
   await page.goto("/#/t/" + id);
   await page.getByRole("gridcell", { name: "Write the docs" }).focus();
@@ -100,8 +113,8 @@ test("a refused value shows the issue and keeps the cell", async ({ page, baseUR
 });
 
 test("an agent's row carries a marker", async ({ page, baseURL }) => {
-  const human = createClient({ baseUrl: baseURL!, principal: { id: "local-user", kind: "human" } });
-  const agent = createClient({ baseUrl: baseURL!, principal: { id: "helper", kind: "agent" } });
+  const human = createClient({ baseUrl: baseURL!, token: tokens.local });
+  const agent = createClient({ baseUrl: baseURL!, token: tokens.helper });
   const id = await tableId(page);
   await human.shareTable(id, { kind: "agent", id: "helper" }, "editor");
   await agent.insertRow(id, { Title: "Written by an agent", Points: 1 });

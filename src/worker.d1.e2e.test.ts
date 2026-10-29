@@ -15,13 +15,17 @@ import { join } from "node:path";
 import { afterAll, describe, expect, test, vi } from "vitest";
 import { createMemoryStore, createSharing } from "agentic-identity";
 import { createTables } from "./index.js";
-import worker, { createApp } from "./worker.js";
+import worker from "./worker.js";
+import { createApp } from "./app.js";
+import { seedD1 } from "./seed-d1.js";
 import { startWorker, type RunningWorker } from "./wrangler-harness.js";
 
 const A = 18790;
 const B = 18791;
-const OPEN = ["AGENTIC_TABLES_UNSAFE_NO_AUTH:1", "AGENTIC_TABLES_REGION:eu"];
+const OPEN = ["AGENTIC_TABLES_LOCAL_DEV:1", "AGENTIC_TABLES_REGION:eu"];
 const ADA = { "x-principal-id": "ada", "x-principal-kind": "human" };
+// Set once the first Worker has made its table: the bearer token of ada.
+let signedIn: Record<string, string> = {};
 const steps: { step: string; status: number }[] = [];
 const persistTo = mkdtempSync(join(tmpdir(), "agentic-tables-d1-"));
 let running: RunningWorker[] = [];
@@ -29,7 +33,7 @@ let running: RunningWorker[] = [];
 async function call(worker: RunningWorker, method: string, path: string, body?: unknown) {
   const response = await fetch(`${worker.url}${path}`, {
     method,
-    headers: { ...ADA, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    headers: { ...signedIn, ...(body === undefined ? {} : { "content-type": "application/json" }) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   steps.push({ step: `${method} ${path.replace(/[a-z]+_[0-9a-f]{16}/g, ":id").split("?")[0]}`, status: response.status });
@@ -57,6 +61,7 @@ describe("two Workers on one D1 database", () => {
   test("share data, survive a restart, and lose no concurrent write", async () => {
     running = [await startWorker({ port: A, persistTo, vars: OPEN }), await startWorker({ port: B, persistTo, vars: OPEN })];
     const [one, two] = running as [RunningWorker, RunningWorker];
+    signedIn = seedD1(persistTo).asBearer(ADA);
 
     const base = (await call(one, "POST", "/bases", { name: "Crm" })).body;
     const table = (await call(one, "POST", `/bases/${base.id}/tables`, { name: "People", fields: [{ name: "Name", type: "text", required: true }] })).body;
@@ -103,10 +108,10 @@ describe("two Workers on one D1 database", () => {
 
   // The handler itself, with the environment a bad deploy would give it.
   test.each([
-    ["no database", { AGENTIC_TABLES_UNSAFE_NO_AUTH: "1", AGENTIC_TABLES_REGION: "eu" }],
-    ["no region", { AGENTIC_TABLES_UNSAFE_NO_AUTH: "1", DB: {} }],
-    ["an upper case region", { AGENTIC_TABLES_UNSAFE_NO_AUTH: "1", AGENTIC_TABLES_REGION: "EU", DB: {} }],
-    ["an unknown region", { AGENTIC_TABLES_UNSAFE_NO_AUTH: "1", AGENTIC_TABLES_REGION: "unknown", DB: {} }],
+    ["no database", { AGENTIC_TABLES_LOCAL_DEV: "1", AGENTIC_TABLES_REGION: "eu" }],
+    ["no region", { AGENTIC_TABLES_LOCAL_DEV: "1", DB: {} }],
+    ["an upper case region", { AGENTIC_TABLES_LOCAL_DEV: "1", AGENTIC_TABLES_REGION: "EU", DB: {} }],
+    ["an unknown region", { AGENTIC_TABLES_LOCAL_DEV: "1", AGENTIC_TABLES_REGION: "unknown", DB: {} }],
   ])("answers 500 MISCONFIGURED with %s", async (_name, env) => {
     const res = await worker.fetch(new Request("http://x/api/v1/tables/bases"), env as never);
     expect([res.status, ((await res.json()) as any).error.code]).toEqual([500, "MISCONFIGURED"]);
@@ -118,11 +123,11 @@ describe("two Workers on one D1 database", () => {
     try {
       const boom = () => Promise.reject(new Error('invalid id "secret@example.com"'));
       const store = { ...createMemoryStore({ region: "eu" }), query: boom, get: boom };
-      const failed = await createApp(createTables(store as never), createSharing(store as never)).fetch(new Request("http://x/api/v1/tables/bases", { headers: ADA }));
+      const failed = await createApp(createTables(store as never), createSharing(store as never), { authenticate: async () => ({ principalId: "ada", kind: "human", chain: [{ id: "ada", kind: "human" }], scopes: ["*:admin"] }) }).fetch(new Request("http://x/api/v1/tables/bases", { headers: { authorization: "Bearer aid_x" } }));
       expect(failed.status).toBe(500);
 
       const db = { prepare: () => ({ run: boom }) };
-      const env = { AGENTIC_TABLES_UNSAFE_NO_AUTH: "1", AGENTIC_TABLES_REGION: "eu", DB: db };
+      const env = { AGENTIC_TABLES_LOCAL_DEV: "1", AGENTIC_TABLES_REGION: "eu", DB: db };
       const res = await worker.fetch(new Request("http://x/api/v1/tables/bases"), env as never);
       const body = JSON.stringify(await res.json());
       expect([res.status, body]).toEqual([503, expect.not.stringContaining("secret@example.com")]);

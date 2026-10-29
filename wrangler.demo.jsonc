@@ -1,7 +1,7 @@
 {
   // Demo deploy on workers.dev. Deploy with: npm run deploy:demo
-  // The Worker has no sign-in yet, so this demo does not set AGENTIC_TABLES_UNSAFE_NO_AUTH.
-  // The web UI is served from ui-dist. The API answers 503 until the Worker has auth.
+  // No credential is issued for this demo, so the API answers 401. The page loads and shows no data.
+  // The web UI is served from ui-dist.
   "name": "agentic-tables-demo",
   "main": "src/worker.ts",
   "compatibility_date": "2026-01-01",

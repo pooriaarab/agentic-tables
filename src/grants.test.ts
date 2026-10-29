@@ -8,7 +8,7 @@ import { createMemoryStore, createSharing } from "agentic-identity";
 import { beforeEach, describe, expect, test } from "vitest";
 import { resolveCaller } from "./caller.js";
 import { createTables } from "./index.js";
-import { createApp } from "./worker.js";
+import { createUnsafeApp as createApp } from "./app.js";
 
 const who = (kind: string, id: string) => ({ "x-principal-id": id, "x-principal-kind": kind });
 const [ada, personSam, agentSam] = [who("human", "ada"), who("human", "sam"), who("agent", "sam")];

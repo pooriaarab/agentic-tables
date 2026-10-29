@@ -20,7 +20,7 @@
 import { createMemoryStore, createSharing } from "agentic-identity";
 import { beforeEach, describe, expect, test } from "vitest";
 import { createTables } from "./index.js";
-import { createApp } from "./worker.js";
+import { createUnsafeApp as createApp } from "./app.js";
 
 const person = (id: string, scopes?: string) => ({ "x-principal-id": id, "x-principal-kind": "human", ...(scopes ? { "x-principal-scopes": scopes } : {}) });
 const [ada, bob, eve] = [person("ada"), person("bob"), person("eve")];

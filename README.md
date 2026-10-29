@@ -9,10 +9,11 @@ Typed tables that agents read and write as rows.
 
 > Status: release 0.7.1. See [CHANGELOG.md](CHANGELOG.md) for the changes.
 >
-> **Warning: the HTTP API has no authentication yet.** It reads the caller from
-> `x-principal-*` headers and does not check who sent them. The Worker refuses every request with
-> `503` until you set `AGENTIC_TABLES_UNSAFE_NO_AUTH=1`. Use that for local work
-> only. Do not put the Worker on the public internet.
+> **The Worker checks every request.** It needs `Authorization: Bearer <token>`, and `agentic-identity` verifies the
+> token against credentials in the same store. A request with no valid token gets `401`. A token without the scope
+> of a route gets `403`. The Worker no longer reads `x-principal-*` headers, and `AGENTIC_TABLES_UNSAFE_NO_AUTH` is gone:
+> see "Upgrading the Worker" under Unreleased in [CHANGELOG.md](CHANGELOG.md). The Node server (`agentic-tables/node`) still
+> trusts headers, so it refuses to start without `unsafeNoAuth: true`. Use it for local work only.
 
 ## Install
 
@@ -100,7 +101,7 @@ export { default } from "agentic-tables/worker";
 
 The Worker needs no compatibility flags. Do not add `nodejs_compat`: the default Workers runtime is enough, and a test runs the built Worker under `wrangler dev` with a config like this one. The config needs only a `compatibility_date`, the `DB` binding, and the region variable.
 
-Set `AGENTIC_TABLES_REGION` for each deploy, as in the HTTP API section. The Worker answers `503` until `AGENTIC_TABLES_UNSAFE_NO_AUTH=1` is set. After that, a missing `DB` binding or region answers `500`.
+Set `AGENTIC_TABLES_REGION` for each deploy, as in the HTTP API section. A missing `DB` binding or region answers `500`. A request with no valid token answers `401`.
 
 Run it on your machine:
 
@@ -109,7 +110,7 @@ npm ci
 npm run dev:ui
 ```
 
-Open the address that `wrangler dev` prints. The script builds the app, then starts the Worker with `AGENTIC_TABLES_UNSAFE_NO_AUTH=1` and `AGENTIC_TABLES_REGION=eu`. Use it for local work only. The Worker has no sign-in yet, so the app acts as the person `local-user` and anyone who can reach the Worker can read and write.
+Open the address that `wrangler dev` prints. The script builds the app, then starts the Worker with `AGENTIC_TABLES_LOCAL_DEV=1` and `AGENTIC_TABLES_REGION=eu`. Issue a token for yourself (see "Credentials" below), then open the app as `http://127.0.0.1:8787/#token=<token>`. The page keeps the token for that tab only and removes it from the address bar. Without a token every call answers `401`.
 
 What it does:
 
@@ -149,7 +150,7 @@ const getToken = async () => session.token();   // called before each request; r
 const tables = mount(document.getElementById("tables")!, {
   baseUrl: "https://tables.example.com",
   getToken,
-  // principal: { id: "local-user", kind: "human" },   // principal headers, for a local Worker only
+  // getToken: () => "<token>",   // the Worker needs a token on every request
   // themePicker: true,                                 // show a theme control; the app then sets data-theme on the page
 });
 
@@ -179,22 +180,48 @@ npx wrangler d1 create agentic-tables --location weur
 npx wrangler deploy --var AGENTIC_TABLES_REGION:eu
 ```
 
-`AGENTIC_TABLES_REGION` (`eu` or `us`) is a claim that you make. On each query, the adapter checks the region that D1 reports, and fails the query if it is outside the claim. Once `AGENTIC_TABLES_UNSAFE_NO_AUTH=1` is set, the Worker answers `500` with `MISCONFIGURED` when the claim or the `DB` binding is missing, and when the claim is not exactly `eu` or `us`. Until then, it answers `503`. It also answers `503` when the table cannot be created. It creates the table it needs on first use. The adapter checks queries only, so a wrong claim is not caught on a write: create the database with the location hint.
+`AGENTIC_TABLES_REGION` (`eu` or `us`) is a claim that you make. On each query, the adapter checks the region that D1 reports, and fails the query if it is outside the claim. The Worker answers `500` with `MISCONFIGURED` when the claim or the `DB` binding is missing, and when the claim is not exactly `eu` or `us`. It answers `503` when the table cannot be created. It creates the table it needs on first use. The adapter checks queries only, so a wrong claim is not caught on a write: create the database with the location hint.
 
-With the unsafe flag set, the Worker fills in the region of a query when D1 reports none, because `wrangler dev` reports none. A region that D1 reports is never changed. The flag is for local work only. A Worker without it serves nothing.
+With `AGENTIC_TABLES_LOCAL_DEV=1`, the Worker fills in the region of a query when D1 reports none, because `wrangler dev` reports none. A region that D1 reports is never changed. The flag is for `wrangler dev` only. It does not change who may call: every request still needs a token.
 
 Local `wrangler dev` needs the same `--var` and keeps its own copy of the database and ignores the id. Two `wrangler dev` runs with the same `--persist-to` folder share it.
 
-```sh
-npm run build
-npx wrangler dev --var AGENTIC_TABLES_UNSAFE_NO_AUTH:1 --var AGENTIC_TABLES_REGION:eu
-curl -X POST localhost:8787/api/v1/tables/bases -H 'x-principal-id: ada' -H 'x-principal-kind: human' -d '{"name":"Crm"}'
+### Credentials
+
+The Worker reads credentials with `createStoreAuth` and checks each request with `requirePrincipal`, both from `agentic-identity` (`agentic-identity/http` for the second). A credential is a token that maps to a principal record. Both live in the D1 table of the Worker, in the collections `credentials` and `principals`. Issue them with `issueCredential` from `agentic-identity`, with the same store the Worker uses (for example `createD1Store` in a script that runs with `wrangler`). The Worker has no route that issues a credential.
+
+```ts
+import { createD1Store } from "agentic-identity/cloudflare";
+import { issueCredential } from "agentic-identity";
+
+// `db` is your D1 binding, in a script or another Worker. The principal record is a document in the store.
+const store = createD1Store(db, { region: "eu" });
+await store.put("principals", "ada", { id: "ada", kind: "human", scopes: ["*:admin"] });
+const token = await issueCredential(store, { principalId: "ada", kind: "api_key" });
 ```
 
-Every call needs `x-principal-id` and `x-principal-kind` (one of `human`, `agent_of_human`, `agent_of_agent`, `agent`, `user_token`). A missing or unknown kind returns `401`. An id uses only A-Z a-z 0-9 . _ -, does not start with a dot, and has at most 128 characters. So an email address or an id with a colon returns `401`. The kind is kept on every row, so an agent write stays labeled. These headers stand in for sign-in until the identity package has it: nothing proves them.
+For `wrangler dev`, send one request first so the Worker makes its table. Then put a principal and a credential into the local database. A credential is stored under the SHA-256 of its token:
 
-- `x-principal-chain`: who the caller acts for, root first, as `human:ada` or `agent:a1,agent_of_agent:a2`. An agent of a person needs it. `resolveChain` from `agentic-identity` checks the parent kinds and the depth.
-- `x-principal-scopes`: what the caller may do, as `table:read,base:read`. It defaults to everything. A caller never has more than its owner's role.
+```sh
+TOKEN="aid_$(openssl rand -hex 20)"
+HASH=$(printf %s "$TOKEN" | sha256sum | cut -d' ' -f1)
+npx wrangler d1 execute DB --local --command "
+  INSERT INTO store_docs (collection, id, body) VALUES
+    ('principals', 'local-user', '{\"id\":\"local-user\",\"kind\":\"human\",\"scopes\":[\"*:admin\"]}'),
+    ('credentials', '$HASH', '{\"principalId\":\"local-user\",\"kind\":\"api_key\"}')"
+```
+
+```sh
+npm run build
+npx wrangler dev --var AGENTIC_TABLES_LOCAL_DEV:1 --var AGENTIC_TABLES_REGION:eu
+curl -X POST localhost:8787/api/v1/tables/bases -H "authorization: Bearer $TOKEN" -d '{"name":"Crm"}'
+```
+
+- A missing, malformed, unknown, expired, or revoked token returns `401` with `www-authenticate: Bearer`. The body is `{ "error": { "code": "UNAUTHENTICATED", "message": "..." } }` and never holds the token. A header such as `x-principal-id` proves nothing and is ignored.
+- A token whose principal is an agent of a person carries that chain. Each step can only narrow the scopes of the step above it. A broken chain returns `401`.
+- Each route checks the scope of the token for its action, before it looks at any id: `base:read`, `base:write`, `base:admin`, `table:read`, `table:write`, `table:admin`. A token without it returns `403`. After that, the role on the base or table decides. A caller with no role gets `404`.
+- A session cookie (`session=<token>`) works for reads. A write with a cookie needs an `Origin` that is listed in `AGENTIC_TABLES_ORIGINS` (comma separated), else it returns `403`. A bearer token needs no origin.
+- The kind of the principal is kept on every row, so an agent write stays labeled.
 
 ## SDK
 
@@ -205,7 +232,7 @@ import { createClient, TablesClientError } from "agentic-tables/client";
 
 const tables = createClient({
   baseUrl: "http://127.0.0.1:8787",
-  principal: { id: "ada", kind: "human" },
+  token: process.env.TABLES_TOKEN, // a credential issued with issueCredential
 });
 const base = await tables.createBase("Crm");
 const table = await tables.createTable(base.id, "People", [{ name: "Name", type: "text", required: true }]);
@@ -220,7 +247,7 @@ try {
 ```
 
 - `baseUrl` is the Worker origin. The client adds `/api/v1/tables`.
-- `principal` sets the `x-principal-*` headers, which the Worker reads today. `token` is sent as `Authorization: Bearer`. The Worker does not read it yet. A call with no `principal` answers `401 UNAUTHENTICATED`.
+- `token` is sent as `Authorization: Bearer`, and the Worker checks it. A call with no token, or a bad one, answers `401 UNAUTHENTICATED`. `principal` sets the `x-principal-*` headers, which only the Node server in unsafe mode reads.
 - `fetch` replaces the global `fetch`.
 - Every method takes `{ signal }` last. Abort it to cancel the call. An abort throws the error of `fetch` as it is.
 - A failed call throws `TablesClientError` with `code`, `status`, and, where the API sends them, `issues` and `report`. A call that gets no answer has code `NETWORK` and status `0`. An answer that is not JSON has code `BAD_RESPONSE`.
@@ -277,7 +304,7 @@ Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`)
 
 ## Live demo
 
-A demo runs at https://agentic-tables-demo.hello-fd1.workers.dev. It serves the web UI. The Worker has no sign-in yet, so the demo does not set `AGENTIC_TABLES_UNSAFE_NO_AUTH`. The API answers `503` there by design, and the page shows no data. The database lives in the EU (D1, `weur`) and the region claim is `eu`.
+A demo runs at https://agentic-tables-demo.hello-fd1.workers.dev. It serves the web UI. No credential is issued for it, so the API answers `401` there by design, and the page shows no data. The database lives in the EU (D1, `weur`) and the region claim is `eu`.
 
 To redeploy, log in to Cloudflare with `wrangler login` (or set `CLOUDFLARE_API_TOKEN` in your shell, never in a file). Then run:
 
@@ -409,7 +436,7 @@ const server = await createNodeServer({ store, unsafeNoAuth: true, port: 8787 })
 console.log(server.url); // http://127.0.0.1:8787/api/v1/tables
 ```
 
-- Like the Worker, the server has no sign-in yet: the caller comes from headers. It refuses to start without `unsafeNoAuth: true`, and it binds `127.0.0.1` unless you pass `host`. Use it for local work.
+- Unlike the Worker, the server has no sign-in: the caller comes from `x-principal-*` headers that nothing checks (`x-principal-id`, `x-principal-kind`, and optionally `x-principal-chain` and `x-principal-scopes`). It refuses to start without `unsafeNoAuth: true`, and it binds `127.0.0.1` unless you pass `host`. Use it for local work.
 - Only `Store` is on Firestore. Pass `baseUrl: "http://127.0.0.1:8080"` and no `token` to use the emulator.
 - The HTTP end-to-end suite (`src/api-suite.ts`) runs on the Worker over D1 and on this server over the Firestore emulator. CI runs both. To run the Firestore one: `npm run test:firestore`. It needs Java 21 or later for the emulator.
 - The emulator hangs on a document read that carries `?transaction=`, which the Firestore adapter sends. `src/emulator-fetch.ts` rewrites that read to `batchGet` for the test run. Real Firestore needs no such change.

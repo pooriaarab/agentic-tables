@@ -4,14 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createClient, TablesClientError } from "./client.js";
+import { seedD1 } from "./seed-d1.js";
 import { startWorker, type RunningWorker } from "./wrangler-harness.js";
 
 const PORT = 18792;
 const persistTo = mkdtempSync(join(tmpdir(), "agentic-tables-client-"));
 let worker: RunningWorker;
+let seed: ReturnType<typeof seedD1>;
 
 beforeAll(async () => {
-  worker = await startWorker({ port: PORT, persistTo, vars: ["AGENTIC_TABLES_UNSAFE_NO_AUTH:1", "AGENTIC_TABLES_REGION:eu"] });
+  worker = await startWorker({ port: PORT, persistTo, vars: ["AGENTIC_TABLES_LOCAL_DEV:1", "AGENTIC_TABLES_REGION:eu"] });
+  seed = seedD1(persistTo);
 }, 240_000);
 
 afterAll(async () => {
@@ -19,7 +22,7 @@ afterAll(async () => {
   rmSync(persistTo, { recursive: true, force: true });
 });
 
-const ada = () => createClient({ baseUrl: `http://127.0.0.1:${PORT}`, token: "t", principal: { id: "ada", kind: "human" } });
+const ada = () => createClient({ baseUrl: `http://127.0.0.1:${PORT}`, token: seed.issue({ id: "ada", kind: "human" }) });
 
 async function failure(promise: Promise<unknown>): Promise<TablesClientError> {
   const error = await promise.then(() => undefined, (e: unknown) => e);
@@ -66,7 +69,7 @@ describe("remote client over wrangler dev", () => {
 
     const eve = { kind: "human", id: "eve" } as const;
     expect(await c.shareBase(base.id, eve, "viewer")).toMatchObject({ subjectId: "eve", role: "viewer" });
-    const asEve = createClient({ baseUrl: `http://127.0.0.1:${PORT}/api/v1/tables`, principal: { id: "eve", kind: "human" } });
+    const asEve = createClient({ baseUrl: `http://127.0.0.1:${PORT}/api/v1/tables`, token: seed.issue({ id: "eve", kind: "human" }) });
     expect((await asEve.getTable(table.id)).id).toBe(table.id);
     expect((await failure(asEve.insertRow(table.id, { Name: "x" }))).code).toBe("FORBIDDEN");
     await c.unshareBase(base.id, eve);
@@ -107,10 +110,11 @@ describe("remote client over wrangler dev", () => {
     for (const statement of statements) expect(statement).toMatch(/^(import|export) type /);
   });
 
-  test("sends an empty scope list, so the call has no scopes", async () => {
-    const c = createClient({ baseUrl: `http://127.0.0.1:${PORT}`, principal: { id: "ada", kind: "human", scopes: "" } });
+  test("a credential with no scopes gets 403, and a missing or unknown one gets 401", async () => {
+    const c = createClient({ baseUrl: `http://127.0.0.1:${PORT}`, token: seed.issue({ id: "ada-narrow", kind: "human", scopes: [] }) });
     const base = await ada().createBase("Scoped");
-    expect(await failure(c.deleteBase(base.id))).toMatchObject({ code: "UNAUTHENTICATED", status: 401 });
+    expect(await failure(c.deleteBase(base.id))).toMatchObject({ code: "FORBIDDEN", status: 403 });
+    expect(await failure(createClient({ baseUrl: `http://127.0.0.1:${PORT}`, token: "aid_unknown" }).listBases())).toMatchObject({ code: "UNAUTHENTICATED", status: 401 });
     expect((await ada().listTables(base.id))).toEqual([]);
   });
 

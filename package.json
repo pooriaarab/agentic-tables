@@ -68,7 +68,7 @@
     "build": "tsup && npm run build:ui",
     "deploy:demo": "npm run build && wrangler deploy --config wrangler.demo.jsonc",
     "build:ui": "vite build --config ui/vite.config.ts",
-    "dev:ui": "npm run build:ui && WRANGLER_SEND_METRICS=false wrangler dev --var AGENTIC_TABLES_UNSAFE_NO_AUTH:1 --var AGENTIC_TABLES_REGION:eu",
+    "dev:ui": "npm run build:ui && WRANGLER_SEND_METRICS=false wrangler dev --var AGENTIC_TABLES_LOCAL_DEV:1 --var AGENTIC_TABLES_REGION:eu",
     "test:e2e": "playwright test",
     "test:firestore": "npx -y firebase-tools@14 emulators:exec --only firestore --project agentic-tables-e2e \"vitest run src/node.e2e.test.ts\"",
     "typecheck": "tsc --noEmit && tsc -p ui",

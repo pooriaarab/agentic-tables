@@ -5,14 +5,20 @@ import { describe, expect, test } from "vitest";
 export const HUMAN = { "x-principal-id": "ada", "x-principal-kind": "human" };
 const BOT = { "x-principal-id": "bot-1", "x-principal-kind": "agent_of_human", "x-principal-chain": "human:ada" };
 
-export function defineApiSuite(options: { title: string; base: string | (() => string); steps?: { step: string; status: number }[] }) {
+export function defineApiSuite(options: {
+  title: string;
+  base: string | (() => string);
+  steps?: { step: string; status: number }[];
+  /** Change the headers of each call, for a server that checks a credential instead of `x-principal-*` headers. */
+  headers?: (headers: Record<string, string>) => Record<string, string>;
+}) {
   const { steps = [] } = options;
   const root = () => (typeof options.base === "function" ? options.base() : options.base);
 
   async function call(method: string, path: string, headers: Record<string, string> = HUMAN, body?: unknown, raw?: string) {
     const response = await fetch(`${root()}${path}`, {
       method,
-      headers: { ...(body === undefined && raw === undefined ? {} : { "content-type": "application/json" }), ...headers },
+      headers: { ...(body === undefined && raw === undefined ? {} : { "content-type": "application/json" }), ...(options.headers ? options.headers(headers) : headers) },
       body: raw ?? (body === undefined ? undefined : JSON.stringify(body)),
     });
     steps.push({ step: `${method} ${path.replace(/[a-z]+_[0-9a-f]{16}/g, ":id").split("?")[0]}`, status: response.status });
