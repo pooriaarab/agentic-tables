@@ -7,7 +7,7 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: release 0.4.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
+> Status: release 0.5.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
 >
 > **Warning: the HTTP API has no authentication yet.** It reads the caller from
 > `x-principal-*` headers and does not check who sent them. The Worker refuses every request with
@@ -24,7 +24,7 @@ Node 22 or newer. The CLI runs with `npx agentic-tables --help`.
 
 ## Quick start
 
-The library, the CLI, the MCP server, and the HTTP API work. The web UI is planned.
+The library, the CLI, the MCP server, the HTTP API, and the web UI work.
 
 A base holds tables. A table has typed fields and rows. The library checks each
 row against the schema before it writes.
@@ -78,7 +78,28 @@ Operators by type: text `eq neq contains starts_with is_empty not_empty`; number
 
 ## UI
 
-A small web app for your tables. It is built on [`agentic-design`](https://www.npmjs.com/package/agentic-design) and talks to the Worker through `agentic-tables/client`. The Worker of this repository serves it at `/`, next to the API under `/api/v1/tables`: `wrangler.jsonc` points its `assets` at `ui-dist`. The Worker in the npm package (`agentic-tables/worker`) holds the API only. To serve the UI from your own Worker, copy the `assets` setting and build `ui-dist` with `npm run build:ui`.
+A small web app for your tables. It is built on [`agentic-design`](https://www.npmjs.com/package/agentic-design) and talks to the Worker through `agentic-tables/client`. The Worker of this repository serves it at `/`, next to the API under `/api/v1/tables`: `wrangler.jsonc` points its `assets` at `ui-dist`. The npm package ships the built app in `ui-dist`. The Worker in the package (`agentic-tables/worker`) holds the API only, so your own Worker adds the assets. Point `assets` at the shipped folder and keep `/api/*` on the Worker:
+
+Your Worker's entry file re-exports the API Worker. Your `wrangler.jsonc` serves the app from the assets, and binds the `DB` database:
+
+```ts
+// src/worker.ts of your own Worker
+export { default } from "agentic-tables/worker";
+```
+
+```jsonc
+// wrangler.jsonc of your own Worker
+{
+  "name": "my-tables",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "directory": "./node_modules/agentic-tables/ui-dist", "run_worker_first": ["/api/*"] },
+  "d1_databases": [{ "binding": "DB", "database_name": "agentic-tables", "database_id": "<your id>" }]
+}
+```
+
+Set `AGENTIC_TABLES_REGION` for each deploy, as in the HTTP API section. The Worker answers `503` until `AGENTIC_TABLES_UNSAFE_NO_AUTH=1` is set. After that, a missing `DB` binding or region answers `500`.
 
 Run it on your machine:
 
@@ -115,20 +136,24 @@ Limits of the UI: it shows the first base only. Link and file cells show their v
 
 A Cloudflare Worker (Hono) serves `/api/v1/tables`. Data lives in D1, so it survives a restart and every Worker instance sees the same data.
 
-Create the database in the EU, put its id in `wrangler.jsonc`, and set `AGENTIC_TABLES_REGION` for each deploy. There is no default, so a deploy cannot claim a region you did not state:
+Create the database in the EU, put its id in `wrangler.jsonc`, and set `AGENTIC_TABLES_REGION` for each deploy. There is no default, so a deploy cannot claim a region you did not state.
+
+This repository's `wrangler.jsonc` serves the app from `ui-dist`. Run `npm run build` first, because wrangler stops when that folder is missing. The build needs the dev dependencies:
 
 ```sh
+npm run build
 npx wrangler d1 create agentic-tables --location weur
 npx wrangler deploy --var AGENTIC_TABLES_REGION:eu
 ```
 
-`AGENTIC_TABLES_REGION` (`eu` or `us`) is a claim that you make. On each query, the adapter checks the region that D1 reports, and fails the query if it is outside the claim. The Worker answers `500` with `MISCONFIGURED` when the claim or the `DB` binding is missing, and when the claim is not exactly `eu` or `us`. If the table cannot be created, it answers `503`. It creates the table it needs on first use. The adapter checks queries only, so a wrong claim is not caught on a write: create the database with the location hint.
+`AGENTIC_TABLES_REGION` (`eu` or `us`) is a claim that you make. On each query, the adapter checks the region that D1 reports, and fails the query if it is outside the claim. Once `AGENTIC_TABLES_UNSAFE_NO_AUTH=1` is set, the Worker answers `500` with `MISCONFIGURED` when the claim or the `DB` binding is missing, and when the claim is not exactly `eu` or `us`. Until then, it answers `503`. It also answers `503` when the table cannot be created. It creates the table it needs on first use. The adapter checks queries only, so a wrong claim is not caught on a write: create the database with the location hint.
 
 With the unsafe flag set, the Worker fills in the region of a query when D1 reports none, because `wrangler dev` reports none. A region that D1 reports is never changed. The flag is for local work only. A Worker without it serves nothing.
 
 Local `wrangler dev` needs the same `--var` and keeps its own copy of the database and ignores the id. Two `wrangler dev` runs with the same `--persist-to` folder share it.
 
 ```sh
+npm run build
 npx wrangler dev --var AGENTIC_TABLES_UNSAFE_NO_AUTH:1 --var AGENTIC_TABLES_REGION:eu
 curl -X POST localhost:8787/api/v1/tables/bases -H 'x-principal-id: ada' -H 'x-principal-kind: human' -d '{"name":"Crm"}'
 ```

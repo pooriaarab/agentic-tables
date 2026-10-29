@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0
+
+No breaking changes.
+
+### Added
+
+- **A minimal web UI.** The Worker of this repository serves an app at `/`, next to the API under `/api/v1/tables`. The app is built on `agentic-design` and uses `agentic-tables/client`. It lists your tables and shows each one as a keyboard grid with typed cells. You can add and delete rows, columns, and tables, and edit cells. It has one filter, one sort, and loading, empty, and error states. A row that an agent last edited carries an "Agent" marker. Like the API, it needs `AGENTIC_TABLES_UNSAFE_NO_AUTH=1` for local work, because the Worker has no sign-in yet.
+- **The UI ships in the npm package.** The package includes the built app in `ui-dist`. To serve it from your own Worker, point the `assets` setting at `node_modules/agentic-tables/ui-dist`. The README shows the setting. The folder also has `THIRD_PARTY_NOTICES.md`, with the licenses of the code and fonts that the app bundles.
+
+### Changed
+
+- **The repository's Worker needs the UI build.** Its `wrangler.jsonc` serves `ui-dist`, which `npm run build` makes. Run `npm run build` before `wrangler dev` or `wrangler deploy` in this repository. The build also runs `vite build` now, so it needs the dev dependencies `vite`, `@vitejs/plugin-react`, `react`, `react-dom` and `agentic-design`. The API and the package exports did not change.
+
 ## 0.4.0
 
 No breaking changes.
