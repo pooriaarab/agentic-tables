@@ -344,6 +344,30 @@ Run `npx agentic-tables mcp`. It uses the same database file as the CLI, and a C
 
 A failed call returns `isError` with a `code` and the `issues`. Rows written over MCP carry the actor from `AGENTIC_TABLES_ACTOR` (default `agent:mcp`). The server checks roles as the HTTP API does, and a refusal returns `isError` with the code `FORBIDDEN` or `NOT_FOUND`.
 
+## Bases and field edits
+
+The CLI and the MCP server manage bases and edit fields, as the HTTP API does.
+
+```sh
+npx agentic-tables bases                              # the bases you can read
+npx agentic-tables new-base Sales                     # prints the base; set its id as AGENTIC_TABLES_BASE to work in it
+npx agentic-tables delete-base base_... --yes         # removes the base with its tables, rows and views
+npx agentic-tables rename-field People Name "Full name"
+npx agentic-tables change-type People Age --to number --dry-run
+npx agentic-tables change-type People Age --to number --on-failure clear
+npx agentic-tables delete-field People Age --yes
+```
+
+`change-type` converts every value. By default it changes nothing if one value fails, and it lists the rows that fail. `--on-failure clear` empties the failed values. `--dry-run` writes nothing. A select target takes `--options "a|b"`. A link target takes `--link-table`.
+
+| MCP tool | Use it for |
+| --- | --- |
+| `list_bases`, `create_base`, `delete_base` | List, create, or delete a base. |
+| `rename_field`, `delete_field` | Rename a field. Delete a field with its values. |
+| `change_field_type` | Change the type of a field. It has `dryRun` and `onFailure`. |
+
+Renaming a base is not available yet.
+
 ## Run on Firebase
 
 The domain logic takes any `Store` from `agentic-identity`, so the same API runs on Firestore. `agentic-tables/node` serves the HTTP API from a Node process over the store you pass. It holds no Cloudflare or Firebase code.
