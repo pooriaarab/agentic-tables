@@ -314,13 +314,14 @@ npx agentic-tables share claude editor --kind agent                  # a role on
 npx agentic-tables share claude viewer --kind agent --table People   # or on one table
 npx agentic-tables unshare claude --kind agent
 npx agentic-tables export People > people.csv
-npx agentic-tables import Parts --file parts.csv --create
+npx agentic-tables import Copy --file people.csv --create
 npx agentic-tables delete-table People --yes                         # last: it removes People and its rows
 ```
 
-`AGENTIC_TABLES_SCOPES` is optional. It narrows what the actor may do. Set it after the table exists: a read-only
-value such as `table:read,base:read` makes `new` fail with `FORBIDDEN`, and `insert` fails the same way. `AGENTIC_TABLES_BASE`
-is optional too. Leave it unset to use the default base of the actor, or set it to the id of a base that you own.
+`AGENTIC_TABLES_SCOPES` is optional. It narrows what the actor may do. Set it after the table exists. A read-only
+value such as `table:read,base:read` makes `new` fail with `FORBIDDEN`, and it blocks every later write. `AGENTIC_TABLES_BASE`
+is optional too. Leave it unset to use the default base, one for each actor or for the person it acts for. Or set it to
+the id of a base that its owner shared with you.
 
 Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `delete-table`, `claim-base`, `share`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
 
