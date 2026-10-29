@@ -2,7 +2,7 @@
 
 ## 0.8.0
 
-**Read the breaking changes below before you upgrade.** The file store options and file format changed.
+**Read the breaking changes below before you upgrade.** The file store options and file format changed, and `agentic-tables/ui` no longer exports `clientFor` or `TablesApp`.
 
 ### Added
 
