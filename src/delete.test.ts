@@ -115,4 +115,13 @@ describe("change required", () => {
     await expect(t.addField(tbl.id, { name: "L", type: "link", linkTable: other.id, default: ["row_missing"] })).rejects.toBeInstanceOf(ValidationError);
     expect((await t.getTable(tbl.id)).fields).toHaveLength(1);
   });
+
+  test("a link value the store would refuse is an issue, not a crash", async () => {
+    const other = await t.createTable(baseId, "Other", [{ name: "N", type: "text" }]);
+    const tbl = await t.createTable(baseId, "T", [{ name: "L", type: "link", linkTable: other.id }]);
+    for (const id of ["__x__", "a/b", ".", "x".repeat(300)]) {
+      await expect(t.insertRow(tbl.id, { L: [id] }, human)).rejects.toBeInstanceOf(ValidationError);
+    }
+    await expect(t.createTable(baseId, "Bad", [{ name: "L", type: "link", linkTable: "__x__" }])).rejects.toBeInstanceOf(ValidationError);
+  });
 });

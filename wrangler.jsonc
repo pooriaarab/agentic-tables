@@ -4,6 +4,7 @@
   "name": "agentic-tables",
   "main": "src/worker.ts",
   "compatibility_date": "2026-01-01",
+  "send_metrics": false,
   // The root of agentic-identity imports node:module for its version string.
   "compatibility_flags": ["nodejs_compat"],
   // Create the database in the EU, then put its id below:

@@ -16,7 +16,7 @@ import {
   TablesError,
   type Values,
 } from "./model.js";
-import type { Doc, Json, Page, Store, StoreOps } from "agentic-identity";
+import { assertId, type Doc, type Json, type Page, type Store, type StoreOps } from "agentic-identity";
 import { compareKeys, decodeCursor, encodeCursor, matches, resolveFilter, resolveSort, sortKey, type Filter, type Sort, type SortSpec } from "./query.js";
 
 interface BaseDoc {
@@ -176,6 +176,17 @@ const checkDirection = (sort: Sort | undefined, issues: Issue[]): void => {
   if (sort?.direction !== undefined && sort.direction !== "asc" && sort.direction !== "desc") issues.push({ field: "direction", code: "type", message: 'must be "asc" or "desc"' });
 };
 
+/** An id the store accepts. A value from a caller that fails this names no doc, so it is never read. */
+const isStoreId = (id: unknown): id is string => {
+  if (typeof id !== "string") return false;
+  try {
+    assertId(id);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const assertOwnerId = (ownerId: unknown): void => {
   if (typeof ownerId !== "string" || ownerId === "") throw new TablesError("BAD_REQUEST", "an owner id is required");
 };
@@ -233,7 +244,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
   const checkLinkTables = async (ops: StoreOps, baseId: string, inputs: FieldInput[], issues: Issue[]): Promise<void> => {
     for (const input of inputs) {
       if (input.type !== "link" || !input.linkTable) continue;
-      const target = await read<TableDoc>(ops, "tables", input.linkTable);
+      const target = isStoreId(input.linkTable) ? await read<TableDoc>(ops, "tables", input.linkTable) : null;
       if (target?.baseId !== baseId) issues.push({ field: input.name, code: "type", message: "linkTable must be a table in the same base" });
     }
   };
@@ -260,8 +271,8 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       if (issue) issues.push({ field: field.name, ...issue });
       else if (field.type === "link" && Array.isArray(value)) {
         for (const id of value as string[]) {
-          const target = await read<RowDoc>(ops, "rows", id);
-          if (target?.tableId !== field.linkTable) issues.push({ field: field.name, code: "link_missing", message: `row "${id}" is not in the linked table` });
+          const target = isStoreId(id) ? await read<RowDoc>(ops, "rows", id) : null;
+          if (target?.tableId !== field.linkTable) issues.push({ field: field.name, code: "link_missing", message: `row "${String(id).slice(0, 80)}" is not in the linked table` });
         }
       }
       merged[field.id] = value ?? null;
@@ -495,7 +506,7 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         const page = await store
           .query("rows", { where: { tableId }, orderBy: { field: spec ? spec.system : "createdAt", direction }, limit, cursor: q.cursor })
           .catch((error: unknown) => {
-            throw q.cursor !== undefined && error instanceof Error && error.message === "invalid cursor" ? new TablesError("INVALID_CURSOR", "invalid cursor") : error;
+            throw q.cursor !== undefined && error instanceof Error && /^(invalid cursor|D1_TYPE_ERROR)/.test(error.message) ? new TablesError("INVALID_CURSOR", "invalid cursor") : error;
           });
         return { items: page.items.map((e) => rowView(doc, e.id, e.data as unknown as RowDoc)), ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}), plan: "store" };
       }
@@ -602,7 +613,8 @@ export function createTables(store: Store, options: TablesOptions = {}) {
           if (bad) issues.push({ field: field.name, ...bad });
           else if (field.type === "link" && Array.isArray(fill)) {
             for (const id of fill as string[]) {
-              if ((await read<RowDoc>(ops, "rows", id))?.tableId !== field.linkTable) issues.push({ field: field.name, code: "link_missing", message: `row "${id}" is not in the linked table` });
+              const target = isStoreId(id) ? await read<RowDoc>(ops, "rows", id) : null;
+              if (target?.tableId !== field.linkTable) issues.push({ field: field.name, code: "link_missing", message: `row "${String(id).slice(0, 80)}" is not in the linked table` });
             }
           }
         } else if (field.required && rows.length > 0) {
