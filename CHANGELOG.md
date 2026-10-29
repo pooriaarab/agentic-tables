@@ -14,7 +14,7 @@ No breaking changes.
 
 ### Changed
 
-- The UI browser spec (`e2e/ui.spec.ts`) runs in CI on every pull request and on `main`. Before, CI ran only the unit and API tests, so a UI regression could merge.
+- The UI browser spec (`e2e/ui.spec.ts`) runs in CI on every pull request and on `main`. Before, CI did not run the browser spec, so a UI regression could merge.
 
 ## 0.6.0
 
