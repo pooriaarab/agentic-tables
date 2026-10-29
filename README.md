@@ -7,7 +7,7 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: release 0.7.1. See [CHANGELOG.md](CHANGELOG.md) for the changes.
+> Status: release 0.8.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
 >
 > **Warning: the HTTP API has no authentication yet.** It reads the caller from
 > `x-principal-*` headers and does not check who sent them. The Worker refuses every request with
@@ -291,7 +291,7 @@ This builds the UI and deploys `wrangler.demo.jsonc`. No CI job deploys the demo
 
 - **Upgrading from 0.1.0:** a base made by 0.1.0 (the CLI, the MCP server, or the Worker) has no owner kind and no sharing record, so nobody has a role on it. Until its owner claims it, creating a base, export, and erase answer `409 LEGACY_BASE` with the base ids, and change nothing. Claim a base with `agentic-tables claim-base <id>`, the MCP tool `claim_base`, or `POST /bases/:baseId/claim`. The claim needs the scopes `base:admin`, `base:write`, and `table:write`. A credential without them gets `403` and changes nothing. The caller must be a person or an agent with its own identity, with the base owner id, and it states its own kind as the owner. The base and its tables then get sharing records. Rows a principal wrote in a base that is not its own are still exported and erased as `authoredRows`.
 - A schema change runs in one store transaction. A very large table can exceed the transaction size of a backend.
-- Deleting a table or a base runs in one store transaction. A very large one can exceed the transaction size of a backend. The CLI and MCP server cannot delete a base yet. The library and HTTP API can.
+- Deleting a table or a base runs in one store transaction. A very large one can exceed the transaction size of a backend.
 - Deleting a base or a table, and erasing your data, also removes its sharing records (the resource and its grants), with `deleteResource` from `agentic-identity` 0.4. A repeat of a delete finishes one that stopped half way, and an erase that stopped after its data went answers `409 ERASE_INCOMPLETE` with the base ids whose grants remain: `DELETE /bases/:id` on each one removes them. A base or a table with more than 100 owners is refused before anything is deleted: take some owners back first. Listing bases checks each base, so it grows with the number of bases and writes an audit entry per check. Roles pass to a base or a table, not to a single row. Whoever creates a table owns it. Revoking a person on a base also revokes them on each table in it (the revoker becomes a direct owner of each table first, so the person is never its last owner). It needs the `table:admin` scope too. You cannot remove yourself from a base that has tables: ask another owner. If a step fails, call again.
 - A filter on a field value reads the whole table (up to `maxScan`). An index on field values comes later.
 - On D1, a transaction is one batch of statements. A very large erase or import can exceed the limits of a D1 batch. D1 has no index for the queries this package makes, so each query scans its collection. Inserts into one table take turns, because each one bumps the table (see above).
@@ -323,7 +323,7 @@ value such as `table:read,base:read` makes `new` fail with `FORBIDDEN`, and it b
 is optional too. Leave it unset to use the default base, one for each actor or for the person it acts for. Or set it to
 the id of a base that its owner shared with you.
 
-Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `delete-table`, `views`, `new-view`, `view`, `delete-view`, `claim-base`, `share`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
+Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `rename-field`, `delete-field`, `change-type`, `delete-table`, `bases`, `new-base`, `delete-base`, `views`, `new-view`, `view`, `delete-view`, `claim-base`, `share`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1.
 
 CSV import checks every cell first. If one cell fails, no row is written, and the error names the line and field. `--create` makes the table and guesses a type for each column: number, checkbox, date, single select, long text, or text. A column is a number only if every value is a plain decimal. `00123`, `0x1F`, and `1e3` stay text.
 
@@ -371,7 +371,7 @@ npx agentic-tables delete-field People Age --yes
 
 Renaming a base is not available yet.
 
-## Views and CSV import on every face
+## Views and CSV import in the CLI and MCP server
 
 The CLI and the MCP server save and run views, as the HTTP API does. A view keeps a filter and a sort. A board view groups rows by a single select field. A board shows up to 50 rows per group by default, up to `--limit`. It does not page.
 

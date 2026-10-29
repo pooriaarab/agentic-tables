@@ -1,10 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
+
+**Read the breaking changes below before you upgrade.** The file store options and file format changed.
+
+### Added
+
+- **Bases and field edits in the CLI and MCP server.** The CLI has `bases`, `new-base`, `delete-base`, `rename-field`, `delete-field`, and `change-type`. The MCP server has `list_bases`, `create_base`, `delete_base`, `rename_field`, `delete_field`, and `change_field_type`. Before, only the library and HTTP API could delete a base.
+- **Views and CSV import in the CLI and MCP server.** The CLI has `views`, `new-view`, `view`, and `delete-view`. The MCP server has `list_views`, `create_view`, `run_view`, `delete_view`, and `import_csv`.
+
+### Fixed
+
+- The README examples for the CLI and for queries are corrected.
 
 ### Changed
 
-- `agentic-tables/file-store` now wraps `createFileStore` from `agentic-identity/file`. The local copy is gone. The call `createFileStore(path, { region })` is the same. The options `lockTimeoutMs` and `staleAfterMs` are removed, because the lock timings are now fixed inside the shared adapter. It runs one call at a time on a path in one process. A call on that path made from inside a transaction on it waits for the transaction. Do not make one. A write that meets a save from another process runs again, up to 50 times, then fails with the conflict error. The file format changed: the shared adapter writes `{ format, collections }`. A file of the old shape is converted when the store opens, and an earlier version cannot read it after that. The original stays as `<db>.bak`.
+- **Breaking:** `agentic-tables/file-store` now wraps `createFileStore` from `agentic-identity/file`. The local copy is gone. The call `createFileStore(path, { region })` is the same. The options `lockTimeoutMs` and `staleAfterMs` are removed, because the lock timings are now fixed inside the shared adapter. It runs one call at a time on a path in one process. A call on that path made from inside a transaction on it waits for the transaction. Do not make one. A write that meets a save from another process runs again, up to 50 times, then fails with the conflict error. The file format changed: the shared adapter writes `{ format, collections }`. A file of the old shape is converted when the store opens, and an earlier version cannot read it after that. The original stays as `<db>.bak`.
 
 ### Removed
 
