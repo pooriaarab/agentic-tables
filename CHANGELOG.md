@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The README has a table of every subpath export in `package.json`, with what each one is for (#113).
+
 ## 0.13.0
 
 No breaking changes to the API. This release is a minor bump because it adds the `tablesAccount` export and the share links. It includes the changes once listed as 0.12.1 and 0.12.2, which were never published.
@@ -13,7 +19,6 @@ No breaking changes to the API. This release is a minor bump because it adds the
 - `createApp` takes `options.store`, and `createUnsafeApp` and `createGuarded` take a store, so the link routes can read the links. The Worker, the Node server, and the CLI pass it. Without it the link routes answer `503 UNAVAILABLE`.
 - `tablesAccount` (#97): `exportAccount` and `eraseAccount` for a host that runs account export and erase across packages. They run on the guarded path and return plain JSON by collection and counts by collection, so the host does not read the table layout.
 - `npm run dev` starts the Worker locally for a fresh clone (#108). `npm run dev:smoke` starts it, checks `GET /health` for `200`, and stops it. CI runs the check as the "dev smoke" step. The README has a "Run locally" section.
-- The README has a table of every subpath export in `package.json`, with what each one is for (#113).
 
 ### Changed
 
