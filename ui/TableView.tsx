@@ -23,7 +23,10 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
   const close = (open: boolean) => open || setDialog(null);
   const reset = () => { setDraft(NO_FILTER); setApplied(NO_FILTER); setSort({ field: "", direction: "asc" }); };
   /** After a delete the control that had focus is gone. The title is the next sensible place. */
-  const refocus = () => setTimeout(() => document.getElementById("table-title")?.focus(), 80);
+  const refocus = () => setTimeout(() => {
+    // Move focus only while it sits on the body. A control the person opened in the meantime keeps focus.
+    if (!document.activeElement || document.activeElement === document.body) document.getElementById("table-title")?.focus();
+  }, 80);
 
   const read = useCallback(
     async (cursor?: string, keep = false) => {
