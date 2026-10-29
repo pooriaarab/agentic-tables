@@ -151,6 +151,14 @@ test("filter, sort, delete a row and a column", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "No rows match" })).toBeVisible();
   await page.getByRole("button", { name: "Clear filter" }).click();
 
+  // A checkbox filter shows Yes and sends Yes.
+  await page.getByLabel("Filter column").selectOption({ label: "Done" });
+  await expect(page.getByLabel("Value")).toHaveValue("true");
+  await page.getByRole("button", { name: "Apply filter" }).click();
+  await expect(page.getByRole("gridcell", { name: "Written by an agent" })).toHaveCount(0);
+  await expect(page.getByRole("gridcell", { name: "Write the docs" })).toBeVisible();
+  await page.getByRole("button", { name: "Clear filter" }).click();
+
   await page.getByLabel("Sort by").selectOption({ label: "Points" });
   await page.getByLabel("Direction").selectOption("desc");
   await expect(page.getByRole("row").nth(1)).toContainText("Write the docs");
@@ -165,6 +173,15 @@ test("filter, sort, delete a row and a column", async ({ page }) => {
   await page.getByRole("menuitem", { name: "Delete column" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Delete column" }).click();
   await expect(page.getByRole("columnheader", { name: /Done/ })).toHaveCount(0);
+
+  // Delete the column the table is sorted on. The view stays, with the sort cleared.
+  await page.getByRole("button", { name: "Column options for Points" }).click();
+  await page.getByRole("menuitem", { name: "Delete column" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete column" }).click();
+  await expect(page.getByRole("columnheader", { name: /Points/ })).toHaveCount(0);
+  await expect(page.getByLabel("Sort by")).toHaveValue("");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("grid", { name: "Tasks rows" })).toBeVisible();
 });
 
 test("a failed load shows an error with a retry", async ({ page }) => {

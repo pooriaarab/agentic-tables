@@ -19,6 +19,7 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
   const [dialog, setDialog] = useState<"column" | "row" | "table" | { row: Row } | { field: Field } | null>(null);
   const [busy, setBusy] = useState(false);
   const loaded = useRef(0);
+  const latest = useRef(0);
   const close = (open: boolean) => open || setDialog(null);
   const reset = () => { setDraft(NO_FILTER); setApplied(NO_FILTER); setSort({ field: "", direction: "asc" }); };
   /** After a delete the control that had focus is gone. The title is the next sensible place. */
@@ -26,18 +27,20 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
 
   const read = useCallback(
     async (cursor?: string, keep = false) => {
+      const mine = ++latest.current;
       setBusy(true);
       try {
         const table = await client.getTable(tableId);
         const filter = filterOf(table.fields.find((f) => f.id === applied.field), applied);
         const order: Sort | undefined = sort.field ? { field: sort.field, direction: sort.direction } : undefined;
         const page = await client.queryRows(tableId, { filter, sort: order, limit: keep ? Math.min(1000, Math.max(PAGE, loaded.current)) : PAGE, cursor });
+        if (mine !== latest.current) return;
         loaded.current = (cursor ? loaded.current : 0) + page.items.length;
         setLoad((was) => ({ state: "ready", table, rows: cursor && was.state === "ready" ? [...was.rows, ...page.items] : page.items, next: page.nextCursor }));
       } catch (error) {
-        setLoad({ state: "error", message: failure(error) });
+        if (mine === latest.current) setLoad({ state: "error", message: failure(error) });
       } finally {
-        setBusy(false);
+        if (mine === latest.current) setBusy(false);
       }
     },
     [tableId, applied, sort],
@@ -84,7 +87,7 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
       </div>
 
       <form className="query" aria-label="Filter and sort" onSubmit={(e) => { e.preventDefault(); setApplied(draft); }}>
-        <Select label="Filter column" value={draft.field} onChange={(e) => { const f = table.fields.find((x) => x.id === e.target.value); setDraft({ field: e.target.value, op: f ? OPS[f.type]![0]! : "contains", value: "" }); }}>
+        <Select label="Filter column" value={draft.field} onChange={(e) => { const f = table.fields.find((x) => x.id === e.target.value); setDraft({ field: e.target.value, op: f ? OPS[f.type]![0]! : "contains", value: f?.type === "checkbox" ? "true" : "" }); }}>
           <option value="">(no filter)</option>
           {table.fields.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
         </Select>
@@ -94,7 +97,7 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
           </Select>
         ) : null}
         {needsValue && field.type === "checkbox" ? (
-          <Select label="Value" value={draft.value || "true"} onChange={(e) => setDraft({ ...draft, value: e.target.value })}>
+          <Select label="Value" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })}>
             <option value="true">Yes</option>
             <option value="false">No</option>
           </Select>
@@ -162,12 +165,19 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
         label="Delete column"
         confirm={async () => {
           const gone = (dialog as { field: Field }).field.id;
-          // A filter or a sort on the deleted column would fail the next read.
+          try {
+            await client.deleteField(tableId, gone);
+          } catch (error) {
+            return failure(error);
+          }
+          // A filter or a sort on the deleted column would fail the next read. Clear it now that the column is gone.
+          const used = applied.field === gone || draft.field === gone || sort.field === gone;
           if (applied.field === gone || draft.field === gone) { setDraft(NO_FILTER); setApplied(NO_FILTER); }
           if (sort.field === gone) setSort({ field: "", direction: "asc" });
-          const m = await run(() => client.deleteField(tableId, gone));
-          if (m === null) refocus();
-          return m;
+          // A changed query reads again by itself. Otherwise read here.
+          if (!used) await read(undefined, true);
+          refocus();
+          return null;
         }}
       />
     </section>

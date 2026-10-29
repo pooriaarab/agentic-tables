@@ -1,6 +1,6 @@
 import { BotIcon, Button } from "agentic-design/react";
 import type { Field, Row, Table } from "agentic-tables/client";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { Editor } from "./Editor";
 import { draftOf, EDITABLE, show, valueOf, type Draft } from "./values";
 
@@ -74,7 +74,9 @@ export function Grid({ table, rows, more, onCommit, onDelete, header }: Props) {
     if (session.current !== mine) return;
     if (message === null) {
       setProblem(null);
-      leave(row.id, edit.c, fromKey);
+      // If the person moved on while the save ran, focus stays where they went.
+      const here = document.activeElement;
+      leave(row.id, edit.c, fromKey && (here === editor.current || here === document.body));
     } else {
       setProblem(message);
       if (fromKey) editor.current?.focus();
@@ -135,6 +137,9 @@ export function Grid({ table, rows, more, onCommit, onDelete, header }: Props) {
     }
   }
 
+  /** A click inside an open editor belongs to the editor. */
+  const inEditor = (e: MouseEvent) => (e.target as HTMLElement).closest("input, select, textarea") !== null;
+
   const cellProps = (row: number, col: number) => ({
     role: "gridcell" as const,
     ref: (el: HTMLElement | null) => void (el ? cells.current.set(key(row, col), el) : cells.current.delete(key(row, col))),
@@ -142,8 +147,8 @@ export function Grid({ table, rows, more, onCommit, onDelete, header }: Props) {
     onFocus: () => setPos({ r: row, c: col }),
     onKeyDown: (e: KeyboardEvent) => onCellKey(e, row, col),
     // A pointer reaches the editor too: a click toggles a checkbox and a double click edits.
-    onClick: fields[col]?.type === "checkbox" ? () => void begin(row, col) : undefined,
-    onDoubleClick: () => void begin(row, col),
+    onClick: fields[col]?.type === "checkbox" ? (e: MouseEvent) => !inEditor(e) && void begin(row, col) : undefined,
+    onDoubleClick: (e: MouseEvent) => !inEditor(e) && void begin(row, col),
   });
 
   return (
