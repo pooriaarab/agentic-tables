@@ -228,6 +228,42 @@ curl -X POST localhost:8787/api/v1/tables/bases -H "authorization: Bearer $TOKEN
 - A session cookie (`session=<token>`) works for reads. A write with a cookie needs an `Origin` that is listed in `AGENTIC_TABLES_ORIGINS` (comma separated), else it returns `403`. A bearer token needs no origin.
 - The kind of the principal is kept on every row, so an agent write stays labeled.
 
+### Mount the API in your own Worker
+
+`createApp` from `agentic-tables/worker` builds the Hono app of `/api/v1/tables`. It takes:
+
+- `tables`: what `createTables(store)` returns. `store` is a `Store` of `agentic-identity`.
+- `sharing`: `createSharing(store)` from `agentic-identity`. It holds the roles.
+- `auth`: an `Auth` port of `agentic-identity`, such as `createStoreAuth(store)`. A request with no valid credential answers 401. A credential without the scope of a route answers 403.
+- `options.origins` (optional): the origins that may send a write with a session cookie. A bearer token needs none. A cookie write from another origin answers 403.
+
+```ts
+import type { Store } from "agentic-identity";
+import { createSharing, createStoreAuth } from "agentic-identity";
+import { createTables } from "agentic-tables";
+import { createApp } from "agentic-tables/worker";
+
+// Your code: open an agentic-identity Store on env.DB, after the setup steps below.
+declare function openStore(env: unknown): Promise<Store>;
+
+// One app per Worker instance. A failed build is cleared, so the next request tries again.
+let app: Promise<ReturnType<typeof createApp>> | undefined;
+
+export default {
+  async fetch(request: Request, env: unknown): Promise<Response> {
+    app ??= openStore(env)
+      .then((store) => createApp(createTables(store), createSharing(store), createStoreAuth(store), { origins: ["https://tables.example.com"] }))
+      .catch((error: unknown) => {
+        app = undefined;
+        throw error;
+      });
+    return (await app).fetch(request);
+  },
+};
+```
+
+`createApp` does not open the database or check the region. The default export of `agentic-tables/worker` does both, and it reads `DB`, `AGENTIC_TABLES_REGION`, `AGENTIC_TABLES_ORIGINS`, and `AGENTIC_TABLES_LOCAL_DEV`. Do the same in your Worker: run `D1_SCHEMA` from `agentic-identity/cloudflare` on the database, and check the region claim with `assertRegion` from `agentic-identity`. Local D1 under `wrangler dev` reports no region, so every read fails the D1 store's region check. With `AGENTIC_TABLES_LOCAL_DEV=1`, the default export wraps the database with `reportingRegion`. The wrap gives the declared region to a query that reports none. `reportingRegion` is exported from `agentic-tables/worker`.
+
 ## SDK
 
 `agentic-tables/client` is a typed client for the Worker API. It uses only `fetch`, so it runs in browsers, Workers, and Node 22. It has one method per route.
