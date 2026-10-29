@@ -370,12 +370,12 @@ export function createTables(store: Store, options: TablesOptions = {}) {
       return (await all<BaseDoc>(store, "bases", {}, "createdAt")).map((e) => baseView(e.id, e.data));
     },
 
-    /** Export every base the principal owns, and every row it wrote in other bases, in one consistent read. Memory grows with the data. */
-    async exportOwnerData(ownerId: string): Promise<OwnerExport> {
+    /** Export every base the principal owns (or only `baseIds` of them), and every row it wrote in other bases, in one consistent read. Memory grows with the data. */
+    async exportOwnerData(ownerId: string, only: { baseIds?: string[] } = {}): Promise<OwnerExport> {
       assertOwnerId(ownerId);
       return store.transaction(async (ops) => {
         const bases: OwnerExport["bases"] = [];
-        for (const owned of await all<BaseDoc>(ops, "bases", { ownerId }, "createdAt")) {
+        for (const owned of (await all<BaseDoc>(ops, "bases", { ownerId }, "createdAt")).filter((b) => only.baseIds?.includes(b.id) ?? true)) {
           const out: OwnerExport["bases"][number] = { base: baseView(owned.id, owned.data), tables: [], views: [], rows: [] };
           for (const { id, data } of await all<TableDoc>(ops, "tables", { baseId: owned.id }, "createdAt")) {
             out.tables.push(tableView(id, data));
@@ -388,13 +388,13 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         return { format: "agentic-tables-export", version: 1, exportedAt: stamp(), ownerId, bases, authoredRows };
       });
     },
-    /** Hard delete every base the principal owns and every row it wrote in other bases. No copy stays in the store. Other rows in those bases stay. */
-    async eraseOwnerData(ownerId: string): Promise<EraseSummary> {
+    /** Hard delete every base the principal owns (or only `baseIds` of them) and every row it wrote in other bases. No copy stays in the store. Other rows in those bases stay. */
+    async eraseOwnerData(ownerId: string, only: { baseIds?: string[] } = {}): Promise<EraseSummary> {
       assertOwnerId(ownerId);
       return store.transaction(async (ops) => {
         const total: EraseSummary = { bases: 0, tables: 0, rows: 0, views: 0, authoredRows: 0 };
         const writes: Write[] = [];
-        for (const { id } of await all<object>(ops, "bases", { ownerId }, "createdAt")) {
+        for (const { id } of (await all<object>(ops, "bases", { ownerId }, "createdAt")).filter((b) => only.baseIds?.includes(b.id) ?? true)) {
           const gone = await planDropBase(ops, id);
           writes.push(...gone.writes);
           total.bases += 1;

@@ -1,4 +1,4 @@
-import { createSharing, hasScope, type Action, type PrincipalContext, type Role } from "agentic-identity";
+import { assertId, createSharing, hasScope, type Action, type PrincipalContext, type Role } from "agentic-identity";
 import { NotFoundError, TablesError, type Actor, type FieldInput, type Values } from "./model.js";
 import type { AddFieldInput, ChangeTypeOptions, ListRowsOptions, RowQuery, Tables, ViewInput } from "./tables.js";
 
@@ -13,12 +13,22 @@ export type Sharing = ReturnType<typeof createSharing>;
  * A caller with no role at all gets "not found", so a stranger cannot learn that an id exists.
  */
 export function createGuarded(tables: Tables, sharing: Sharing) {
+  const missing = () => new NotFoundError("that resource");
+  /** A credential without the scope is refused by name. This is checked first and does not depend on the id, so it tells nothing about the id. */
+  function scoped(ctx: PrincipalContext, action: Action, type: "base" | "table"): void {
+    if (!hasScope(ctx.scopes, `${type}:${action}`)) throw new TablesError("FORBIDDEN", `this credential does not allow ${action} on a ${type}`);
+  }
   async function need(ctx: PrincipalContext, action: Action, resourceId: string, type: "base" | "table"): Promise<void> {
+    scoped(ctx, action, type);
+    try {
+      assertId(resourceId);
+    } catch {
+      throw missing();
+    }
     const { allowed, role } = await sharing.can(ctx, action, resourceId);
     if (allowed) return;
-    // A credential with too few scopes is refused by name, so an agent can tell why. Else a role with too little rights is refused. No role: not found.
-    if (!hasScope(ctx.scopes, `${type}:${action}`)) throw new TablesError("FORBIDDEN", `this credential does not allow ${action} on a ${type}`);
-    throw role === undefined ? new NotFoundError(`"${resourceId}"`) : new TablesError("FORBIDDEN", `your role is ${role}, and this needs more`);
+    // A role that is too low is refused by name. No role at all looks the same as an id that does not exist.
+    throw role === undefined ? missing() : new TablesError("FORBIDDEN", `your role is ${role}, and this needs more`);
   }
 
   /** Sharing refuses with a plain error. Turn its refusals into answers a client can read. */
@@ -37,12 +47,17 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
     const root = ctx.chain[0]!;
     const owner: Actor = { id: root.id, kind: root.kind };
     const actor: Actor = { id: ctx.principalId, kind: ctx.kind };
-    const tableOfRow = async (rowId: string) => (await tables.getRow(rowId)).tableId;
-    const tableOfView = async (viewId: string) => (await tables.getView(viewId)).tableId;
+    // The scope is checked before the lookup, and a failed lookup looks like no role, so neither shows if an id exists.
+    const tableOfRow = async (rowId: string) => (await tables.getRow(rowId).catch(() => Promise.reject(missing()))).tableId;
+    const tableOfView = async (viewId: string) => (await tables.getView(viewId).catch(() => Promise.reject(missing()))).tableId;
+    const linkTargets = async (inputs: { type: string; linkTable?: string }[]) => {
+      // A link field names a table, and the caller learns that table exists when the field is accepted.
+      for (const input of inputs) if (input.type === "link" && input.linkTable !== undefined) await need(ctx, "read", input.linkTable, "table");
+    };
     const onBase = async <T>(action: Action, baseId: string, run: () => Promise<T>): Promise<T> => (await need(ctx, action, baseId, "base"), run());
     const onTable = async <T>(action: Action, tableId: string, run: () => Promise<T>): Promise<T> => (await need(ctx, action, tableId, "table"), run());
-    const onRow = async <T>(action: Action, rowId: string, run: () => Promise<T>): Promise<T> => (await need(ctx, action, await tableOfRow(rowId), "table"), run());
-    const onView = async <T>(action: Action, viewId: string, run: () => Promise<T>): Promise<T> => (await need(ctx, action, await tableOfView(viewId), "table"), run());
+    const onRow = async <T>(action: Action, rowId: string, run: () => Promise<T>): Promise<T> => (scoped(ctx, action, "table"), await need(ctx, action, await tableOfRow(rowId), "table"), run());
+    const onView = async <T>(action: Action, viewId: string, run: () => Promise<T>): Promise<T> => (scoped(ctx, action, "table"), await need(ctx, action, await tableOfView(viewId), "table"), run());
 
     return {
       async createBase(name: string) {
@@ -67,7 +82,8 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
       },
 
       async createTable(baseId: string, name: string, fields: FieldInput[] = []) {
-        await need(ctx, "write", baseId, "base");
+        await need(ctx, "admin", baseId, "base");
+        await linkTargets(fields);
         const table = await tables.createTable(baseId, name, fields);
         try {
           await shared(() => sharing.createResource(ctx, { id: table.id, type: "table", parentId: baseId }));
@@ -83,10 +99,11 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
       getTable: (tableId: string) => onTable("read", tableId, () => tables.getTable(tableId)),
       deleteTable: (tableId: string) => onTable("admin", tableId, () => tables.deleteTable(tableId)),
 
-      addField: (tableId: string, input: AddFieldInput) => onTable("admin", tableId, () => tables.addField(tableId, input)),
+      addField: (tableId: string, input: AddFieldInput) => onTable("admin", tableId, async () => (await linkTargets([input]), tables.addField(tableId, input))),
       renameField: (tableId: string, ref: string, name: string) => onTable("admin", tableId, () => tables.renameField(tableId, ref, name)),
       deleteField: (tableId: string, ref: string) => onTable("admin", tableId, () => tables.deleteField(tableId, ref)),
-      changeFieldType: (tableId: string, ref: string, change: ChangeTypeOptions) => onTable("admin", tableId, () => tables.changeFieldType(tableId, ref, change)),
+      changeFieldType: (tableId: string, ref: string, change: ChangeTypeOptions) =>
+        onTable("admin", tableId, async () => (await linkTargets([{ type: change.to, linkTable: change.linkTable }]), tables.changeFieldType(tableId, ref, change))),
       setRequired: (tableId: string, ref: string, required: boolean, opts: { dryRun?: boolean } = {}) => onTable("admin", tableId, () => tables.setRequired(tableId, ref, required, opts)),
       setOptions: (tableId: string, ref: string, options: string[], opts: { onInUse?: "abort" | "clear" } = {}) => onTable("admin", tableId, () => tables.setOptions(tableId, ref, options, opts)),
 
@@ -113,16 +130,27 @@ export function createGuarded(tables: Tables, sharing: Sharing) {
         await shared(() => sharing.revokeGrant(ctx, resourceId, subjectId));
       },
 
-      /** Export or erase the data of the caller. Only a root principal may: an agent must not export or erase its owner's data. */
+      /**
+       * Export or erase the data of the caller. Only a root principal may: an agent must not export or erase its owner's data.
+       * Only the bases the caller owns and still holds the owner role on are touched: a base the caller gave away is not theirs to erase.
+       */
       async exportMyData() {
-        return tables.exportOwnerData(selfOnly().id);
+        const me = selfOnly("read");
+        return tables.exportOwnerData(me.id, { baseIds: await ownedBases() });
       },
       async eraseMyData() {
-        return tables.eraseOwnerData(selfOnly().id);
+        const me = selfOnly("admin");
+        return tables.eraseOwnerData(me.id, { baseIds: await ownedBases() });
       },
     };
 
-    function selfOnly(): Actor {
+    async function ownedBases(): Promise<string[]> {
+      const ids = [];
+      for (const base of await tables.listBases()) if (base.ownerId === owner.id && (await sharing.can(ctx, "admin", base.id)).allowed) ids.push(base.id);
+      return ids;
+    }
+    function selfOnly(action: Action): Actor {
+      scoped(ctx, action, "base");
       if (ctx.chain.length !== 1) throw new TablesError("FORBIDDEN", "only the person or agent itself can export or erase its own data");
       return owner;
     }

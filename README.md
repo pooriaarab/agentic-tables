@@ -98,12 +98,12 @@ A base and a table are shared resources, and a table sits inside its base. Roles
 | Role | Can |
 | --- | --- |
 | viewer | Read bases, tables, rows, and views. |
-| editor | Also insert, change, and delete rows, create and delete views, and create tables in a base. |
-| owner | Also change a schema (fields, types, options, required), delete a table or a base, and share. |
+| editor | Also insert, change, and delete rows, and create and delete views. |
+| owner | Also create a table, change a schema (fields, types, options, required), delete a table or a base, and share. A link field also needs the right to read the table it points at. |
 
-Every call checks the role with `can()`, which writes an audit entry for each allow and each deny. A caller with no role gets `404`, so an id cannot be probed. A caller with a role that is too low, or a credential with too few scopes, gets `403` `FORBIDDEN`. `PUT /bases/:baseId/members/:subjectId` and `PUT /tables/:tableId/members/:subjectId` take `{"role": "viewer"}` and grant a role. `DELETE` on the same path takes it back. A comment role exists, but no route needs it yet.
+Every call checks the role with `can()`, which writes an audit entry for each allow and each deny. A caller with no role gets `404`, the same answer as for an id that does not exist, so an id cannot be probed. A caller with a role that is too low, or a credential with too few scopes, gets `403` `FORBIDDEN`. `PUT /bases/:baseId/members/:subjectId` and `PUT /tables/:tableId/members/:subjectId` take `{"role": "viewer"}` and grant a role. `DELETE` on the same path takes it back. A comment role exists, but no route needs it yet.
 
-`GET /me/export` and `DELETE /me/data` work only for a person or an agent with its own identity. An agent that acts for a person gets `403`: it must not export or erase its owner's data.
+`GET /me/export` and `DELETE /me/data` work only for a person or an agent with its own identity, and need the `base:read` and `base:admin` scope. An agent that acts for a person gets `403`: it must not export or erase its owner's data. They touch only the bases the caller created and still holds the owner role on. A base the caller gave away is not theirs to erase.
 
 | Route | Use it for |
 | --- | --- |
@@ -144,7 +144,7 @@ Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`)
 
 - A schema change runs in one store transaction. A very large table can exceed the transaction size of a backend.
 - Deleting a table or a base runs in one store transaction. A very large one can exceed the transaction size of a backend. The CLI and MCP server cannot delete a base yet. The library and HTTP API can.
-- Deleting a base or a table leaves its sharing records (the resource and its grants) in the store. They hold ids and roles only. `agentic-identity` 0.1.0 has no call to remove them. Listing bases checks each base, so it grows with the number of bases and writes an audit entry per check. Roles pass to a base or a table, not to a single row. The CLI and the MCP server do not check roles yet.
+- Deleting a base or a table leaves its sharing records (the resource and its grants) in the store. They hold ids and roles only. `agentic-identity` 0.1.0 has no call to remove them. Listing bases checks each base, so it grows with the number of bases and writes an audit entry per check. Roles pass to a base or a table, not to a single row. Whoever creates a table owns it, and a grant on a table stays when the same person is revoked on the base: revoke it on the table too. The CLI and the MCP server do not check roles yet.
 - A filter on a field value reads the whole table (up to `maxScan`). An index on field values comes later.
 - On D1, a transaction is one batch of statements. A very large erase or import can exceed the limits of a D1 batch. D1 has no index for the queries this package makes, so each query scans its collection. Inserts into one table take turns, because each one bumps the table (see above).
 - The file store (`agentic-tables/file-store`) keeps one JSON file. The CLI and the MCP server can share it: each write takes a lock file, reads the file again, and renames a new file into place. Each call reads the whole file, so use it for local work. It needs one machine: it does not work on a network disk. If a process dies, its lock is taken over when the process is gone or the lock is 30 seconds old. A lock with unreadable content is never taken: remove `<db>.lock` by hand.
