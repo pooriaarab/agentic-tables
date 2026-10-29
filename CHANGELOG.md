@@ -12,6 +12,10 @@ No breaking changes.
 
 - The `agentic-design` dependency is now `^0.3.2`.
 
+### Fixed
+
+- `agentic-tables mcp --help`, `-h`, `--version`, `-V`, and `-v` print their output and exit `0`. Before, `mcp --help` exited `2`, because the CLI read `--help` as a flag that needs a value. The top-level `agentic-tables -v` and `agentic-tables-mcp -v` print the version. Before, `agentic-tables-mcp -v` started the server.
+
 ## 0.8.0
 
 **Read the breaking changes below before you upgrade.** The file store options and file format changed, and `agentic-tables/ui` no longer exports `clientFor` or `TablesApp`.
