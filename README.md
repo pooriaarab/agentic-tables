@@ -7,7 +7,7 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: release 0.13.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
+> Status: release 0.13.1. See [CHANGELOG.md](CHANGELOG.md) for the changes.
 >
 > **The Worker checks every request.** It needs `Authorization: Bearer <token>`, and `agentic-identity` verifies the
 > token against credentials in the same store. A request with no valid token gets `401`. A token without the scope
