@@ -54,6 +54,18 @@ describe("a damaged link record", () => {
     expect([listed.items.length, listed.truncated]).toEqual([200, true]);
   });
 
+  test("the 1000-record limit alone sets truncated", async () => {
+    const base = (await call(app, "POST", "/bases", { name: "B" })).body;
+    // Every record is skipped, so no list could hold more than 200 items. Only the read limit can set `truncated`.
+    await store.transaction(async (tx) => {
+      for (let i = 0; i < 1001; i++) await tx.put("links", `bad-${i}`, { id: `bad-${i}`, resourceId: base.id, role: "owner", tokenHash: "x" });
+    });
+    const listed = (await call(app, "GET", `/bases/${base.id}/links`)).body;
+    expect(listed.items).toEqual([]);
+    expect(listed.truncated).toBe(true);
+    expect(listed.skipped).toBeGreaterThan(0);
+  });
+
   test("a list of more than 200 links says it was cut, and live links come first", async () => {
     const base = (await call(app, "POST", "/bases", { name: "B" })).body;
     await store.transaction(async (tx) => {

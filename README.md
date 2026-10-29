@@ -306,7 +306,7 @@ try {
 
 ## Share links
 
-A share link has a role (`viewer`, `commenter`, or `editor`), an optional expiry, and an optional sign-in rule. The token shows once, when the link is made. Only its hash is stored, so a list shows the id, role, sign-in rule, expiry, and revoke time. A list holds up to 200 links, live ones first, `truncated: true` says there are more, and `skipped` counts damaged records left out. Only an owner of the base or table makes, lists, or revokes links, and a link of another resource is `404`. The link routes of an app made with `createApp` need `options.store`: without it, they answer `503 UNAVAILABLE`. Without it, the members and invite routes also skip the check that an id names a base on a base route and a table on a table route.
+A share link has a role (`viewer`, `commenter`, or `editor`), an optional expiry, and an optional sign-in rule. The token shows once, when the link is made. Only its hash is stored, so a list shows the id, role, sign-in rule, expiry, and revoke time. A list holds up to 200 links, live ones first, `truncated: true` says there are more, and `skipped` counts damaged records left out: a record that has a bad role, a bad expiry, or an id that differs from its key is never shown, even if its token still works. If `skipped` is above 0, ask the operator of the store to check the `links` records of that base. Only an owner of the base or table makes, lists, or revokes links, and a link of another resource is `404`. The link routes of an app made with `createApp` need `options.store`: without it, they answer `503 UNAVAILABLE`. Without it, the members and invite routes also skip the check that an id names a base on a base route and a table on a table route.
 
 ## Access
 
