@@ -10,7 +10,7 @@ Typed tables that agents read and write as rows.
 > Status: release 0.2.0. See [CHANGELOG.md](CHANGELOG.md) for the breaking changes.
 >
 > **Warning: the HTTP API has no authentication yet.** It reads the caller from
-> two headers and does not check them. The Worker refuses every request with
+> `x-principal-*` headers and does not check who sent them. The Worker refuses every request with
 > `503` until you set `AGENTIC_TABLES_UNSAFE_NO_AUTH=1`. Use that for local work
 > only. Do not put the Worker on the public internet.
 
