@@ -20,7 +20,7 @@ Typed tables that agents read and write as rows.
 npm install agentic-tables agentic-identity
 ```
 
-Node 18 or newer. The CLI runs with `npx agentic-tables --help`.
+Node 22 or newer. The CLI runs with `npx agentic-tables --help`.
 
 ## Quick start
 
@@ -89,7 +89,7 @@ npx wrangler deploy --var AGENTIC_TABLES_REGION:eu
 
 `AGENTIC_TABLES_REGION` (`eu` or `us`) is a claim that you make. On each query, the adapter checks the region that D1 reports, and fails the query if it is outside the claim. The Worker answers `500` with `MISCONFIGURED` when the claim or the `DB` binding is missing, and when the claim is not exactly `eu` or `us`. If the table cannot be created, it answers `503`. It creates the table it needs on first use. The adapter checks queries only, so a wrong claim is not caught on a write: create the database with the location hint.
 
-With the unsafe flag set, the Worker fills in the region of a query when D1 reports none, because `wrangler dev` reports none. A region that D1 reports is never changed. Without the flag, a query that reports no region fails.
+With the unsafe flag set, the Worker fills in the region of a query when D1 reports none, because `wrangler dev` reports none. A region that D1 reports is never changed. The flag is for local work only. A Worker without it serves nothing.
 
 Local `wrangler dev` needs the same `--var` and keeps its own copy of the database and ignores the id. Two `wrangler dev` runs with the same `--persist-to` folder share it.
 

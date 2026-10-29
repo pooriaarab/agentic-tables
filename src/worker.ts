@@ -165,7 +165,7 @@ export function createApp(tables: Tables) {
 export interface Env {
   /** The D1 database. Create it in the EU: `wrangler d1 create agentic-tables --location weur`. */
   DB?: D1Like;
-  /** Where the database lives, as a claim: "eu" or "us". D1 cannot show it, so the operator states it. */
+  /** Where the database lives, as a claim: "eu" or "us". The adapter checks the region D1 reports for each query. */
   AGENTIC_TABLES_REGION?: string;
   AGENTIC_TABLES_UNSAFE_NO_AUTH?: string;
 }
@@ -179,7 +179,7 @@ const LOCAL_SERVED_BY = { eu: "WEUR", us: "WNAM" } as const;
  * local run could pass. In unsafe local mode only, a query that reports no region gets the declared one.
  * A region that D1 does report is never changed.
  */
-function reportingRegion(db: D1Like, region: "eu" | "us"): D1Like {
+export function reportingRegion(db: D1Like, region: "eu" | "us"): D1Like {
   const inner = new WeakMap<object, ReturnType<D1Like["prepare"]>>();
   const wrap = (statement: ReturnType<D1Like["prepare"]>): ReturnType<D1Like["prepare"]> => {
     const wrapped: ReturnType<D1Like["prepare"]> = {
