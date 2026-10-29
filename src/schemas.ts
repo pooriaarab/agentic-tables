@@ -9,7 +9,7 @@ export const MAX_BODY_BYTES = 1024 * 1024;
 
 const text = z.string().max(10_000);
 const name = z.string().trim().min(1).max(200);
-const values = z.record(z.unknown());
+const values = z.record(z.string(), z.unknown());
 
 const fieldInput = z
   .object({
@@ -21,7 +21,7 @@ const fieldInput = z
   })
   .strict();
 
-const filter = z.record(z.unknown());
+const filter = z.record(z.string(), z.unknown());
 const sort = z.object({ field: text, direction: z.enum(["asc", "desc"]).optional() }).strict();
 
 export const schemas = {
