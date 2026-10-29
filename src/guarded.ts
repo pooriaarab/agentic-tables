@@ -220,22 +220,25 @@ export function createGuarded(tables: Tables, sharing: Sharing, store?: Store) {
       /** Who holds a role on a base or a table, in id order. Needs owner. Page on with `nextCursor`. */
       listGrants: async (type: "base" | "table", resourceId: string, page: { limit?: number; cursor?: string } = {}) => {
         await need(ctx, "admin", resourceId, type);
+        await isOfType(type, resourceId);
         return shared(() => sharing.listGrants(ctx, resourceId, page));
       },
       /** Make an invite for an email or a handle on a base or a table. Needs owner. The answer holds the invite id and never the email. */
       createInvite: async (type: "base" | "table", resourceId: string, input: { role: Role; email?: string; handle?: string; expiresInMs?: number }) => {
         await need(ctx, "admin", resourceId, type);
+        await isOfType(type, resourceId);
         const { id } = await shared(() => sharing.createInvite(ctx, resourceId, input));
         return { id, resourceId, role: input.role, for: input.email === undefined ? ("handle" as const) : ("email" as const) };
       },
       /** Make a share link on a base or a table. Needs owner. The token shows once: only its hash is stored. */
       createLink: async (type: "base" | "table", resourceId: string, input: { role: Exclude<Role, "owner">; signedInOnly?: boolean; expiresInMs?: number }) => {
         await need(ctx, "admin", resourceId, type);
+        if (!store) throw new TablesError("UNAVAILABLE", "share links need the store");
         await isOfType(type, resourceId);
         if (!(LINK_ROLES as Role[]).includes(input?.role)) throw new TablesError("BAD_REQUEST", `role must be one of ${LINK_ROLES.join(", ")}`);
         if (input.signedInOnly !== undefined && typeof input.signedInOnly !== "boolean") throw new TablesError("BAD_REQUEST", "signedInOnly must be true or false");
         const { expiresInMs } = input;
-        if (expiresInMs !== undefined && !(Number.isSafeInteger(expiresInMs) && expiresInMs > 0)) throw new TablesError("BAD_REQUEST", "expiresInMs must be a whole number of milliseconds above 0");
+        if (expiresInMs !== undefined && !(Number.isSafeInteger(expiresInMs) && expiresInMs > 0 && Number.isSafeInteger(Date.now() + expiresInMs))) throw new TablesError("BAD_REQUEST", "expiresInMs must be a whole number of milliseconds above 0, and not so large that the end passes the safe range");
         const { id, token } = await shared(() => sharing.createLink(ctx, resourceId, { role: input.role, signedInOnly: input.signedInOnly === true, ...(expiresInMs === undefined ? {} : { expiresAt: Date.now() + expiresInMs }) }));
         return { id, token, resourceId, role: input.role };
       },

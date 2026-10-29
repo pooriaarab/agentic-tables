@@ -90,6 +90,7 @@ describe("the client: members, invites, and links", () => {
     }
     expect((await failure(ada.createBaseLink(base.id, { role: "owner" as never }))).code).toBe("BAD_REQUEST");
     expect((await failure(ada.createBaseLink(base.id, { role: "viewer", expiresInMs: 0 }))).code).toBe("BAD_REQUEST");
+    expect((await failure(ada.createBaseLink(base.id, { role: "viewer", expiresInMs: Number.MAX_SAFE_INTEGER }))).code).toBe("BAD_REQUEST");
     expect((await failure(ada.createBaseLink(base.id, { role: "viewer", signedInOnly: "yes" as never }))).code).toBe("BAD_REQUEST");
     expect((await failure(ada.inviteToBase(base.id, { role: "owner" as never, handle: "bot" }))).code).toBe("BAD_REQUEST");
     expect((await failure(ada.inviteToBase(base.id, { role: "viewer" }))).code).toBe("BAD_REQUEST");
@@ -100,6 +101,8 @@ describe("the client: members, invites, and links", () => {
       expect(await failure(run())).toMatchObject({ code: "NOT_FOUND", status: 404 });
     }
     // A route for a table does not take a base id, and one for a base does not take a table id.
+    expect((await failure(ada.listTableMembers(base.id))).code).toBe("NOT_FOUND");
+    expect((await failure(ada.inviteToTable(base.id, { role: "viewer", handle: "bot" }))).code).toBe("NOT_FOUND");
     expect((await failure(ada.listTableLinks(base.id))).code).toBe("NOT_FOUND");
     expect((await failure(ada.createTableLink(base.id, { role: "viewer" }))).code).toBe("NOT_FOUND");
     expect((await failure(ada.revokeTableLink(base.id, link.id))).code).toBe("NOT_FOUND");

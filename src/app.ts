@@ -45,7 +45,7 @@ export interface AppOptions {
    * A cookie write from any other origin is refused with 403.
    */
   origins?: readonly string[];
-  /** The store of `tables` and `sharing`. Listing and revoking share links read it. Without it, those routes answer 503. */
+  /** The store of `tables` and `sharing`. The share link routes read it. Without it, they answer 503. */
   store?: Store;
 }
 

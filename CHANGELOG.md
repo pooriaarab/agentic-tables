@@ -10,7 +10,7 @@ No breaking changes.
 - HTTP routes `GET`, `POST`, and `DELETE /bases/:baseId/links` and `/tables/:tableId/links`. A list never shows the token.
 - Client methods for members and invites: `listBaseMembers`, `listTableMembers`, `inviteToBase`, and `inviteToTable`. Client methods for links: `createBaseLink`, `createTableLink`, `listBaseLinks`, `listTableLinks`, `revokeBaseLink`, and `revokeTableLink`.
 - HTTP routes `GET /…/members` and `POST /…/invites` for a base and a table.
-- `createApp` takes `options.store`, and `createUnsafeApp` and `createGuarded` take a store, so a link list and a link revoke can read the links. The Worker, the Node server, and the CLI pass it. Without it those two routes answer `503 UNAVAILABLE`.
+- `createApp` takes `options.store`, and `createUnsafeApp` and `createGuarded` take a store, so the link routes can read the links. The Worker, the Node server, and the CLI pass it. Without it the link routes answer `503 UNAVAILABLE`.
 
 ## 0.12.0
 

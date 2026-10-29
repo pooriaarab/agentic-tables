@@ -22,12 +22,11 @@ beforeEach(() => {
 });
 
 describe("links without a store", () => {
-  test("a list and a revoke answer 503, and a create still works", async () => {
+  test("a create, a list, and a revoke answer 503", async () => {
     const bare = createUnsafeApp(createTables(store), createSharing(store));
     const base = (await call(bare, "POST", "/bases", { name: "B" })).body;
-    expect((await call(bare, "POST", `/bases/${base.id}/links`, { role: "viewer" })).status).toBe(201);
-    for (const [method, path] of [["GET", `/bases/${base.id}/links`], ["DELETE", `/bases/${base.id}/links/abc`]] as const) {
-      expect(await call(bare, method, path)).toMatchObject({ status: 503, body: { error: { code: "UNAVAILABLE" } } });
+    for (const [method, path, body] of [["POST", `/bases/${base.id}/links`, { role: "viewer" }], ["GET", `/bases/${base.id}/links`], ["DELETE", `/bases/${base.id}/links/abc`]] as const) {
+      expect(await call(bare, method, path, body)).toMatchObject({ status: 503, body: { error: { code: "UNAVAILABLE" } } });
     }
   });
 });
