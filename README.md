@@ -260,7 +260,7 @@ export default {
 };
 ```
 
-`createApp` does not open the database or check the region. The default export of `agentic-tables/worker` does both, and it reads `DB`, `AGENTIC_TABLES_REGION`, `AGENTIC_TABLES_ORIGINS`, and `AGENTIC_TABLES_LOCAL_DEV`. Do the same in your Worker: run `D1_SCHEMA` from `agentic-identity/cloudflare` on the database, and check the region claim with `assertRegion` from `agentic-identity`. Local D1 under `wrangler dev` reports no region, so every query fails the region check. With `AGENTIC_TABLES_LOCAL_DEV=1`, the default export wraps the database with `reportingRegion`. The wrap gives the declared region to a query that reports none. `reportingRegion` is exported from `agentic-tables/worker`.
+`createApp` does not open the database or check the region. The default export of `agentic-tables/worker` does both, and it reads `DB`, `AGENTIC_TABLES_REGION`, `AGENTIC_TABLES_ORIGINS`, and `AGENTIC_TABLES_LOCAL_DEV`. Do the same in your Worker: run `D1_SCHEMA` from `agentic-identity/cloudflare` on the database, and check the region claim with `assertRegion` from `agentic-identity`. Local D1 under `wrangler dev` reports no region, so every read fails the D1 store's region check. With `AGENTIC_TABLES_LOCAL_DEV=1`, the default export wraps the database with `reportingRegion`. The wrap gives the declared region to a query that reports none. `reportingRegion` is exported from `agentic-tables/worker`.
 
 ## SDK
 
