@@ -8,21 +8,15 @@
 //  4. Erase reads a table. A view is added meanwhile. No view may survive the erase.
 //  6. A batch insert (insertRows) racing an erase leaves no row.
 //  5. changeFieldType reads the rows. A row is added meanwhile. The new row must be converted or refused, not left in the old type.
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { createMemoryStore, type Query, type Store } from "agentic-identity";
-import { afterAll, describe, expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import { createTables, ValidationError, type Actor } from "./index.js";
-import { createFileStore } from "./store-file.js";
 
-// The memory adapter gives every write a new version, so a rewrite alone is seen. The file store compares
-// the text of the docs, so only a changed `rev` is seen. Both adapters run every case.
-const dir = mkdtempSync(join(tmpdir(), "tables-concurrency-"));
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+// The memory adapter is optimistic, and gives every write a new version. These cases write from a second store
+// in the middle of a transaction. The file adapter of agentic-identity runs one call at a time on a path, so
+// that write would wait for the transaction and never finish. A transaction there cannot be interleaved.
 const ADAPTERS: Record<string, (shared: string) => Store> = {
   memory: (shared) => createMemoryStore({ shared }),
-  file: (shared) => createFileStore(join(dir, `${shared}.json`)),
 };
 
 const ada: Actor = { id: "ada", kind: "human" };

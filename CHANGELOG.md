@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- `agentic-tables/file-store` now wraps `createFileStore` from `agentic-identity/file`. The local copy is gone. The call `createFileStore(path, { region })` is the same. The options `lockTimeoutMs` and `staleAfterMs` are removed, because the shared adapter has no lock file. It runs one call at a time on a path in one process. A call on that path made from inside a transaction on it waits for the transaction. Do not make one. A write that meets a save from another process runs again, up to 50 times, then fails with the conflict error.
+
 ### Removed
 
 - `agentic-tables/ui` no longer exports `clientFor` or `TablesApp`. Neither was documented, and `mount` uses both inside the module. Use `mount` to render the app.
