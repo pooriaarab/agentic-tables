@@ -256,7 +256,7 @@ export function createGuarded(tables: Tables, sharing: Sharing, store?: Store) {
             // A record that is not a share link of this resource is not shown. The list says it is not complete.
             // A null `expiresAt` is no expiry, as in agentic-identity. Any other value that is not a time is a dead link there, so it is not shown as one that never ends.
             const expiresOk = data.expiresAt == null || (typeof data.expiresAt === "number" && Number.isFinite(data.expiresAt));
-            if (data.id !== key || data.resourceId !== resourceId || typeof data.id !== "string" || !(LINK_ROLES as unknown[]).includes(data.role) || !expiresOk) {
+            if (data.id !== key || data.resourceId !== resourceId || typeof data.tokenHash !== "string" || typeof data.id !== "string" || !(LINK_ROLES as unknown[]).includes(data.role) || !expiresOk) {
               skipped++;
               continue;
             }

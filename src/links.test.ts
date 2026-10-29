@@ -38,11 +38,12 @@ describe("a damaged link record", () => {
     await put("revoked", { revokedAt: true });
     await put("bad-expiry", { expiresAt: "soon" });
     await put("null-expiry", { expiresAt: null });
+    await store.transaction((tx) => tx.put("links", "no-hash", { id: "no-hash", resourceId: base.id, role: "viewer" }));
     await put("key-a", {}, "key-b");
     await put("elsewhere", {}, "elsewhere", "other-resource");
     await put("owner-role", { role: "owner" });
     const listed = (await call(app, "GET", `/bases/${base.id}/links`)).body;
-    expect(listed).toEqual({ items: [{ id: "null-expiry", role: "viewer", signedInOnly: false }, { id: "revoked", role: "viewer", signedInOnly: false, revokedAt: 0 }], skipped: 3 });
+    expect(listed).toEqual({ items: [{ id: "null-expiry", role: "viewer", signedInOnly: false }, { id: "revoked", role: "viewer", signedInOnly: false, revokedAt: 0 }], skipped: 4 });
   });
 
   test("a list reads at most 1000 records and says it was cut", async () => {
