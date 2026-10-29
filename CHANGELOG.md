@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.2 - 2026-10-29
+
+Patch. No change to the API.
+
+### Fixed
+
+- `agentic-tables-mcp mcp --help` and `agentic-tables-mcp mcp --version` now print and exit 0. Before, the `mcp` word started the server, and the command hung on stdin. `--help`, `-h`, `--version`, `-V`, and `-v` work with or without the `mcp` word.
+
 ## 0.12.1 - 2026-10-29
 
 No breaking changes to the API. This release also adds `tablesAccount`, listed under Added.
