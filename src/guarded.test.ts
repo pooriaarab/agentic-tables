@@ -346,7 +346,9 @@ describe("a base from an earlier version", () => {
     const { ownerKind: _kind, ...legacy } = (await store.get("bases", old.id))!;
     await store.put("bases", old.id, legacy);
 
-    // The claim reads the legacy list. Then another claim of the same base, by the same owner id with a different kind, writes its kind.
+    // The human claim reads the legacy list. Then an agent with the same owner id claims the base and writes its kind.
+    const agent = { "x-principal-id": "ada", "x-principal-kind": "agent" };
+    let agentClaim: { status: number; body: any } | undefined;
     let started = false;
     const racing = {
       ...store,
@@ -354,14 +356,16 @@ describe("a base from an earlier version", () => {
         const page = await store.query(...args);
         if (args[0] === "bases" && !started) {
           started = true;
-          await store.put("bases", old.id, { ...legacy, ownerKind: "agent" });
+          agentClaim = await call("POST", `/bases/${old.id}/claim`, agent);
         }
         return page;
       },
     } as typeof store;
     app = createApp(createTables(racing), createSharing(racing));
 
-    expect((await call("POST", `/bases/${old.id}/claim`, ada)).status).toBe(404);
+    const human = await call("POST", `/bases/${old.id}/claim`, ada);
+    expect(agentClaim).toMatchObject({ status: 200, body: { owner: { id: "ada", kind: "agent" } } });
+    expect(human).toMatchObject({ status: 404, body: { error: { code: "NOT_FOUND" } } });
     expect((await store.get("bases", old.id))!.ownerKind).toBe("agent");
   });
 });
