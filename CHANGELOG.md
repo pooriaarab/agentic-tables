@@ -2,7 +2,7 @@
 
 ## 0.12.1 - 2026-10-29
 
-No breaking changes to the API.
+No breaking changes to the API. This release also adds `tablesAccount`, listed under Added.
 
 ### Added
 
