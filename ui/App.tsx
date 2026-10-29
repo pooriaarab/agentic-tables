@@ -115,7 +115,7 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
   else if (load.state === "error")
     body = <EmptyState title="The tables did not load" description={<span role="alert">{load.message}</span>} action={<Button onClick={() => { setLoad({ state: "loading" }); void read(); }}>Try again</Button>} />;
   else if (load.notice && !current) body = <EmptyState title="Table not found" description={<span role="alert">{load.notice}</span>} />;
-  else if (current) body = <TableView key={current.id} tableId={current.id} onGone={() => { routeNow.current = null; setRoute(null); location.hash = ""; void read(); }} />;
+  else if (current) body = <TableView key={current.id} tableId={current.id} onGone={() => { routeNow.current = null; setRoute(null); setChosen(load.base.id); location.hash = ""; void read(); }} />;
   else if (tables.length === 0) body = <EmptyState title="No tables yet" description="Make a table, then add columns and rows." action={<Button onClick={() => setCreating(true)}>New table</Button>} />;
   else body = <EmptyState title="Pick a table" description="Choose a table in the list." />;
 

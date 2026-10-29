@@ -220,7 +220,7 @@ describe("base and table options", () => {
   const inBase = (baseId: string, name: string) => ({ id: `t-${name}`, baseId, name, fields: [], createdAt: "", updatedAt: "" });
   const lists: Record<string, ReturnType<typeof inBase>[]> = { b1: [inBase("b1", "Tasks")], b2: [inBase("b2", "Budget"), inBase("b2", "Plans")] };
   const fetch = (async (input: RequestInfo | URL) => {
-    const path = String(input).split("/api/v1/tables")[1]!;
+    const path = String(input).split("/api/v1/tables")[1]!.split("?")[0]!;
     let body: unknown = { items: bases };
     const m = /^\/bases\/([^/]+)\/tables$/.exec(path);
     if (m) body = { items: lists[m[1]!] ?? [] };
@@ -314,6 +314,30 @@ describe("base and table options", () => {
   it("shows a notice when tableId is not in the given baseId", async () => {
     await open({ baseId: "b1", tableId: "t-Plans" });
     expect(host.querySelector('[role="alert"]')?.textContent).toContain("not found");
+  });
+
+  it("stays in the base of the deleted table, with no notice", async () => {
+    const gone = new Set<string>();
+    const del = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input).split("/api/v1/tables")[1]!;
+      if (init?.method === "DELETE") {
+        gone.add(decodeURIComponent(path.split("/")[2]!));
+        return new Response(JSON.stringify({ rows: 0, views: 0 }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      const m = /^\/bases\/([^/]+)\/tables$/.exec(path);
+      if (m) return new Response(JSON.stringify({ items: (lists[m[1]!] ?? []).filter((t) => !gone.has(t.id)) }), { status: 200, headers: { "content-type": "application/json" } });
+      return fetch(input, init);
+    }) as unknown as typeof globalThis.fetch;
+    await open({ tableId: "t-Plans", fetch: del });
+    const remove = [...host.querySelectorAll("button")].find((b) => b.textContent === "Delete table")!;
+    await act(async () => remove.click());
+    const confirm = [...document.body.querySelectorAll("button")].filter((b) => b.textContent === "Delete table").pop()!;
+    await act(async () => confirm.click());
+    await settle();
+    expect(navText()).toContain("Budget");
+    expect(navText()).not.toContain("Plans");
+    expect(navText()).not.toContain("Tasks");
+    expect(host.textContent).not.toContain("not found");
   });
 
   it("lets the hash win over tableId on mount", async () => {
