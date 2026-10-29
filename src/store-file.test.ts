@@ -1,11 +1,19 @@
-// The file store is `agentic-identity/file`, which has its own lock and contract tests. These cases cover what
-// this package relies on: the path-first signature, shared data between stores, the file after a failed
-// transaction, and two Tables on one file. A store call made inside a transaction of the same path waits for
-// that transaction, as agentic-identity serializes calls on a path. Nothing in this package makes one.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+// Failure cases for the file store, written with the wrapper:
+//
+//  1. The call is path first, with a region option.
+//  2. Two stores on one path share their data, and concurrent writes all survive.
+//  3. A transaction that throws writes nothing and leaves the store usable.
+//  4. A file that is not JSON is never replaced.
+//  5. A conflict from another process runs again, then gives up after 50 runs. Another error is not run again.
+//  6. A lock that another process holds is not run again.
+//  7. A file of the old shape is converted once and keeps every doc. A half-valid old file is left alone.
+// The adapter of agentic-identity runs one call at a time on a path. A call on that path from inside a transaction
+// on it waits for the transaction. Nothing in this package makes one.
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { StoreConflictError } from "agentic-identity";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { createTables } from "./index.js";
 import { createFileStore } from "./store-file.js";
 
@@ -53,5 +61,47 @@ test("two Tables on one file lose no concurrent change", async () => {
 
 test("a file that is not JSON is never replaced", async () => {
   writeFileSync(path, "garbage");
-  await expect(createFileStore(path).put("rows", "x", { n: 1 })).rejects.toThrow();
+  await expect(createFileStore(path).put("rows", "x", { n: 1 })).rejects.toThrow(/not an agentic-identity store file/);
+  expect(readFileSync(path, "utf8")).toBe("garbage");
+});
+
+test("converts a file of the old shape and keeps every doc", async () => {
+  writeFileSync(path, JSON.stringify({ rows: { a: { n: 1 }, constructor: { n: 2 } }, tables: {} }));
+  const store = createFileStore(path);
+  expect(await store.get("rows", "a")).toEqual({ n: 1 });
+  expect(await store.get("rows", "constructor")).toEqual({ n: 2 });
+  await store.put("rows", "b", { n: 3 });
+  expect(JSON.parse(readFileSync(path, "utf8")).format).toBe(1);
+  expect(await createFileStore(path).get("rows", "b")).toEqual({ n: 3 });
+});
+
+test("leaves a half-valid old file alone", async () => {
+  const text = JSON.stringify({ rows: { a: 5 } });
+  writeFileSync(path, text);
+  await expect(createFileStore(path).get("rows", "a")).rejects.toThrow();
+  expect(readFileSync(path, "utf8")).toBe(text);
+});
+
+test("a conflict is run again, a lock or another error is not, and 50 conflicts give up", async () => {
+  vi.resetModules();
+  const put = vi.fn();
+  vi.doMock("agentic-identity/file", () => ({ createFileStore: () => ({ region: "unknown", get: vi.fn(), query: vi.fn(), put, delete: put, transaction: put }) }));
+  const { createFileStore: wrapped } = await import("./store-file.js");
+  const store = wrapped(path);
+  put.mockRejectedValueOnce(new StoreConflictError("the store file changed during the write")).mockResolvedValue(undefined);
+  await store.put("rows", "a", { n: 1 });
+  expect(put).toHaveBeenCalledTimes(2);
+
+  put.mockReset().mockRejectedValue(new StoreConflictError("the store file changed during the write"));
+  await expect(store.delete("rows", "a")).rejects.toBeInstanceOf(StoreConflictError);
+  expect(put).toHaveBeenCalledTimes(50);
+
+  put.mockReset().mockRejectedValue(new StoreConflictError("the store file is locked by another process"));
+  await expect(store.transaction(async () => 1)).rejects.toThrow(/locked/);
+  expect(put).toHaveBeenCalledTimes(1);
+
+  put.mockReset().mockRejectedValue(new TypeError("boom"));
+  await expect(store.put("rows", "a", { n: 1 })).rejects.toThrow("boom");
+  expect(put).toHaveBeenCalledTimes(1);
+  vi.doUnmock("agentic-identity/file");
 });
