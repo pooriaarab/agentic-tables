@@ -387,7 +387,7 @@ npx agentic-tables delete-view view_... --yes         # the rows stay
 | --- | --- |
 | `list_views`, `create_view` | List the views of a table. Save a view. |
 | `run_view`, `delete_view` | Read the rows of a view. Delete a view. |
-| `import_csv` | Insert rows from CSV text. It has the same checks as `import`, and `create` makes a missing table. |
+| `import_csv` | Insert rows from CSV text. It has the same checks as `import`, and `create` makes a missing table. A call takes at most 500 rows and 1 MB of CSV. |
 
 Changing a view after you make it is not available yet. Delete the view and make it again.
 

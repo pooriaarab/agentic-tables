@@ -61,6 +61,7 @@ describe("views over the CLI", () => {
     expect(grid).toMatchObject({ name: "Big", kind: "grid" });
     const typo = run(db, ["new-view", "Deals", "Typo", "--kind", "grid", "--sort", "Amount:dsc"]);
     expect(typo.code).not.toBe(0);
+    expect(run(db, ["new-view", "Deals", "NoField", "--kind", "grid", "--sort", ":desc"]).code).toBe(2);
     expect(ok(db, ["views", "Deals"]).map((v: any) => v.name)).toEqual(["Big"]);
     const board = ok(db, ["new-view", "Deals", "By stage", "--kind", "board", "--group-by", "Stage"]);
     expect(ok(db, ["views", "Deals"]).map((v: any) => v.name)).toEqual(["Big", "By stage"]);
@@ -148,8 +149,33 @@ describe("views and CSV import over MCP", () => {
       expect(big.body.code).toBe("PAYLOAD_TOO_LARGE");
       const wide = await call("import_csv", { table: "Parts", csv: `Item\n${"€".repeat(350_000)}\n` });
       expect(wide.isError).toBe(true);
+      expect(wide.body).toMatch(/at most 1048576 bytes/);
       expect((await call("query_rows", { table: "Parts" })).body.items).toHaveLength(2);
     });
+  });
+
+  test("a viewer reads views over MCP and cannot change them or import", async () => {
+    const db = fresh();
+    seed(db);
+    const base = ok(db, ["bases"])[0].id;
+    ok({ ...db, AGENTIC_TABLES_BASE: base }, ["share", "eve", "viewer", "--kind", "human"]);
+    const view = ok(db, ["new-view", "Deals", "Big", "--kind", "grid"]);
+    const eve = { ...db, AGENTIC_TABLES_ACTOR: "human:eve", AGENTIC_TABLES_BASE: base };
+    await mcp(eve, async (call) => {
+      expect((await call("run_view", { viewId: view.id })).isError).toBe(false);
+      const attempts: [string, Record<string, unknown>][] = [
+        ["create_view", { table: "Deals", name: "X", kind: "grid" }],
+        ["delete_view", { viewId: view.id }],
+        ["import_csv", { table: "Deals", csv: "Name\nz\n" }],
+      ];
+      for (const [name, args] of attempts) {
+        const refused = await call(name, args);
+        expect(refused.isError).toBe(true);
+        expect(refused.body.code).toBe("FORBIDDEN");
+      }
+    });
+    expect(ok(db, ["views", "Deals"])).toHaveLength(1);
+    expect(ok(db, ["query", "Deals"]).items).toHaveLength(3);
   });
 
   test("the CLI import still works from a file", () => {
