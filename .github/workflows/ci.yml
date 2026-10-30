@@ -21,6 +21,15 @@ jobs:
         with:
           node-version: "22"
       - run: npm ci
+      # Match the runtime versions to the pinned latest dev dependencies.
+      - run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            for (const name of ["agentic-identity", "agentic-design"]) {
+              const version = (pkg) => JSON.parse(readFileSync(`node_modules/${pkg}/package.json`)).version;
+              if (version(name) !== version(`${name}-latest`)) throw new Error(`${name} version differs from latest pin`);
+            }
+          '
       - run: npm run build
       - run: npm run typecheck
       - run: npm test
@@ -28,6 +37,18 @@ jobs:
         run: npm run dev:smoke
         env:
           WRANGLER_SEND_METRICS: "false"
+
+  minimum-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm install --no-save agentic-identity@0.10.0 agentic-design@0.8.0
+      - run: npm ls agentic-identity@0.10.0 && npm ls agentic-design@0.8.0
+      - run: npm run ci:local
 
   firestore:
     runs-on: ubuntu-latest
