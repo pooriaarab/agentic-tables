@@ -2,7 +2,7 @@
 
 ## 0.15.2 - 2026-10-30
 
-- Allow shared package releases below 1.0.0. Test with the current identity and design releases.
+- Allow shared package releases below 1.0.0. Test with the current identity and design releases. A clean install with realtime 0.6.0 succeeds; realtime installs its own identity version.
 
 ## 0.15.1 - 2026-10-30
 
