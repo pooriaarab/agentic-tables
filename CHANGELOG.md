@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.0 - 2026-10-30
+
+- Add the typed `agentic-tables/account` registry contributor.
+- Export owned tables, views, rows, file references, grants, and authored rows.
+- Erase sole-owned data and preserve other owners. Clear retained author IDs and keep agent kinds.
+- Reject damaged records and make erase atomic and safe to repeat.
+- Keep the earlier root account API for existing hosts.
+
 ## 0.13.2 - 2026-10-30
 
 **Changed**
