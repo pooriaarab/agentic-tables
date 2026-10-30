@@ -45,7 +45,7 @@ These are the public entry points and their TypeScript exports. The installed `.
 | Export | Signature or use |
 | --- | --- |
 | `createTables` | `(store: Store, options?: TablesOptions) => Tables`; creates the core API. |
-| `tablesAccount` | `TablesAccount`; `exportAccount(subject: Actor, deps: TablesAccountDeps)` returns JSON by `TablesCollection`, and `eraseAccount(subject, deps)` returns counts. Both return promises. Stop writes before erase. |
+| `tablesAccount` | The legacy guarded `TablesAccount`; `exportAccount(subject: Actor, deps: TablesAccountDeps)` returns JSON by `TablesCollection`, and `eraseAccount(subject, deps)` returns counts. Both return promises. Stop writes before erase. Use `agentic-tables/account` for the identity registry. |
 | `VERSION` | `string`; the package version. |
 | `FIELD_TYPES`, `PRINCIPAL_KINDS` | Readonly lists of supported field types and principal kinds. |
 | `OPERATORS` | `Record<FieldType, Op[]>`; supported query operators by field type. |
@@ -72,6 +72,18 @@ const filter: Filter = { field: "Name", op: "eq", value: "Ada" };
 console.log(fields, issue, filter, OPERATORS.text);
 ```
 
+**Account registry — `agentic-tables/account`**
+
+`tablesAccount` is the identity account registry contributor. Its `exportAccount(subject, { store })` returns JSON records, and `eraseAccount(subject, { store })` returns counts. Both return promises keyed by `bases`, `tables`, `views`, `rows`, `authored_rows`, and `grants`. Stop writes before erase. `ERASED_ACCOUNT_ID` is the reserved ID used for retained authorship. The `TablesAccount`, `TablesAccountDeps`, and `TablesCollection` types describe this contract. These differ from the same-named root exports, which use the legacy guarded `{ tables, sharing, ctx }` contract.
+
+```ts
+import { tablesAccount, ERASED_ACCOUNT_ID } from "agentic-tables/account";
+import type { TablesAccountDeps } from "agentic-tables/account";
+import { createMemoryStore } from "agentic-identity";
+const deps: TablesAccountDeps = { store: createMemoryStore() };
+console.log(tablesAccount.id, ERASED_ACCOUNT_ID, deps);
+```
+
 **HTTP client — `agentic-tables/client`**
 
 `createClient(options: ClientOptions): TablesClient` creates the remote SDK. Each method makes one request and accepts call options with an optional `signal`. `TablesClientError(code: string, message: string, status: number, issues?: Issue[], report?: MigrationReport, cause?: unknown)` gives the error code, HTTP status, and optional details.
@@ -89,13 +101,10 @@ catch (error) { if (error instanceof TablesClientError) console.error(error.code
 
 **Worker — `agentic-tables/worker`**
 
-`createApp(tables: Tables, sharing: Sharing, auth: Auth, options?: AppOptions)` returns a Hono app. `AppOptions` has optional `origins` and `store`. The default export is the Worker with `fetch(request, env, ctx)`. `Env` describes its bindings. `reportingRegion(db: D1Like, region: "eu" | "us"): D1Like` wraps local D1 queries that report no region; use it for local development only.
+`createApp(tables: Tables, sharing: Sharing, auth: Auth, options?: AppOptions)` returns a Hono app. `AppOptions` has optional `origins` and `store`. The default export is the Worker with `fetch(request, env?)`. `Env` describes its bindings. `reportingRegion(db: D1Like, region: "eu" | "us"): D1Like` wraps local D1 queries that report no region; use it for local development only.
 
 ```ts
-import worker, { reportingRegion } from "agentic-tables/worker";
-import type { Env } from "agentic-tables/worker";
-const env: Env = { AGENTIC_TABLES_REGION: "eu" };
-// Given a local D1 binding: const localDb = reportingRegion(db, "eu");
+import worker from "agentic-tables/worker";
 export default worker;
 ```
 

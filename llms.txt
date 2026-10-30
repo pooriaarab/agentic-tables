@@ -11,7 +11,7 @@ Keywords: database,tables,airtable,rows,schema,agents,mcp,cli,structured-data.
 - MCP: run agentic-tables mcp, then call describe_table.
 - HTTP: Worker from agentic-tables/worker, under /api/v1/tables. Every request needs Authorization: Bearer <token>, checked by agentic-identity (401 for no or a bad token, 403 for a missing scope). Set AGENTIC_TABLES_LOCAL_DEV=1 for wrangler dev only.
 - UI: a web app for tables. The Worker of the repository serves it at /. The npm package ships it as ui-dist. Your own Worker serves it with an assets setting that points at node_modules/agentic-tables/ui-dist and keeps /api/* on the Worker. The Worker checks credentials on API calls.
-- UI component: mount(element, { baseUrl, getToken, principal, themePicker, frame, baseId, tableId, baseSwitcher }) from "agentic-tables/ui", with "agentic-tables/ui.css". It returns { update, unmount }. getToken is called before each request. frame: false drops the app's own banner, main landmark, and skip link, for a page that has its own. React 19 is a peer dependency.
+- UI component: mount(element, { baseUrl, getToken, principal, themePicker, frame, baseId, tableId, baseSwitcher, fetch }) from "agentic-tables/ui", with "agentic-tables/ui.css". It returns { update, unmount }. getToken is called before each request. frame: false drops the app's own banner, main landmark, and skip link, for a page that has its own. React 19 is a peer dependency.
 
 ## Docs
 
@@ -21,6 +21,7 @@ Keywords: database,tables,airtable,rows,schema,agents,mcp,cli,structured-data.
 ## Package exports
 
 - `agentic-tables`: `createTables`, `tablesAccount`, `VERSION`, `FIELD_TYPES`, `PRINCIPAL_KINDS`, `OPERATORS`, `checkValue`, `parseCsv`, `inferFields`, `csvToValues`, `toCsv`, `TablesError`, `ValidationError`, `NotFoundError`, `MigrationError`. Types: `Actor`, `Field`, `FieldInput`, `FieldType`, `FileRef`, `Issue`, `PrincipalKind`, `Row`, `Table`, `Values`, `AddFieldInput`, `Base`, `ChangeTypeOptions`, `EraseSummary`, `ListRowsOptions`, `OwnerExport`, `Tables`, `TablesOptions`, `Failure`, `MigrationReport`, `Condition`, `Filter`, `Op`, `Sort`, `TablesAccount`, `TablesAccountDeps`, `TablesCollection`.
+- `agentic-tables/account`: `tablesAccount`, `ERASED_ACCOUNT_ID`; types `TablesAccount`, `TablesAccountDeps`, `TablesCollection`. The identity registry contributor uses `{ store }` and includes `grants`; the same-named root exports use the legacy guarded `{ tables, sharing, ctx }` contract.
 - `agentic-tables/client`: `createClient`, `TablesClientError`. Types: `TablesClient`, `ClientOptions`, `ClientPrincipal`, `CallOptions`, `QueryOptions`, `PageOptions`, `Subject`, `Membership`, `MemberPage`, `InviteInput`, `Invited`, `LinkInput`, `ShareLink`, `CreatedLink`, `LinkList`, `Unshared`, `Issue`, `Field`, `FieldInput`, `Row`, `Table`, `Values`, `MigrationReport`, `Filter`, `Sort`, `AddFieldInput`, `Base`, `ChangeTypeOptions`, `EraseSummary`, `OwnerExport`, `RowPage`, `View`, `ViewInput`, `ViewRun`, `Role`, `SubjectKind`.
 - `agentic-tables/worker`: default Worker, `createApp`, `reportingRegion`; types `AppOptions`, `Env`.
 - `agentic-tables/node`: `createNodeServer`; types `NodeServerOptions`, `RunningNodeServer`. Local use only; it needs `unsafeNoAuth: true`.
