@@ -6,6 +6,7 @@
 // viewer grants with unrelated damaged/busy rows; registry export and erase;
 // damaged/busy sibling metadata and transferred-base children;
 // malformed subject kinds on direct table grants;
+// damaged sibling fields block deletion in a retained container but allow export;
 // JSON records, file references, pagination, and surviving links to a deleted table.
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { createD1Store, D1_SCHEMA } from "agentic-identity/cloudflare";
@@ -283,6 +284,22 @@ describe("store account contributor", () => {
     expect((await tablesAccount.eraseAccount(bot, s)).authored_rows).toBe(105);
     expect((await tablesAccount.exportAccount(ada, s)).authored_rows).toHaveLength(1);
     expect((await tablesAccount.eraseAccount(bot, s)).authored_rows).toBe(0);
+  });
+
+  test("exports but refuses erase when retained-container sibling fields are damaged", async () => {
+    const s = await setup();
+    const mine = await s.make(ada);
+    const sibling = await createGuarded(s.tables, s.sharing)(ctx(ada)).createTable(mine.base.id, "Other", []);
+    await s.sharing.grant(ctx(ada), sibling.id, bob as never, "owner");
+    await s.store.delete("grants", `${mine.base.id}:human:ada`);
+    await s.store.delete("grants", `${sibling.id}:human:ada`);
+    await s.store.put("bases", mine.base.id, { ...(await s.store.get("bases", mine.base.id))!, ownerId: ERASED_ACCOUNT_ID });
+    await s.store.put("tables", sibling.id, { ...(await s.store.get("tables", sibling.id))!, fields: null });
+    expect((await tablesAccount.exportAccount(ada, s)).tables).toMatchObject([{ id: mine.table.id }]);
+    await expect(tablesAccount.eraseAccount(ada, s)).rejects.toMatchObject({ code: "DAMAGED_ACCOUNT_DATA" });
+    expect(await s.store.get("tables", mine.table.id)).not.toBeNull();
+    expect(await s.store.get("rows", mine.row.id)).not.toBeNull();
+    expect(await s.store.get("grants", `${mine.table.id}:human:ada`)).not.toBeNull();
   });
 
   test.each([false, true])("refuses links to a deleted table (retained container: %s)", async (retained) => {

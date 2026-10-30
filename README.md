@@ -392,7 +392,7 @@ Export returns plain JSON collections: `bases`, `tables`, `views`, `rows`, `auth
 
 Erase deletes sole-owned bases and tables with their rows, views, resources, grants, invites, links, and resource audit entries. Shared data stays. The subject's grants go. On retained rows, matching author and editor IDs become `(erased)`; the kind stays, so agent work stays labeled. Row content stays with its other owners. A matching stored base creator ID also becomes `(erased)`. If a table has another direct owner, its base stays as a container even when its last base grant goes.
 
-Erase refuses a table delete while a surviving table links to it. Remove that link field first, as for `deleteTable`.
+Erase refuses a table delete while a surviving table links to it. Remove that link field first, as for `deleteTable`. In a retained base, damaged sibling fields also block erase: it cannot prove that no link exists. Export can still succeed in that case.
 
 Both calls reject damaged records on the subject's resource paths and data. Unrelated data does not block the call. Resource cleanup reads first and writes in one Store transaction. Authored rows outside that tree are found outside the transaction, then each is read again and cleared in a small transaction. A failed transaction changes nothing in that transaction. A later failure can leave a partial erase; repeat the call to finish. Counts cover only the work done by that call. Erase returns counts for the export collection names. A second erase counts zero. The older root API and the HTTP self-data routes retain their earlier behavior.
 
