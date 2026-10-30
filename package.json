@@ -1,6 +1,6 @@
 {
   "name": "agentic-tables",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "description": "Typed tables that agents read and write as rows.",
   "keywords": [
     "database",
@@ -81,8 +81,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
-    "agentic-design": "^0.8.0",
-    "agentic-identity": "^0.9.0",
+    "agentic-design": ">=0.8.0 <0.10.0",
+    "agentic-identity": ">=0.9.0 <0.11.0",
     "hono": "^4.13.14",
     "zod": "^4.6.7"
   },
