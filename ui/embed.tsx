@@ -20,6 +20,8 @@ export interface TablesUiOptions {
   fetch?: typeof fetch;
   /** Show a theme control, and let the app set `data-theme` on the page. Off by default, so the page keeps its own theme. */
   themePicker?: boolean;
+  /** Prevent UI writes. Server roles and scopes still enforce access. Defaults to false. */
+  readOnly?: boolean;
   /** Draw the app's own frame: a banner, a main landmark, and a skip link. On by default. Turn it off on a page that has its own landmarks. */
   frame?: boolean;
   /** The base to open. Without it the app opens the base that holds `tableId`, or else the caller's first base. A base the caller cannot read shows an error. */
@@ -46,7 +48,7 @@ function checkBaseUrl(value: unknown): void {
 }
 
 /** A client that asks the callback for the token on each request, so a token that expires is replaced and never kept. */
-function clientFor(options: TablesUiOptions): TablesClient {
+function clientFor(options: TablesUiOptions, isReadOnly: () => boolean): TablesClient {
   if (!options) throw new TypeError("the tables UI needs options with a baseUrl");
   checkBaseUrl(options.baseUrl);
   if (options.getToken !== undefined && typeof options.getToken !== "function") throw new TypeError("getToken must be a function");
@@ -56,11 +58,17 @@ function clientFor(options: TablesUiOptions): TablesClient {
     if (v !== undefined && (typeof v !== "string" || v === "")) throw new TypeError(`${key} must be a non-empty string`);
   }
   if (options.baseSwitcher !== undefined && typeof options.baseSwitcher !== "boolean") throw new TypeError("baseSwitcher must be true or false");
+  if (options.readOnly !== undefined && typeof options.readOnly !== "boolean") throw new TypeError("readOnly must be true or false");
   const inner = options.fetch ?? globalThis.fetch?.bind(globalThis);
   if (typeof inner !== "function") throw new TypeError("no fetch available: pass options.fetch");
   const { getToken } = options;
   const withToken: typeof fetch = async (input, init) => {
+    const checkWrite = () => {
+      if (isReadOnly() && init?.method && !["GET", "HEAD"].includes(init.method)) throw new TypeError("The tables UI is read-only");
+    };
+    checkWrite();
     const token = getToken ? await getToken() : undefined;
+    checkWrite();
     if (token === undefined || token === "") return inner(input, init);
     const headers = new Headers(init?.headers);
     headers.set("authorization", `Bearer ${token}`);
@@ -70,10 +78,10 @@ function clientFor(options: TablesUiOptions): TablesClient {
 }
 
 /** The app with a client above it. It needs the theme, tooltip, and toast providers above it. `mount` adds them. */
-function TablesApp({ client, themePicker, frame, baseId, tableId, baseSwitcher, navKey }: { client: TablesClient; themePicker?: boolean; frame?: boolean; baseId?: string; tableId?: string; baseSwitcher?: boolean; navKey?: number }) {
+function TablesApp({ client, themePicker, frame, baseId, tableId, baseSwitcher, readOnly, navKey }: { client: TablesClient; themePicker?: boolean; frame?: boolean; baseId?: string; tableId?: string; baseSwitcher?: boolean; readOnly?: boolean; navKey?: number }) {
   return (
     <ClientContext.Provider value={client}>
-      <App themePicker={themePicker} frame={frame} baseId={baseId} tableId={tableId} baseSwitcher={baseSwitcher} navKey={navKey} />
+      <App readOnly={readOnly} themePicker={themePicker} frame={frame} baseId={baseId} tableId={tableId} baseSwitcher={baseSwitcher} navKey={navKey} />
     </ClientContext.Provider>
   );
 }
@@ -91,10 +99,11 @@ const mounted = new WeakSet<HTMLElement>();
 export function mount(element: HTMLElement, options: TablesUiOptions): MountedTables {
   if (!(element instanceof HTMLElement)) throw new TypeError("mount needs an element");
   if (mounted.has(element)) throw new TypeError("the tables UI is already mounted in this element");
-  let client = clientFor(options);
+  let readOnly = options?.readOnly === true;
+  let client = clientFor(options, () => readOnly);
   let picker = options.themePicker === true;
   let frame = options.frame !== false;
-  let where = { baseId: options.baseId, tableId: options.tableId, baseSwitcher: options.baseSwitcher === true };
+  let where = { baseId: options.baseId, tableId: options.tableId, baseSwitcher: options.baseSwitcher === true, readOnly: options.readOnly === true };
   let navKey = 0;
   const root = createRoot(element);
   mounted.add(element);
@@ -113,10 +122,11 @@ export function mount(element: HTMLElement, options: TablesUiOptions): MountedTa
   return {
     update(next) {
       if (gone) return;
-      client = clientFor(next);
+      client = clientFor(next, () => readOnly);
+      readOnly = next.readOnly === true;
       picker = next.themePicker === true;
       frame = next.frame !== false;
-      where = { baseId: next.baseId, tableId: next.tableId, baseSwitcher: next.baseSwitcher === true };
+      where = { baseId: next.baseId, tableId: next.tableId, baseSwitcher: next.baseSwitcher === true, readOnly: next.readOnly === true };
       navKey += 1;
       render();
     },

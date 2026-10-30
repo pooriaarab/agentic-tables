@@ -127,6 +127,10 @@ const store = createFileStore("./tables.json", options);
 
 `mount(element: HTMLElement, options: TablesUiOptions): MountedTables` renders the UI. `MountedTables` has `update(options: TablesUiOptions): void` and `unmount(): void`. The UI also exports the `ClientPrincipal` and `TablesClient` types. Import the CSS subpath for its styles. See [Mount the UI in your app](#mount-the-ui-in-your-app) for an example.
 
+Set `readOnly: true` to browse without UI writes. This disables cell edits and row deletion, hides table and column actions, and prevents automatic base creation. Filters, sort, navigation, and pagination still work. `update` can change this option and closes open editors and dialogs. The current UI has no saved-view or rename controls. This option controls the UI; server roles and scopes still enforce access.
+
+To rename a table from your own UI, call `client.renameTable(tableId, name)`. The guarded SDK and core expose `renameTable` too. The operation keeps the table id, fields, rows, and views. Names are trimmed and must contain 1 to 200 characters. The guarded API requires owner access and `table:admin` scope.
+
 ## Quick start
 
 The library, the CLI, the MCP server, the HTTP API, and the web UI work.
@@ -430,6 +434,7 @@ Every call checks the role with `can()`, which writes an audit entry for each al
 | --- | --- |
 | `POST /bases`, `GET /bases` | Create and list bases. The list holds the bases the caller can read. |
 | `POST /bases/:baseId/tables`, `GET /bases/:baseId/tables`, `GET /tables/:tableId` | Create, list, and read tables. |
+| `PATCH /tables/:tableId` | Rename a table with `{ "name": "New name" }`. Requires owner access and `table:admin`. |
 | `POST /tables/:tableId/fields`, `PATCH` and `DELETE /tables/:tableId/fields/:field`, `POST /tables/:tableId/fields/:field/type` | Add, rename, delete, and retype a field. The retype body takes `dryRun` and `onFailure`. |
 | `PUT /tables/:tableId/fields/:field/required` | Set `required`. A `409` lists the rows with no value. Add `dryRun` to only list them. |
 | `DELETE /tables/:tableId`, `DELETE /bases/:baseId` | Delete with all rows and views. A table that another table links to returns `422`. |
@@ -544,7 +549,7 @@ value such as `table:read,base:read` makes `new` fail with `FORBIDDEN`, and it b
 is optional too. Leave it unset to use the default base, one for each actor or for the person it acts for. Or set it to
 the id of a base that its owner shared with you.
 
-Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `rename-field`, `delete-field`, `change-type`, `delete-table`, `bases`, `new-base`, `delete-base`, `views`, `new-view`, `view`, `delete-view`, `claim-base`, `share`, `shares`, `invite`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON, except `export`, which prints CSV. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1. A bad command line prints `"code":"USAGE"`, then a hint line, and exits 2. A bad `AGENTIC_TABLES_ACTOR` also prints `USAGE`, but exits 1.
+Commands: `new`, `list`, `schema`, `add-field`, `insert`, `update`, `query`, `export`, `import`, `required`, `rename-table`, `rename-field`, `delete-field`, `change-type`, `delete-table`, `bases`, `new-base`, `delete-base`, `views`, `new-view`, `view`, `delete-view`, `claim-base`, `share`, `shares`, `invite`, `unshare`, `export-data`, `erase-data`, `mcp`. Each prints JSON, except `export`, which prints CSV. A failure prints `{"error":{"code","message","issues"}}` on stderr and exits 1. A bad command line prints `"code":"USAGE"`, then a hint line, and exits 2. A bad `AGENTIC_TABLES_ACTOR` also prints `USAGE`, but exits 1.
 
 CSV import checks every cell first. If one cell fails, no row is written, and the error names the line and field. `--create` makes the table and guesses a type for each column: number, checkbox, date, single select, long text, or text. A column is a number only if every value is a plain decimal. `00123`, `0x1F`, and `1e3` stay text.
 
@@ -579,10 +584,11 @@ The CLI and the MCP server manage bases and edit fields, as the HTTP API does.
 npx agentic-tables bases                              # the bases you can read
 npx agentic-tables new-base Sales                     # prints the base. Your work base is the oldest base you own; set AGENTIC_TABLES_BASE to use another
 npx agentic-tables delete-base base_... --yes         # removes the base with its tables, rows and views
-npx agentic-tables rename-field People Name "Full name"
-npx agentic-tables change-type People Age --to number --dry-run
-npx agentic-tables change-type People Age --to number --on-failure clear --yes
-npx agentic-tables delete-field People Age --yes
+npx agentic-tables rename-table People Contacts
+npx agentic-tables rename-field Contacts Name "Full name"
+npx agentic-tables change-type Contacts Age --to number --dry-run
+npx agentic-tables change-type Contacts Age --to number --on-failure clear --yes
+npx agentic-tables delete-field Contacts Age --yes
 ```
 
 `change-type` converts every value. By default it changes nothing if one value fails, and it lists the rows that fail. `--on-failure clear` empties the failed values and needs `--yes`. `--dry-run` writes nothing. A select target takes `--options "a|b"`. A link target takes `--link-table`.
@@ -590,6 +596,7 @@ npx agentic-tables delete-field People Age --yes
 | MCP tool | Use it for |
 | --- | --- |
 | `list_bases`, `create_base`, `delete_base` | List, create, or delete a base. |
+| `rename_table` | Rename a table. Its id and data stay the same. Requires owner access. |
 | `rename_field`, `delete_field` | Rename a field. Delete a field with its values. |
 | `change_field_type` | Change the type of a field. It has `dryRun` and `onFailure`. |
 

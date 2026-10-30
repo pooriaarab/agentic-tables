@@ -258,18 +258,39 @@ describe("roles over the CLI and MCP", () => {
   }, 120_000);
 });
 
+test("CLI rename persists by id and rejects an empty name", () => {
+  const t = ok(["new", "CLI rename"]);
+  expect(ok(["rename-table", t.id, "CLI renamed"]).name).toBe("CLI renamed");
+  expect(ok(["schema", t.id]).name).toBe("CLI renamed");
+  expect(run(["rename-table", t.id, " "]).code).toBe(1);
+  expect(ok(["schema", t.id]).name).toBe("CLI renamed");
+});
+
+test("MCP owner renames a table and reads the saved name", async () => {
+  const t = ok(["new", "MCP rename"]);
+  const client = new Client({ name: "rename-e2e", version: "0.0.0" });
+  await client.connect(new StdioClientTransport({ command: "node", args: [cli, "mcp"], env: { ...env, AGENTIC_TABLES_ACTOR: "human:cli", AGENTIC_TABLES_BASE: sharedBase! } as Record<string, string> }));
+  try {
+    const result = await client.callTool({ name: "rename_table", arguments: { table: t.id, name: "MCP renamed" } });
+    expect(result.isError).not.toBe(true);
+    expect(ok(["schema", t.id]).name).toBe("MCP renamed");
+  } finally { await client.close(); }
+});
+
 describe("mcp", () => {
   test("describes the schema and does typed row CRUD over stdio", async () => {
     const client = new Client({ name: "e2e", version: "0.0.0" });
     await client.connect(new StdioClientTransport({ command: "node", args: [cli, "mcp"], env: { ...env, AGENTIC_TABLES_ACTOR: "agent:e2e", AGENTIC_TABLES_BASE: sharedBase! } as Record<string, string> }));
     try {
       const names = (await client.listTools()).tools.map((t) => t.name);
+      expect(names).toContain("rename_table");
       expect(names).toEqual(expect.arrayContaining(["list_tables", "describe_table", "create_table", "add_field", "insert_rows", "update_row", "delete_row", "get_row", "query_rows", "set_required", "delete_table", "export_my_data", "erase_my_data", "share", "unshare"]));
       const call = async (name: string, args: Record<string, unknown>) => {
         const r = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { text: string }[] };
         steps.push({ step: `mcp ${name}`, ok: !r.isError });
         return { isError: r.isError === true, body: JSON.parse(r.content[0]!.text) };
       };
+      expect((await call("rename_table", { table: "People", name: "Denied" })).body.code).toBe("FORBIDDEN");
       // The CLI test already made People in this database.
       const described = await call("describe_table", { table: "People" });
       expect(described.body.fields.find((f: any) => f.name === "Stage")).toMatchObject({ type: "single_select", options: ["lead", "won"], operators: expect.arrayContaining(["eq", "in"]) });

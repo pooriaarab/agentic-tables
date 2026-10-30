@@ -7,6 +7,7 @@
 //  4. A Worker without a region setting, or with "unknown" or "EU", serves requests anyway.
 //  5. A Worker without a D1 binding serves requests anyway.
 //  6. A path id the store refuses ends as a 500 and puts the id in a log. It must be a 404.
+//  7. Rename loses a concurrent field change, or disappears after a restart.
 //
 // The run writes a JSON record of each request (status only) to $TMPDIR/agentic-tables-d1-e2e.json.
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -78,11 +79,19 @@ describe("two Workers on one D1 database", () => {
     }
     expect(await rowCount(two, table.id)).toBe(20);
 
+    const renamed = await Promise.all([
+      call(one, "PATCH", `/tables/${table.id}`, { name: "Contacts" }),
+      call(one, "POST", `/tables/${table.id}/fields`, { name: "Age", type: "number" }),
+    ]);
+    expect(renamed.map((r) => r.status)).toEqual([200, 201]);
+    expect((await call(two, "GET", `/tables/${table.id}`)).body).toMatchObject({ name: "Contacts", fields: [{ name: "Name" }, { name: "Age" }] });
+
     await Promise.all(running.map((w) => w.stop()));
     running = [await startWorker({ port: A, persistTo, vars: OPEN }), await startWorker({ port: B, persistTo, vars: OPEN })];
     const [again] = running as [RunningWorker, RunningWorker];
     expect((await call(again, "GET", "/bases")).body.items.map((b: any) => b.name)).toEqual(["Crm"]);
     expect(await rowCount(again, table.id)).toBe(20);
+    expect((await call(again, "GET", `/tables/${table.id}`)).body).toMatchObject({ name: "Contacts", fields: [{ name: "Name" }, { name: "Age" }] });
 
     // An id the store refuses is a missing resource, and its text stays out of the log.
     expect((await call(again, "GET", "/rows/__secret__")).status).toBe(404);

@@ -28,6 +28,7 @@ export const schemas = {
   createBase: z.object({ name }).strict(),
   createTable: z.object({ name, fields: z.array(fieldInput).max(200).optional() }).strict(),
   addField: fieldInput.extend({ default: z.unknown().optional() }).strict(),
+  renameTable: z.object({ name }).strict(),
   renameField: z.object({ name }).strict(),
   changeType: z
     .object({

@@ -449,6 +449,18 @@ export function createTables(store: Store, options: TablesOptions = {}) {
         return tableView(id, doc);
       });
     },
+    /** Rename without changing the table id, schema, rows, or views. */
+    async renameTable(tableId: string, name: string): Promise<Table> {
+      if (typeof name !== "string" || !name.trim() || name.trim().length > 200) {
+        throw new ValidationError([{ field: "name", code: "type", message: "use a name of 1 to 200 characters" }]);
+      }
+      return store.transaction(async (ops) => {
+        const table = await loadTable(ops, tableId);
+        const next = { ...bump(table), name: name.trim(), updatedAt: stamp() };
+        await write(ops, "tables", tableId, next);
+        return tableView(tableId, next);
+      });
+    },
     async getTable(tableId: string): Promise<Table> {
       return tableView(tableId, await loadTable(store, tableId));
     },

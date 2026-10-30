@@ -63,6 +63,7 @@ export function createMcpServer(ctx: Context): McpServer {
   tool("set_required", "Make a field required or optional. Making it required fails and lists the rows that have no value. Use dryRun to see the list first.", { table: tableRef, field: z.string(), required: z.boolean(), dryRun: z.boolean().optional() }, "write", async ({ table, field, required, dryRun }) =>
     ctx.tables.setRequired((await ctx.table(table)).id, field, required, { dryRun }),
   );
+  tool("rename_table", "Rename a table. Its id, rows, and views stay the same. Requires owner access.", { table: tableRef, name: z.string().trim().min(1).max(200) }, "write", async ({ table, name }) => describe(await ctx.tables.renameTable((await ctx.table(table)).id, name)));
   tool("rename_field", "Rename a field. Rows and views keep working.", { table: tableRef, field: z.string(), name: z.string() }, "write", async ({ table, field, name }) => describe(await ctx.tables.renameField((await ctx.table(table)).id, field, name)));
   tool("delete_field", "Delete a field and its values in every row. This cannot be undone.", { table: tableRef, field: z.string() }, "delete", async ({ table, field }) => describe(await ctx.tables.deleteField((await ctx.table(table)).id, field)));
   tool(

@@ -7,7 +7,7 @@ import { TableView } from "./TableView";
 
 const DEFAULT_BASE = "My tables";
 const NOT_FOUND = "That table was not found, or you cannot read it.";
-type Load = { state: "loading" } | { state: "error"; message: string; bases: Base[] } | { state: "ready"; base: Base; bases: Base[]; tables: Table[]; notice?: string };
+type Load = { state: "empty"; bases: Base[] } | { state: "loading" } | { state: "error"; message: string; bases: Base[] } | { state: "ready"; base: Base; bases: Base[]; tables: Table[]; notice?: string };
 
 /** The table id in the URL hash, as `#/t/<id>`. */
 const routeId = () => /^#\/t\/(.+)$/.exec(location.hash)?.[1] ?? null;
@@ -26,7 +26,7 @@ function ThemePicker() {
 
 /** The app. `frame` draws the design package's app shell, with its banner, main landmark, and skip link. Without it the
  * app draws a plain block, for a host page that has its own landmarks. */
-export function App({ themePicker = false, frame = true, baseId, tableId, baseSwitcher = false, navKey = 0 }: { themePicker?: boolean; frame?: boolean; baseId?: string; tableId?: string; baseSwitcher?: boolean; navKey?: number }) {
+export function App({ themePicker = false, frame = true, baseId, tableId, baseSwitcher = false, readOnly = false, navKey = 0 }: { themePicker?: boolean; frame?: boolean; baseId?: string; tableId?: string; baseSwitcher?: boolean; readOnly?: boolean; navKey?: number }) {
   const client = useClient();
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [route, setRoute] = useState(routeId() ?? tableId ?? null);
@@ -51,6 +51,7 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
     seen.current = { baseId, tableId, navKey };
   }, [baseId, tableId, navKey]);
   const [creating, setCreating] = useState(false);
+  useEffect(() => { if (readOnly) setCreating(false); }, [readOnly]);
 
   const latest = useRef(0);
   const read = useCallback(async () => {
@@ -58,6 +59,7 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
     let bases: Base[] = [];
     try {
       bases = await client.listBases();
+      if (mine !== latest.current) return;
       let base: Base | undefined;
       let tables: Table[] | undefined;
       let notice: string | undefined;
@@ -73,11 +75,14 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
           if (list.some((t) => t.id === routeNow.current)) { base = b; tables = list; break; }
         }
       }
+      if (mine !== latest.current) return;
       if (!base) {
         // The first visit makes a base to hold the tables. Later visits use the first base. A link that finds no base
         // makes none.
         base = bases[0];
         if (!base && routeNow.current) throw new UiError(NOT_FOUND);
+        if (!base && readOnly) { setLoad({ state: "empty", bases }); return; }
+        if (mine !== latest.current) return;
         if (!base) { base = await client.createBase(DEFAULT_BASE); bases = [base]; }
       }
       tables ??= await client.listTables(base.id);
@@ -87,7 +92,7 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
       if (mine === latest.current) setLoad({ state: "error", message: failure(error), bases });
     }
   // `tableId` is a dependency on purpose: a new link starts a new read, which looks for the base of that table.
-  }, [client, chosen, tableId]);
+  }, [client, chosen, tableId, readOnly]);
   useEffect(() => { void read(); }, [read]);
   useEffect(() => {
     const on = () => setRoute(routeId());
@@ -107,7 +112,7 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
         </Select>
       ) : null}
       {themePicker ? <ThemePicker /> : null}
-      <Button onClick={() => setCreating(true)} disabled={load.state !== "ready"}><PlusIcon aria-hidden="true" /> New table</Button>
+      {!readOnly ? <Button onClick={() => setCreating(true)} disabled={load.state !== "ready"}><PlusIcon aria-hidden="true" /> New table</Button> : null}
     </>
   );
 
@@ -115,14 +120,15 @@ export function App({ themePicker = false, frame = true, baseId, tableId, baseSw
   if (load.state === "loading") body = <p role="status" className="status"><span className="agd-spinner" aria-hidden="true" /> Loading tables…</p>;
   else if (load.state === "error")
     body = <EmptyState title="The tables did not load" description={<span role="alert">{load.message}</span>} action={<Button onClick={() => { setLoad({ state: "loading" }); void read(); }}>Try again</Button>} />;
+  else if (load.state === "empty") body = <EmptyState title="No readable bases yet" description="No bases are available to browse." />;
   else if (load.notice && !current) body = <EmptyState title="Table not found" description={<span role="alert">{load.notice}</span>} />;
-  else if (current) body = <TableView key={current.id} tableId={current.id} onGone={() => { routeNow.current = null; setRoute(null); setChosen(load.base.id); location.hash = ""; void read(); }} />;
-  else if (tables.length === 0) body = <EmptyState title="No tables yet" description="Make a table, then add columns and rows." action={<Button onClick={() => setCreating(true)}>New table</Button>} />;
+  else if (current) body = <TableView readOnly={readOnly} key={current.id} tableId={current.id} onGone={() => { routeNow.current = null; setRoute(null); setChosen(load.base.id); location.hash = ""; void read(); }} />;
+  else if (tables.length === 0) body = <EmptyState title="No tables yet" description="Make a table, then add columns and rows." action={readOnly ? undefined : <Button onClick={() => setCreating(true)}>New table</Button>} />;
   else body = <EmptyState title="Pick a table" description="Choose a table in the list." />;
 
   const sidebar = <SidebarNav label="Tables" items={tables.map((t) => ({ href: `#/t/${t.id}`, label: t.name, current: t.id === route }))} />;
   const dialog =
-    load.state === "ready" ? (
+    !readOnly && load.state === "ready" ? (
       <NewTableDialog
         open={creating}
         onOpenChange={setCreating}

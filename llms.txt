@@ -7,11 +7,13 @@ Keywords: database,tables,airtable,rows,schema,agents,mcp,cli,structured-data.
 - SDK: import { createTables } from "agentic-tables", with a Store from "agentic-identity".
 - Account: `tablesAccount` from `agentic-tables/account` implements the identity 0.10 account registry contract with `{ store }`. The root export keeps the guarded `{ tables, sharing, ctx }` API.
 - Remote SDK: import { createClient } from "agentic-tables/client". One typed method per Worker route; errors are TablesClientError with code and status; { signal } on every call; no retries; runs in browsers, Workers and Node 22.
-- CLI: agentic-tables new | list | schema | add-field | insert | update | query | required | rename-field | delete-field | change-type | bases | new-base | delete-base | views | new-view | view | delete-view | delete-table | claim-base | share | shares | invite | link | links | revoke-link | unshare | export-data | erase-data | export | import.
+- CLI: agentic-tables new | list | schema | add-field | insert | update | query | required | rename-table | rename-field | delete-field | change-type | bases | new-base | delete-base | views | new-view | view | delete-view | delete-table | claim-base | share | shares | invite | link | links | revoke-link | unshare | export-data | erase-data | export | import.
 - MCP: run agentic-tables mcp, then call describe_table.
 - HTTP: Worker from agentic-tables/worker, under /api/v1/tables. Every request needs Authorization: Bearer <token>, checked by agentic-identity (401 for no or a bad token, 403 for a missing scope). Set AGENTIC_TABLES_LOCAL_DEV=1 for wrangler dev only.
 - UI: a web app for tables. The Worker of the repository serves it at /. The npm package ships it as ui-dist. Your own Worker serves it with an assets setting that points at node_modules/agentic-tables/ui-dist and keeps /api/* on the Worker. The Worker checks credentials on API calls.
-- UI component: mount(element, { baseUrl, getToken, principal, themePicker, frame, baseId, tableId, baseSwitcher, fetch }) from "agentic-tables/ui", with "agentic-tables/ui.css". It returns { update, unmount }. getToken is called before each request. frame: false drops the app's own banner, main landmark, and skip link, for a page that has its own. React 19 is a peer dependency.
+- UI component: mount(element, { baseUrl, getToken, principal, themePicker, frame, baseId, tableId, baseSwitcher, readOnly, fetch }) from "agentic-tables/ui", with "agentic-tables/ui.css". It returns { update, unmount }. getToken is called before each request. frame: false drops the app's own banner, main landmark, and skip link, for a page that has its own. React 19 is a peer dependency.
+- Rename: renameTable(tableId, name), PATCH /tables/:tableId with { name }, CLI rename-table, MCP rename_table. Requires owner access and table:admin scope. Names are trimmed, 1 to 200 characters.
+- UI readOnly: true prevents writes and automatic base creation; server permissions still apply.
 
 ## Docs
 

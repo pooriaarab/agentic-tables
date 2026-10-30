@@ -24,6 +24,7 @@ Commands:
   export <table>                      Print the rows as CSV.
   import <table> --file <csv> [--create]
   required <table> <field> <true|false> [--dry-run]
+  rename-table <table> <newName>      Rename a table. Its id stays the same.
   rename-field <table> <field> <newName>   Rename a field. Rows and views keep working.
   delete-field <table> <field> --yes  Delete a field and its values in every row.
   change-type <table> <field> --to <type> [--options <a|b>] [--link-table <t>] [--on-failure <abort|clear>] [--dry-run] [--yes]
@@ -159,6 +160,10 @@ async function run(ctx: Context, { command, args, flags }: Parsed): Promise<unkn
       const table = await ctx.table(need(0, "a table"));
       if (flag("yes") === undefined) throw new UsageError(`delete-table removes "${table.name}" with all its rows. Add --yes to confirm`);
       return ctx.tables.deleteTable(table.id);
+    }
+    case "rename-table": {
+      const table = await ctx.table(need(0, "a table"));
+      return ctx.tables.renameTable(table.id, need(1, "a new name"));
     }
     case "rename-field": {
       const table = await ctx.table(need(0, "a table"));
