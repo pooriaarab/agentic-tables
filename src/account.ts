@@ -94,7 +94,11 @@ async function snapshot(tx: StoreOps, subject: AccountSubject) {
       await visit(child.id, true);
     }
   };
-  for (const g of await scan(tx, "grants", { subjectId: subject.id, subjectKind: subject.kind })) {
+  // Inspect kinds on the subject's grants before filtering: a missing kind must
+  // not hide a direct table grant where no stored base creator can reveal it.
+  for (const g of await scan(tx, "grants", { subjectId: subject.id })) {
+    if (!(SUBJECT_KINDS as readonly unknown[]).includes(g.data.subjectKind)) bad();
+    if (g.data.subjectKind !== subject.kind) continue;
     const rid = validateGrant(g);
     const resource = await tx.get("resources", rid);
     // Other registry contributors own other resource types.

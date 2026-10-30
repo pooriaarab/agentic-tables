@@ -5,6 +5,7 @@
 // unrelated legacy bases and damaged rows; unrelated writes during erase;
 // viewer grants with unrelated damaged/busy rows; registry export and erase;
 // damaged/busy sibling metadata and transferred-base children;
+// malformed subject kinds on direct table grants;
 // JSON records, file references, pagination, and surviving links to a deleted table.
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { createD1Store, D1_SCHEMA } from "agentic-identity/cloudflare";
@@ -173,6 +174,15 @@ describe("store account contributor", () => {
     expect((await tablesAccount.eraseAccount(ada, s)).bases).toBe(0);
     expect((await s.store.get("bases", mine.base.id))?.ownerId).toBe(ERASED_ACCOUNT_ID);
     expect((await tablesAccount.exportAccount(bob, s)).bases).toMatchObject([{ id: mine.base.id }]);
+  });
+
+  test("refuses a damaged subject kind on a direct table grant", async () => {
+    const s = await setup();
+    const other = await s.make(bob);
+    await s.store.put("grants", `${other.table.id}:human:ada`, { resourceId: other.table.id, subjectId: ada.id, role: "owner" });
+    await expect(tablesAccount.exportAccount(ada, s)).rejects.toMatchObject({ code: "DAMAGED_ACCOUNT_DATA" });
+    await expect(tablesAccount.eraseAccount(ada, s)).rejects.toMatchObject({ code: "DAMAGED_ACCOUNT_DATA" });
+    expect(await s.store.get("tables", other.table.id)).not.toBeNull();
   });
 
   test("a former creator ignores the new owner's damaged table", async () => {
