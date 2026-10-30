@@ -7,7 +7,7 @@
 
 Typed tables that agents read and write as rows.
 
-> Status: release 0.14.0. See [CHANGELOG.md](CHANGELOG.md) for the changes.
+> Status: release 0.14.1. See [CHANGELOG.md](CHANGELOG.md) for the changes.
 >
 > **The Worker checks every request.** It needs `Authorization: Bearer <token>`, and `agentic-identity` verifies the
 > token against credentials in the same store. A request with no valid token gets `401`. A token without the scope
@@ -35,6 +35,88 @@ Node 22 or newer. The CLI runs with `npx agentic-tables --help`.
 | `agentic-tables/file-store` | `createFileStore`, a local store that keeps one JSON file. The CLI and the MCP server use it. See [Limits](#limits). |
 | `agentic-tables/ui` | `mount`, which renders the web app in your page. See [Mount the UI in your app](#mount-the-ui-in-your-app). |
 | `agentic-tables/ui.css` | The styles for `agentic-tables/ui`. Import it after `agentic-design/styles.css`. See [Mount the UI in your app](#mount-the-ui-in-your-app). |
+
+### Export reference
+
+These are the public entry points and their TypeScript exports. The installed `.d.ts` files give the full fields of each type. Types use `import type` and have no runtime value.
+
+**Core SDK — `agentic-tables`**
+
+| Export | Signature or use |
+| --- | --- |
+| `createTables` | `(store: Store, options?: TablesOptions) => Tables`; creates the core API. |
+| `tablesAccount` | `TablesAccount`; `exportAccount(subject: Actor, deps: TablesAccountDeps)` returns JSON by `TablesCollection`, and `eraseAccount(subject, deps)` returns counts. Both return promises. Stop writes before erase. |
+| `VERSION` | `string`; the package version. |
+| `FIELD_TYPES`, `PRINCIPAL_KINDS` | Readonly lists of supported field types and principal kinds. |
+| `OPERATORS` | `Record<FieldType, Op[]>`; supported query operators by field type. |
+| `checkValue` | `(field: Field, value: unknown) => Omit<Issue, "field"> \| null`; checks one value, not the required rule. |
+| `parseCsv` | `(text: string) => string[][]`; parses CSV records. |
+| `inferFields` | `(header: string[], records: string[][]) => FieldInput[]`; infers a schema. |
+| `csvToValues` | `(table: Table, header: string[], records: string[][]) => Values[]`; converts records to row values. |
+| `toCsv` | `(table: Table, rows: Row[]) => string`; exports rows with spreadsheet formula guards. |
+| `TablesError`, `ValidationError`, `NotFoundError`, `MigrationError` | Error classes. Constructors take `(code, message)`, `(issues)`, `(what)`, and `(report)` respectively. `ValidationError.issues` and `MigrationError.report` give details. |
+| `Actor`, `Field`, `FieldInput`, `FieldType`, `FileRef`, `Issue`, `PrincipalKind`, `Row`, `Table`, `Values` | Types for actors, schemas, rows, and validation. |
+| `AddFieldInput`, `Base`, `ChangeTypeOptions`, `EraseSummary`, `ListRowsOptions`, `OwnerExport`, `Tables`, `TablesOptions` | Types for core API inputs and results. |
+| `Failure`, `MigrationReport`, `Condition`, `Filter`, `Op`, `Sort` | Types for schema changes and queries. |
+| `TablesAccount`, `TablesAccountDeps`, `TablesCollection` | Types for the account export and erase contract. |
+
+```ts
+import { checkValue, inferFields, parseCsv, OPERATORS } from "agentic-tables";
+import type { Field, Filter } from "agentic-tables";
+
+const records = parseCsv("Name\nAda\n");
+const fields = inferFields(records[0], records.slice(1));
+const field: Field = { id: "f1", name: "Name", type: "text", required: true };
+const issue = checkValue(field, "Ada"); // null
+const filter: Filter = { field: "Name", op: "eq", value: "Ada" };
+console.log(fields, issue, filter, OPERATORS.text);
+```
+
+**HTTP client — `agentic-tables/client`**
+
+`createClient(options: ClientOptions): TablesClient` creates the remote SDK. Each method makes one request and accepts call options with an optional `signal`. `TablesClientError(code: string, message: string, status: number, issues?: Issue[], report?: MigrationReport, cause?: unknown)` gives the error code, HTTP status, and optional details.
+
+The client exports these types: `TablesClient`, `ClientOptions`, `ClientPrincipal`, `CallOptions`, `QueryOptions`, `PageOptions`, `Subject`, `Membership`, `MemberPage`, `InviteInput`, `Invited`, `LinkInput`, `ShareLink`, `CreatedLink`, `LinkList`, and `Unshared`. It also exports `Issue`, `Field`, `FieldInput`, `Row`, `Table`, `Values`, `MigrationReport`, `Filter`, `Sort`, `AddFieldInput`, `Base`, `ChangeTypeOptions`, `EraseSummary`, `OwnerExport`, `RowPage`, `View`, `ViewInput`, `ViewRun`, `Role`, and `SubjectKind` for its inputs and results.
+
+```ts
+import { createClient, TablesClientError } from "agentic-tables/client";
+import type { ClientOptions, CallOptions } from "agentic-tables/client";
+const options: ClientOptions = { baseUrl: "https://tables.example.com", token: "<token>" };
+const call: CallOptions = { signal: new AbortController().signal };
+try { await createClient(options).listBases(call); }
+catch (error) { if (error instanceof TablesClientError) console.error(error.code); }
+```
+
+**Worker — `agentic-tables/worker`**
+
+`createApp(tables: Tables, sharing: Sharing, auth: Auth, options?: AppOptions)` returns a Hono app. `AppOptions` has optional `origins` and `store`. The default export is the Worker with `fetch(request, env, ctx)`. `Env` describes its bindings. `reportingRegion(db: D1Like, region: "eu" | "us"): D1Like` wraps local D1 queries that report no region; use it for local development only.
+
+```ts
+import worker, { reportingRegion } from "agentic-tables/worker";
+import type { Env } from "agentic-tables/worker";
+const env: Env = { AGENTIC_TABLES_REGION: "eu" };
+// Given a local D1 binding: const localDb = reportingRegion(db, "eu");
+export default worker;
+```
+
+**Node server — `agentic-tables/node`**
+
+`createNodeServer(options: NodeServerOptions): Promise<RunningNodeServer>` starts the local HTTP server. Options require `store` and `unsafeNoAuth: true`; `host` and `port` are optional. The result has `url: string` and `close(): Promise<void>`. See [Run on Firebase](#run-on-firebase) for an example.
+
+**File store — `agentic-tables/file-store`**
+
+`createFileStore(path: string, options?: FileStoreOptions): Store` opens a local JSON-backed store. `FileStoreOptions` is the adapter options type from `agentic-identity/file`.
+
+```ts
+import { createFileStore } from "agentic-tables/file-store";
+import type { FileStoreOptions } from "agentic-tables/file-store";
+const options: FileStoreOptions = {};
+const store = createFileStore("./tables.json", options);
+```
+
+**Embedded UI — `agentic-tables/ui` and `agentic-tables/ui.css`**
+
+`mount(element: HTMLElement, options: TablesUiOptions): MountedTables` renders the UI. `MountedTables` has `update(options: TablesUiOptions): void` and `unmount(): void`. The UI also exports the `ClientPrincipal` and `TablesClient` types. Import the CSS subpath for its styles. See [Mount the UI in your app](#mount-the-ui-in-your-app) for an example.
 
 ## Quick start
 
@@ -178,7 +260,7 @@ tables.unmount();                                                   // remove th
 `mount` throws a `TypeError` for a missing element, an element that already holds the app, a `baseUrl` that does
 not start with `https://` (`http://` works for `localhost` only), or a `getToken` that is not a function. `getToken`
 runs on each request, so an expired token is replaced and the UI keeps none. If it throws, that request fails and the
-UI shows the error. The Worker does not read the bearer token yet. By default the app leaves the theme of your page
+UI shows the error. By default the app leaves the theme of your page
 alone. The app uses the hash of the page address (`#/t/<id>`) to pick a table. By default it adds its own `banner` and `main`
 landmarks and a skip link, so mount it on a page that has none of its own. On a page with its own landmarks, pass
 `frame: false`: the app then draws a plain block with the actions on top and the table list as a `nav` beside the open
