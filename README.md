@@ -368,7 +368,9 @@ The result of a hard delete counts what it removed: `bases`, `tables`, `views`, 
 
 The CLI, MCP, and HTTP actions act for the actor of the call only, and check the same roles as the HTTP API (see Access). In the unsafe mode the HTTP actor comes from unchecked headers, and the CLI and MCP actor comes from the environment, so anyone who can run the process can name any id. The CLI and MCP give each actor its own default base, so two actors on one file never share data by accident. Set `AGENTIC_TABLES_BASE` to a base id to work in a shared base: the owner shares it first.
 
-The root export `tablesAccount` keeps its earlier guarded API. Use the store-backed contributor below for the identity account registry.
+### Root account API
+
+The package also gives `tablesAccount` for a host that runs account export and erase across many packages. It has `exportAccount(subject, { tables, sharing, ctx })` and `eraseAccount(subject, { tables, sharing, ctx })`. They call `exportMyData` and `eraseMyData` of the guarded path, so they keep its rules: a base with no owner kind stops the call with `LEGACY_BASE`, a base the subject gave away is left alone (a row the subject wrote in it still counts as an authored row, and is exported and erased), and the sharing records go with the data. `ctx` is the context of the subject, with one step in its chain and the scopes `base:admin` and `table:admin`. A context for someone else, or a chain with an agent, throws. The subject is an id and a kind: the host takes the kind from the signed-in principal and does not guess it. The export has plain JSON in the collections `bases`, `tables`, `views`, `rows`, and `authored_rows`, with no format or time. The erase returns a count for each of those names. The host does not read the table layout. The export holds what the subject owns and wrote, and not the bases that others shared with them, so it is not a full list of what they can reach. Export and erase are two calls, so a row written between them is erased and not exported: stop writes first. If the erase throws `ERASE_INCOMPLETE`, the data is gone and the counts are lost, so a repeat counts zero. A base that the subject gave away is in nobody's export through this path, not even the new owner's, because the stored owner stays the subject.
 
 ## Account export and erase
 
@@ -382,18 +384,20 @@ const data = await tablesAccount.exportAccount(subject, { store });
 const counts = await tablesAccount.eraseAccount(subject, { store });
 ```
 
-The contributor implements `AccountPackage<TablesAccountDeps>` from identity 0.10. The host supplies the trusted subject and the Store. Keep this entry point on the server. Stop writes between export and erase.
+The contributor implements `AccountPackage<TablesAccountDeps>` from identity 0.10. The host supplies the trusted subject and the Store. Keep this entry point on the server. Pause writes by the subject between export and erase. Other subjects can keep working.
 
-Export returns plain JSON collections: `bases`, `tables`, `views`, `rows`, `authored_rows`, and `grants`. Ownership comes from sharing grants, including parent grants. Rows keep field IDs and file references. The package stores no blob bytes or version history. The host exports and erases the files through its blob provider and identity audit data through identity.
+Export returns plain JSON collections: `bases`, `tables`, `views`, `rows`, `authored_rows`, and `grants`. Ownership comes from sharing grants, including parent grants. Rows keep field IDs and file references. The package stores no blob bytes or version history. Before erase, the host must collect file keys from the export or a read of the rows. After erase succeeds, the host deletes those blobs through its blob provider. The host handles identity audit data through identity.
 
 Erase deletes sole-owned bases and tables with their rows, views, resources, grants, invites, links, and resource audit entries. Shared data stays. The subject's grants go. On retained rows, matching author and editor IDs become `(erased)`; the kind stays, so agent work stays labeled. Row content stays with its other owners. A matching stored base creator ID also becomes `(erased)`. If a table has another direct owner, its base stays as a container even when its last base grant goes.
 
 Erase refuses a table delete while a surviving table links to it. Remove that link field first, as for `deleteTable`.
 
-Both calls reject damaged ownership, resource paths, row authors, or orphan records. Erase reads first and writes in one Store transaction. A failed transaction changes nothing; retry is safe. Erase returns counts for the export collection names. A second erase counts zero. The older root API and the HTTP self-data routes retain their earlier behavior.
+Both calls reject damaged records on the subject’s resource paths and data. Unrelated data does not block the call. Resource cleanup reads first and writes in one Store transaction. Authored rows outside that tree are found outside the transaction, then each is read again and cleared in a small transaction. A failed transaction changes nothing in that transaction. A later failure can leave a partial erase; repeat the call to finish. Counts cover only the work done by that call. Erase returns counts for the export collection names. A second erase counts zero. The older root API and the HTTP self-data routes retain their earlier behavior.
 
 
-Not covered yet: the rows keep the id of whoever last updated them (`updatedBy`) when another principal wrote them. File refs hold blob keys, and erase does not remove the blobs. A file store rewrite does not wipe old file blocks or backups. There is no retention setting. Rows that an agent writes for a person carry the id of the agent, so the person cannot export or erase them and the agent cannot either (it gets `403`). Erase keeps the audit entries that `can()` wrote and the sharing records: they hold ids, kinds, and roles, and no row content. The export holds all data in memory, so a very large export needs a streaming version later.
+Contributor limits: it holds the export in memory and scans rows to find authored edits. A large owned tree can exceed a backend transaction limit. It stores no blob bytes or history, has no retention setting, and cannot wipe file blocks or backups. Content on shared rows stays with the other owners. Pause subject writes until all erase calls succeed.
+
+Root API limits: the rows keep the id of whoever last updated them (`updatedBy`) when another principal wrote them. File refs hold blob keys, and erase does not remove the blobs. A file store rewrite does not wipe old file blocks or backups. There is no retention setting. Rows that an agent writes for a person carry the id of the agent, so the person cannot export or erase them and the agent cannot either (it gets `403`). Erase keeps the audit entries that `can()` wrote and the sharing records: they hold ids, kinds, and roles, and no row content. The export holds all data in memory, so a very large export needs a streaming version later.
 
 ## Live demo
 

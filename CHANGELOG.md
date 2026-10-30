@@ -5,7 +5,7 @@
 - Add the typed `agentic-tables/account` registry contributor.
 - Export owned tables, views, rows, file references, grants, and authored rows.
 - Erase sole-owned data and preserve other owners. Clear retained author IDs and keep agent kinds.
-- Reject damaged records and make erase atomic and safe to repeat.
+- Reject damaged subject data. Scope cleanup transactions to its resources and recheck authored rows in small transactions. Repeat a partial erase to finish.
 - Keep the earlier root account API for existing hosts.
 
 ## 0.13.2 - 2026-10-30

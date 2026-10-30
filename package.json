@@ -99,6 +99,7 @@
     "@vitejs/plugin-react": "^5.2.0",
     "axe-core": "^4.14.0",
     "jsdom": "^26.1.0",
+    "miniflare": "5.20261023.2-beta",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "tsup": "^8.0.0",

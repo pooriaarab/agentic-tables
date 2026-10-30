@@ -1,7 +1,10 @@
 // Failure cases, written before the checks:
 // missing kind/store; sole versus shared owners; changed owner; delegated author and
-// same-id other kind; damaged grant/key/path/author/orphan; rollback and retry;
+// same-id other kind; damaged resource type; authored orphan rows; damaged grant/key/path/author/orphan; rollback and retry;
+// unrelated legacy bases and damaged rows; unrelated writes during erase;
 // JSON records, file references, pagination, and surviving links to a deleted table.
+import { Miniflare, convertV4MiniflareOptions } from "miniflare";
+import { createD1Store, D1_SCHEMA } from "agentic-identity/cloudflare";
 import { describe, expect, test } from "vitest";
 import { createMemoryStore, createSharing, type Store, type PrincipalContext } from "agentic-identity";
 import { createAccountRegistry, type AccountPackage } from "agentic-identity/account";
@@ -13,8 +16,7 @@ const ada: Actor = { id: "ada", kind: "human" };
 const bob: Actor = { id: "bob", kind: "human" };
 const bot: Actor = { id: "ada", kind: "agent_of_human" };
 const ctx = (p: Actor): PrincipalContext => ({ principalId: p.id, kind: p.kind, chain: [p], scopes: ["*:admin"] });
-async function setup() {
-  const store = createMemoryStore();
+async function setup(store: Store = createMemoryStore()) {
   const tables = createTables(store);
   const sharing = createSharing(store);
   const make = async (p: Actor) => {
@@ -73,11 +75,12 @@ describe("store account contributor", () => {
     expect((await tablesAccount.exportAccount(bob, s)).tables).toMatchObject([{ id: made.table.id }]);
   });
 
-  test.each(["grant", "key", "parent", "author", "orphan", "time", "field"])("rejects damaged %s without erasing anything", async (damage) => {
+  test.each(["grant", "key", "parent", "author", "orphan", "time", "field", "resource"])("rejects damaged %s without erasing anything", async (damage) => {
     const s = await setup();
     const { base, table, row } = await s.make(ada);
     if (damage === "grant") await s.store.put("grants", `${base.id}:human:bob`, { resourceId: base.id, subjectId: "bob", role: "owner" });
     if (damage === "key") await s.store.put("grants", "bad-key", { resourceId: base.id, subjectId: "bob", subjectKind: "human", role: "owner" });
+    if (damage === "resource") await s.store.put("resources", base.id, { id: base.id, type: "unknown" });
     if (damage === "parent") await s.store.put("resources", base.id, { id: base.id, type: "base", parentId: base.id });
     if (damage === "author") await s.store.put("rows", row.id, { ...(await s.store.get("rows", row.id))!, updatedBy: { id: "bob" } });
     if (damage === "time") await s.store.put("rows", row.id, { ...(await s.store.get("rows", row.id))!, createdAt: "bad" });
@@ -87,6 +90,74 @@ describe("store account contributor", () => {
     await expect(tablesAccount.eraseAccount(ada, s)).rejects.toMatchObject({ code: "DAMAGED_ACCOUNT_DATA" });
     expect(await s.store.get("bases", base.id)).not.toBeNull();
     expect(await s.store.get("rows", row.id)).not.toBeNull();
+  });
+
+  test("ignores unrelated legacy bases and damaged rows", async () => {
+    const s = await setup();
+    const mine = await s.make(ada);
+    const other = await s.make(bob);
+    await s.store.put("bases", "legacy", { name: "Old", ownerId: "carol", createdAt: "2020-01-01" });
+    await s.store.put("rows", other.row.id, { ...(await s.store.get("rows", other.row.id))!, updatedAt: "x" });
+    expect((await tablesAccount.exportAccount(ada, s)).bases).toMatchObject([{ id: mine.base.id }]);
+    expect((await tablesAccount.eraseAccount(ada, s)).bases).toBe(1);
+    expect(await s.store.get("bases", "legacy")).not.toBeNull();
+    expect(await s.store.get("rows", other.row.id)).not.toBeNull();
+  });
+
+  test("refuses an orphan row authored outside the owned tree", async () => {
+    const s = await setup();
+    const other = await s.make(bob);
+    await s.tables.updateRow(other.row.id, {}, ada);
+    await s.store.delete("tables", other.table.id);
+    await expect(tablesAccount.exportAccount(ada, s)).rejects.toMatchObject({ code: "DAMAGED_ACCOUNT_DATA" });
+    await expect(tablesAccount.eraseAccount(ada, s)).rejects.toMatchObject({ code: "DAMAGED_ACCOUNT_DATA" });
+  });
+
+  // A D1 account call must not guard unrelated documents. Mutate one immediately
+  // before every guarded batch, as another isolate can do during normal traffic.
+  test("D1 export and erase tolerate unrelated writes", async () => {
+    const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: ["DB"] }));
+    try {
+      const db = await mf.getD1Database("DB");
+      await db.prepare(D1_SCHEMA).run();
+      // Local D1 has no served-region metadata. No residency claim in this test.
+      const otherStore = createD1Store(db, { region: "unknown" });
+      let unrelatedId = "";
+      let interfere = false;
+      let checks = 0;
+      const store = createD1Store({
+        prepare: (sql) => db.prepare(sql),
+        batch: async (statements) => {
+          if (interfere) {
+            checks++;
+            await otherStore.put("rows", unrelatedId, { ...(await otherStore.get("rows", unrelatedId))!, updatedAt: new Date(checks).toISOString() });
+          }
+          return db.batch(statements as never);
+        },
+      }, { region: "unknown" });
+      const s = await setup(store);
+      const mine = await s.make(ada);
+      unrelatedId = (await s.make(bob)).row.id;
+      interfere = true;
+      expect((await tablesAccount.exportAccount(ada, s)).rows).toMatchObject([{ id: mine.row.id }]);
+      expect((await tablesAccount.eraseAccount(ada, s)).bases).toBe(1);
+      expect(checks).toBeGreaterThan(0);
+      expect(checks).toBeLessThan(5);
+      expect(await tablesAccount.eraseAccount(ada, s)).toEqual({ bases: 0, tables: 0, views: 0, rows: 0, authored_rows: 0, grants: 0 });
+    } finally { await mf.dispose(); }
+  }, 180_000);
+
+  test("rechecks authored rows before clearing a changed author", async () => {
+    const s = await setup();
+    const other = await s.make(bob);
+    await s.tables.updateRow(other.row.id, {}, ada);
+    let calls = 0;
+    const store: Store = { ...s.store, transaction: async (run) => {
+      if (++calls === 2) await s.tables.updateRow(other.row.id, {}, bob);
+      return s.store.transaction(run);
+    } };
+    expect((await tablesAccount.eraseAccount(ada, { store })).authored_rows).toBe(0);
+    expect((await s.store.get("rows", other.row.id))?.updatedBy).toEqual(bob);
   });
 
   test("transaction failure rolls back and a retry finishes", async () => {

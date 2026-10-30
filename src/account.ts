@@ -34,21 +34,53 @@ function check(subject: AccountSubject, deps: TablesAccountDeps): Store {
   if (["get", "query", "put", "delete", "transaction"].some((k) => typeof (deps?.store as unknown as Record<string, unknown>)?.[k] !== "function")) throw new TablesError("BAD_REQUEST", "tablesAccount needs deps.store");
   return deps.store;
 }
-async function scan(tx: StoreOps, collection: Collection): Promise<Saved[]> {
+async function scan(tx: StoreOps, collection: Collection, where?: Record<string, string>): Promise<Saved[]> {
   const out: Saved[] = [];
   let cursor: string | undefined;
   do {
-    const page = await tx.query(collection, { limit: 100, ...(cursor === undefined ? {} : { cursor }) });
+    const page = await tx.query(collection, { limit: 100, ...(where ? { where } : {}), ...(cursor === undefined ? {} : { cursor }) });
     out.push(...page.items);
     cursor = page.nextCursor;
   } while (cursor !== undefined);
   return out;
 }
 
-/** Read and validate before planning any writes. A damaged record may hide ownership or authorship. */
+/** Follow only the subject's grants and their resource trees. Read before writing. */
 async function snapshot(tx: StoreOps, subject: AccountSubject) {
-  const docs = {} as Record<Collection, Saved[]>;
-  for (const c of collections) docs[c] = await scan(tx, c);
+  const docs = Object.fromEntries(collections.map((c) => [c, []])) as unknown as Record<Collection, Saved[]>;
+  const seen = new Set<string>();
+  const visit = async (id: string): Promise<void> => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    const resource = await tx.get("resources", id);
+    if (!resource) bad();
+    docs.resources.push({ id, data: resource });
+    if (resource.parentId != null) {
+      if (!text(resource.parentId)) bad();
+      await visit(resource.parentId);
+    }
+    for (const c of ["grants", "invites", "links", "audit"] as const) docs[c].push(...await scan(tx, c, { resourceId: id }));
+    if (resource.type === "base" || resource.type === "table") {
+      const c = resource.type === "base" ? "bases" : "tables";
+      const data = await tx.get(c, id);
+      if (!data) bad();
+      docs[c].push({ id, data });
+      if (c === "bases") for (const table of await scan(tx, "tables", { baseId: id })) await visit(table.id);
+      else for (const c of ["rows", "views"] as const) docs[c].push(...await scan(tx, c, { tableId: id }));
+    }
+    for (const child of await scan(tx, "resources", { parentId: id })) {
+      if (child.data.type !== "table" || resource.type !== "base") bad();
+      await visit(child.id);
+    }
+  };
+  for (const g of await scan(tx, "grants", { subjectId: subject.id, subjectKind: subject.kind })) {
+    if (!text(g.data.resourceId)) bad();
+    const resource = await tx.get("resources", g.data.resourceId);
+    // Other registry contributors own other resource types.
+    if (!resource) bad();
+    if (resource.type === "base" || resource.type === "table") await visit(g.data.resourceId);
+    else if (await tx.get("bases", g.data.resourceId) || await tx.get("tables", g.data.resourceId)) bad();
+  }
   for (const c of ["bases", "tables", "views", "rows"] as const) for (const r of docs[c]) {
     if (!json(r.data) || !time(r.data.createdAt)) bad();
     if ((c === "tables" || c === "rows") && !time(r.data.updatedAt)) bad();
@@ -108,11 +140,25 @@ async function snapshot(tx: StoreOps, subject: AccountSubject) {
 const record = ({ id, data }: Saved): Json => ({ ...data, id });
 const empty = () => ({ bases: 0, tables: 0, views: 0, rows: 0, authored_rows: 0, grants: 0 });
 
-/** Store-backed contributor for the identity account registry. Stop writes during export and erase. */
+// Authorship has no portable nested-field index. Scan outside transactions so unrelated
+// documents never enter the D1 version checks. Recheck each candidate before a write.
+async function authored(store: Store, subject: AccountSubject) {
+  return (await scan(store, "rows")).filter((r) => matches(r.data.createdBy, subject) || matches(r.data.updatedBy, subject));
+}
+async function validateAuthored(tx: StoreOps, r: Saved) {
+  if (!text(r.data.tableId) || !text(r.data.baseId) || !r.data.values || typeof r.data.values !== "object" || Array.isArray(r.data.values)) bad();
+  const table = await tx.get("tables", r.data.tableId);
+  if (!table || table.baseId !== r.data.baseId) bad();
+  if (!json(r.data) || !time(r.data.createdAt) || !time(r.data.updatedAt) || !actor(r.data.createdBy) || !actor(r.data.updatedBy)) bad();
+}
+/** Store-backed contributor for the identity account registry. */
 export const tablesAccount: TablesAccount = {
   id: "tables",
   async exportAccount(subject, deps) {
-    return check(subject, deps).transaction(async (tx) => {
+    const store = check(subject, deps);
+    const candidates = await authored(store, subject);
+    for (const row of candidates) await validateAuthored(store, row);
+    const result = await store.transaction(async (tx) => {
       const { docs, ours, owned, mine } = await snapshot(tx, subject);
       const tableOwned = (r: Saved) => owned.has(String(r.data.tableId));
       return {
@@ -124,9 +170,15 @@ export const tablesAccount: TablesAccount = {
         grants: docs.grants.filter((g) => ours.has(String(g.data.resourceId)) && (mine(g) || owned.has(String(g.data.resourceId)))).map(record),
       };
     });
+    const included = new Set([...result.rows, ...result.authored_rows].map((r) => (r as Doc).id));
+    result.authored_rows.push(...candidates.filter((r) => !included.has(r.id)).map(record));
+    return result;
   },
   async eraseAccount(subject, deps) {
-    return check(subject, deps).transaction(async (tx) => {
+    const store = check(subject, deps);
+    const candidates = await authored(store, subject);
+    for (const row of candidates) await validateAuthored(store, row);
+    const result = await store.transaction(async (tx) => {
       const { docs, ours, sole, mine } = await snapshot(tx, subject);
       const total = empty();
       const gone = new Set(sole);
@@ -152,9 +204,18 @@ export const tablesAccount: TablesAccount = {
           writes.push({ c, id: r.id }); if (c === "grants") total.grants++;
         }
       }
-      // All reads have finished. The Store commits the entire erase or none of it.
+      // All reads have finished. The Store commits this resource cleanup or none of it.
       for (const w of writes) if (w.data) await tx.put(w.c, w.id, w.data); else await tx.delete(w.c, w.id);
       return total;
     });
+    for (const candidate of candidates) result.authored_rows += await store.transaction(async (tx) => {
+      const data = await tx.get("rows", candidate.id);
+      if (!data || (!matches(data.createdBy, subject) && !matches(data.updatedBy, subject))) return 0;
+      await validateAuthored(tx, { id: candidate.id, data });
+      for (const key of ["createdBy", "updatedBy"] as const) if (matches(data[key], subject)) data[key] = { id: ERASED_ACCOUNT_ID, kind: subject.kind };
+      await tx.put("rows", candidate.id, data);
+      return 1;
+    });
+    return result;
   },
 };
