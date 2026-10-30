@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.1 - 2026-10-30
+
+- Document the public exports and their package entry points. No API behavior changes.
+
 ## 0.14.0 - 2026-10-30
 
 - Add the typed `agentic-tables/account` registry contributor.

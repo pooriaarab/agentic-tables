@@ -10,10 +10,21 @@ Keywords: database,tables,airtable,rows,schema,agents,mcp,cli,structured-data.
 - CLI: agentic-tables new | list | schema | add-field | insert | update | query | required | rename-field | delete-field | change-type | bases | new-base | delete-base | views | new-view | view | delete-view | delete-table | claim-base | share | shares | invite | link | links | revoke-link | unshare | export-data | erase-data | export | import.
 - MCP: run agentic-tables mcp, then call describe_table.
 - HTTP: Worker from agentic-tables/worker, under /api/v1/tables. Every request needs Authorization: Bearer <token>, checked by agentic-identity (401 for no or a bad token, 403 for a missing scope). Set AGENTIC_TABLES_LOCAL_DEV=1 for wrangler dev only.
-- UI: a web app for tables. The Worker of the repository serves it at /. The npm package ships it as ui-dist. Your own Worker serves it with an assets setting that points at node_modules/agentic-tables/ui-dist and keeps /api/* on the Worker. Local use only, like the API.
-- UI component: mount(element, { baseUrl, getToken, principal, themePicker, frame }) from "agentic-tables/ui", with "agentic-tables/ui.css". It returns { update, unmount }. getToken is called before each request. frame: false drops the app's own banner, main landmark, and skip link, for a page that has its own. React 19 is a peer dependency.
+- UI: a web app for tables. The Worker of the repository serves it at /. The npm package ships it as ui-dist. Your own Worker serves it with an assets setting that points at node_modules/agentic-tables/ui-dist and keeps /api/* on the Worker. The Worker checks credentials on API calls.
+- UI component: mount(element, { baseUrl, getToken, principal, themePicker, frame, baseId, tableId, baseSwitcher, fetch }) from "agentic-tables/ui", with "agentic-tables/ui.css". It returns { update, unmount }. getToken is called before each request. frame: false drops the app's own banner, main landmark, and skip link, for a page that has its own. React 19 is a peer dependency.
 
 ## Docs
 
 - README: https://github.com/pooriaarab/agentic-tables
 - License: MIT
+
+## Package exports
+
+- `agentic-tables`: `createTables`, `tablesAccount`, `VERSION`, `FIELD_TYPES`, `PRINCIPAL_KINDS`, `OPERATORS`, `checkValue`, `parseCsv`, `inferFields`, `csvToValues`, `toCsv`, `TablesError`, `ValidationError`, `NotFoundError`, `MigrationError`. Types: `Actor`, `Field`, `FieldInput`, `FieldType`, `FileRef`, `Issue`, `PrincipalKind`, `Row`, `Table`, `Values`, `AddFieldInput`, `Base`, `ChangeTypeOptions`, `EraseSummary`, `ListRowsOptions`, `OwnerExport`, `Tables`, `TablesOptions`, `Failure`, `MigrationReport`, `Condition`, `Filter`, `Op`, `Sort`, `TablesAccount`, `TablesAccountDeps`, `TablesCollection`.
+- `agentic-tables/account`: `tablesAccount`, `ERASED_ACCOUNT_ID`; types `TablesAccount`, `TablesAccountDeps`, `TablesCollection`. The identity registry contributor uses `{ store }` and includes `grants`; the same-named root exports use the legacy guarded `{ tables, sharing, ctx }` contract.
+- `agentic-tables/client`: `createClient`, `TablesClientError`. Types: `TablesClient`, `ClientOptions`, `ClientPrincipal`, `CallOptions`, `QueryOptions`, `PageOptions`, `Subject`, `Membership`, `MemberPage`, `InviteInput`, `Invited`, `LinkInput`, `ShareLink`, `CreatedLink`, `LinkList`, `Unshared`, `Issue`, `Field`, `FieldInput`, `Row`, `Table`, `Values`, `MigrationReport`, `Filter`, `Sort`, `AddFieldInput`, `Base`, `ChangeTypeOptions`, `EraseSummary`, `OwnerExport`, `RowPage`, `View`, `ViewInput`, `ViewRun`, `Role`, `SubjectKind`.
+- `agentic-tables/worker`: default Worker, `createApp`, `reportingRegion`; types `AppOptions`, `Env`.
+- `agentic-tables/node`: `createNodeServer`; types `NodeServerOptions`, `RunningNodeServer`. Local use only; it needs `unsafeNoAuth: true`.
+- `agentic-tables/file-store`: `createFileStore`; type `FileStoreOptions`.
+- `agentic-tables/ui`: `mount`; types `TablesUiOptions`, `MountedTables`, `ClientPrincipal`, `TablesClient`. `agentic-tables/ui.css` supplies styles.
+- The README export reference gives signatures and examples: https://github.com/pooriaarab/agentic-tables#export-reference
