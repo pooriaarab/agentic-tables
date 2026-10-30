@@ -5,6 +5,7 @@ Typed tables that agents read and write as rows.
 ## Faces
 
 - SDK: `import { createTables } from "agentic-tables"`, with a `Store` from `agentic-identity` (`createMemoryStore`; `createD1Store` from `agentic-identity/cloudflare`) or `createFileStore` from `agentic-tables/file-store`.
+- Account: `tablesAccount` from `agentic-tables/account` implements the identity 0.10 account registry contract with `{ store }`. The root export keeps the guarded `{ tables, sharing, ctx }` API.
 - Remote SDK: `import { createClient } from "agentic-tables/client"`, for the HTTP face. One method per route (two for inserts: a row or a batch). It never retries.
 - CLI: `npx agentic-tables --help`.
 - MCP: `npx agentic-tables mcp`.

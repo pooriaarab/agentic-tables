@@ -1,6 +1,6 @@
 {
   "name": "agentic-tables",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "description": "Typed tables that agents read and write as rows.",
   "keywords": [
     "database",
@@ -62,7 +62,11 @@
       "types": "./dist/embed.d.ts",
       "import": "./dist/embed.js"
     },
-    "./ui.css": "./dist/embed.css"
+    "./ui.css": "./dist/embed.css",
+    "./account": {
+      "types": "./dist/account.d.ts",
+      "import": "./dist/account.js"
+    }
   },
   "scripts": {
     "build": "tsup && npm run build:ui",
@@ -82,7 +86,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
     "agentic-design": ">=0.8.0 <0.10.0",
-    "agentic-identity": ">=0.9.0 <0.11.0",
+    "agentic-identity": "^0.10.0",
     "hono": "^4.13.14",
     "zod": "^4.6.7"
   },
@@ -95,6 +99,7 @@
     "@vitejs/plugin-react": "^5.2.0",
     "axe-core": "^4.14.0",
     "jsdom": "^26.1.0",
+    "miniflare": "5.20261023.2-beta",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "tsup": "^8.0.0",
