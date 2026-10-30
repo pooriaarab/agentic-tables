@@ -45,59 +45,69 @@ async function scan(tx: StoreOps, collection: Collection, where?: Record<string,
   return out;
 }
 
-function validateGrant({ id, data: g }: Saved) {
+function validateGrant({ id, data: g }: Saved): string {
   if (!text(g.resourceId) || !text(g.subjectId) || !(SUBJECT_KINDS as readonly unknown[]).includes(g.subjectKind) || !(ROLES as readonly unknown[]).includes(g.role) || id !== `${String(g.resourceId)}:${String(g.subjectKind)}:${g.subjectId}`) bad();
+  return g.resourceId;
+}
+async function resourcePath(id: string, read: (id: string) => Promise<Doc | null>): Promise<string[]> {
+  const path: string[] = [];
+  let current: string | null = id;
+  while (current !== null) {
+    if (path.includes(current) || path.length >= 16) bad();
+    path.push(current);
+    const resource: Doc | null = await read(current);
+    if (!resource || !text(resource.type) || (resource.parentId != null && !text(resource.parentId))) bad();
+    current = resource.parentId == null ? null : resource.parentId as string;
+  }
+  return path;
 }
 /** Follow only the subject's grants and their resource trees. Read before writing. */
 async function snapshot(tx: StoreOps, subject: AccountSubject) {
   const docs = Object.fromEntries(collections.map((c) => [c, []])) as unknown as Record<Collection, Saved[]>;
   const seen = new Set<string>();
-  const visit = async (id: string): Promise<void> => {
-    if (seen.has(id)) return;
-    seen.add(id);
-    const resource = await tx.get("resources", id);
-    if (!resource) bad();
-    docs.resources.push({ id, data: resource });
-    if (resource.parentId != null) {
-      if (!text(resource.parentId)) bad();
-      await visit(resource.parentId);
+  const expanded = new Set<string>();
+  const visit = async (id: string, descend = false): Promise<void> => {
+    if (!seen.has(id)) {
+      seen.add(id);
+      const resource = await tx.get("resources", id);
+      if (!resource) bad();
+      docs.resources.push({ id, data: resource });
+      if (resource.parentId != null) {
+        if (!text(resource.parentId)) bad();
+        await visit(resource.parentId);
+      }
+      docs.grants.push(...await scan(tx, "grants", { resourceId: id, role: "owner" }));
+      if (resource.type === "base" || resource.type === "table") {
+        const c = resource.type === "base" ? "bases" : "tables";
+        const data = await tx.get(c, id);
+        if (!data) bad();
+        docs[c].push({ id, data });
+      }
     }
-    for (const c of ["grants", "invites", "links", "audit"] as const) docs[c].push(...await scan(tx, c, { resourceId: id }));
-    if (resource.type === "base" || resource.type === "table") {
-      const c = resource.type === "base" ? "bases" : "tables";
-      const data = await tx.get(c, id);
-      if (!data) bad();
-      docs[c].push({ id, data });
-      if (c === "bases") for (const table of await scan(tx, "tables", { baseId: id })) await visit(table.id);
-    }
+    // Reading an ancestor or a former creator's base does not own its children.
+    if (!descend || expanded.has(id)) return;
+    expanded.add(id);
+    const resource = docs.resources.find((r) => r.id === id)!.data;
+    if (resource.type === "base") for (const table of await scan(tx, "tables", { baseId: id })) await visit(table.id, true);
     for (const child of await scan(tx, "resources", { parentId: id })) {
       if (child.data.type !== "table" || resource.type !== "base") bad();
-      await visit(child.id);
+      await visit(child.id, true);
     }
   };
   for (const g of await scan(tx, "grants", { subjectId: subject.id, subjectKind: subject.kind })) {
-    validateGrant(g);
-    if (!text(g.data.resourceId)) bad();
-    const resource = await tx.get("resources", g.data.resourceId);
+    const rid = validateGrant(g);
+    const resource = await tx.get("resources", rid);
     // Other registry contributors own other resource types.
     if (!resource) bad();
     if (resource.type === "base" || resource.type === "table") {
-      if (g.data.role === "owner") await visit(g.data.resourceId);
+      if (g.data.role === "owner") await visit(rid, true);
       else {
         // A viewer/editor owns its grant, not the other owner's row tree.
-        const path = new Set<string>();
-        let id: string | null = g.data.resourceId;
-        while (id !== null) {
-          if (path.has(id) || path.size >= 16) bad();
-          path.add(id);
-          const r: Doc | null = await tx.get("resources", id);
-          if (!r || !text(r.type) || (r.parentId != null && !text(r.parentId))) bad();
-          id = r.parentId == null ? null : r.parentId as string;
-        }
+        await resourcePath(rid, (id) => tx.get("resources", id));
         docs.grants.push(g);
       }
     }
-    else if (await tx.get("bases", g.data.resourceId) || await tx.get("tables", g.data.resourceId)) bad();
+    else if (await tx.get("bases", rid) || await tx.get("tables", rid)) bad();
   }
   // A legacy base or a damaged/missing grant must not hide the subject's data.
   // A valid transfer still has other owner grants and is kept by the erase.
@@ -110,23 +120,15 @@ async function snapshot(tx: StoreOps, subject: AccountSubject) {
   const tables = new Map(docs.tables.map((d) => [d.id, d.data]));
   const ours = new Set([...bases.keys(), ...tables.keys()]);
   const paths = new Map<string, string[]>();
-  for (const id of ours) {
-    const path: string[] = [];
-    let cur: string | null = id;
-    while (cur !== null) {
-      if (path.includes(cur) || path.length >= 16) bad();
-      const r = resources.get(cur);
-      if (!r || !text(r.type) || (r.parentId != null && !text(r.parentId))) bad();
-      path.push(cur);
-      cur = r.parentId == null ? null : r.parentId as string;
-    }
-    paths.set(id, path);
-  }
+  for (const id of ours) paths.set(id, await resourcePath(id, async (key) => resources.get(key) ?? null));
   docs.grants = [...new Map(docs.grants.map((g) => [g.id, g])).values()];
   for (const grant of docs.grants) validateGrant(grant);
   const owners = (id: string) => docs.grants.filter((g) => paths.get(id)!.includes(String(g.data.resourceId)) && g.data.role === "owner");
   const mine = (g: Saved) => g.data.subjectId === subject.id && g.data.subjectKind === subject.kind;
   const owned = new Set([...ours].filter((id) => owners(id).some(mine)));
+  for (const id of owned) docs.grants.push(...await scan(tx, "grants", { resourceId: id }));
+  docs.grants = [...new Map(docs.grants.map((g) => [g.id, g])).values()];
+  for (const grant of docs.grants) validateGrant(grant);
   const sole = new Set([...owned].filter((id) => owners(id).every(mine)));
   for (const table of docs.tables) if (owned.has(table.id)) for (const c of ["rows", "views"] as const) docs[c].push(...await scan(tx, c, { tableId: table.id }));
   for (const c of ["bases", "tables", "views", "rows"] as const) for (const r of docs[c]) {
@@ -149,7 +151,13 @@ async function snapshot(tx: StoreOps, subject: AccountSubject) {
     if (!t || r.baseId !== t.baseId || !actor(r.createdBy) || !actor(r.updatedBy) || r.values === null || typeof r.values !== "object" || Array.isArray(r.values)) bad();
   }
   for (const { data: v } of docs.views) if (!tables.has(String(v.tableId))) bad();
-  return { docs, ours, owned, sole, mine };
+  for (const id of sole) for (const c of ["invites", "links", "audit"] as const) docs[c].push(...await scan(tx, c, { resourceId: id }));
+  const linkTables = new Map(docs.tables.map((t) => [t.id, t]));
+  // A sole table in a retained container needs sibling link checks before deletion.
+  for (const table of docs.tables) if (sole.has(table.id) && !owned.has(String(table.data.baseId))) {
+    for (const sibling of await scan(tx, "tables", { baseId: String(table.data.baseId) })) linkTables.set(sibling.id, sibling);
+  }
+  return { docs, owned, sole, mine, linkTables: [...linkTables.values()] };
 }
 const record = ({ id, data }: Saved): Json => ({ ...data, id });
 const empty = () => ({ bases: 0, tables: 0, views: 0, rows: 0, authored_rows: 0, grants: 0 });
@@ -193,11 +201,12 @@ export const tablesAccount: TablesAccount = {
     const candidates = await authored(store, subject);
     for (const row of candidates) await validateAuthored(store, row);
     const result = await store.transaction(async (tx) => {
-      const { docs, sole, mine } = await snapshot(tx, subject);
+      const { docs, sole, mine, linkTables } = await snapshot(tx, subject);
       const total = empty();
       const gone = new Set(sole);
       // As in deleteTable, refuse links from a table that survives the erase.
-      for (const t of docs.tables) if (!gone.has(t.id)) for (const f of t.data.fields as Doc[]) {
+      for (const t of linkTables) if (!gone.has(t.id)) for (const f of (Array.isArray(t.data.fields) ? t.data.fields : bad()) as Doc[]) {
+        if (!f) bad();
         if (f.type === "link" && gone.has(String(f.linkTable))) throw new TablesError("LINKED_TABLE", "remove links to a sole-owned table before account erase");
       }
       const writes: { c: Collection; id: string; data?: Doc }[] = [];

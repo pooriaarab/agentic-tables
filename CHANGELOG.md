@@ -3,6 +3,7 @@
 ## 0.14.0 - 2026-10-30
 
 - Add the typed `agentic-tables/account` registry contributor.
+- Require `agentic-identity` `^0.10.0`; identity 0.9 is no longer supported.
 - Export owned tables, views, rows, file references, grants, and authored rows.
 - Erase sole-owned data and preserve other owners. Clear retained author IDs and keep agent kinds.
 - Reject damaged subject data. Scope cleanup transactions to its resources and recheck authored rows in small transactions. Repeat a partial erase to finish.

@@ -4,6 +4,7 @@
 // subject legacy bases, missing/broken owner grants, and valid transfers; damaged grant/key/path/author/orphan; rollback and retry;
 // unrelated legacy bases and damaged rows; unrelated writes during erase;
 // viewer grants with unrelated damaged/busy rows; registry export and erase;
+// damaged/busy sibling metadata and transferred-base children;
 // JSON records, file references, pagination, and surviving links to a deleted table.
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { createD1Store, D1_SCHEMA } from "agentic-identity/cloudflare";
@@ -127,6 +128,7 @@ describe("store account contributor", () => {
     const row = await g.insertRow(sibling.id, {});
     await s.sharing.grant(ctx(bob), other.table.id, ada as never, "owner");
     await s.store.put("rows", row.id, { ...(await s.store.get("rows", row.id))!, updatedAt: "x" });
+    await s.store.put("tables", sibling.id, { ...(await s.store.get("tables", sibling.id))!, name: "", fields: [null] });
     expect((await tablesAccount.exportAccount(ada, s)).rows).toMatchObject([{ id: other.row.id }]);
     expect((await tablesAccount.eraseAccount(ada, s)).grants).toBe(1);
   });
@@ -173,6 +175,21 @@ describe("store account contributor", () => {
     expect((await tablesAccount.exportAccount(bob, s)).bases).toMatchObject([{ id: mine.base.id }]);
   });
 
+  test("a former creator ignores the new owner's damaged table", async () => {
+    const s = await setup();
+    const mine = await s.make(ada);
+    await s.sharing.grant(ctx(ada), mine.base.id, bob as never, "owner");
+    for (const id of [mine.base.id, mine.table.id]) await s.store.delete("grants", `${id}:human:ada`);
+    await s.tables.updateRow(mine.row.id, {}, bob);
+    // Keep this test about the stored creator: no remaining authored row.
+    await s.store.put("rows", mine.row.id, { ...(await s.store.get("rows", mine.row.id))!, createdBy: { ...bob } });
+    await s.store.put("tables", mine.table.id, { ...(await s.store.get("tables", mine.table.id))!, fields: [null] });
+    expect((await tablesAccount.exportAccount(ada, s)).tables).toEqual([]);
+    expect((await tablesAccount.eraseAccount(ada, s)).bases).toBe(0);
+    expect((await s.store.get("bases", mine.base.id))?.ownerId).toBe(ERASED_ACCOUNT_ID);
+    expect(await s.store.get("tables", mine.table.id)).not.toBeNull();
+  });
+
   test("refuses an orphan row authored outside the owned tree", async () => {
     const s = await setup();
     const other = await s.make(bob);
@@ -192,6 +209,7 @@ describe("store account contributor", () => {
       // Local D1 has no served-region metadata. No residency claim in this test.
       const otherStore = createD1Store(db, { region: "unknown" });
       let unrelatedId = "";
+      let siblingId = "";
       let interfere = false;
       let checks = 0;
       const store = createD1Store({
@@ -199,6 +217,7 @@ describe("store account contributor", () => {
         batch: async (statements) => {
           if (interfere) {
             checks++;
+            await otherStore.put("tables", siblingId, { ...(await otherStore.get("tables", siblingId))!, name: String(checks) });
             await otherStore.put("rows", unrelatedId, { ...(await otherStore.get("rows", unrelatedId))!, updatedAt: new Date(checks).toISOString() });
           }
           return db.batch(statements as never);
@@ -209,8 +228,11 @@ describe("store account contributor", () => {
       const other = await s.make(bob);
       unrelatedId = other.row.id;
       await s.sharing.grant(ctx(bob), other.base.id, ada as never, "viewer");
+      const shared = await s.make(bob);
+      await s.sharing.grant(ctx(bob), shared.table.id, ada as never, "owner");
+      siblingId = (await createGuarded(s.tables, s.sharing)(ctx(bob)).createTable(shared.base.id, "Sibling", [])).id;
       interfere = true;
-      expect((await tablesAccount.exportAccount(ada, s)).rows).toMatchObject([{ id: mine.row.id }]);
+      expect((await tablesAccount.exportAccount(ada, s)).rows).toEqual(expect.arrayContaining([expect.objectContaining({ id: mine.row.id })]));
       expect((await tablesAccount.eraseAccount(ada, s)).bases).toBe(1);
       expect(checks).toBeGreaterThan(0);
       expect(checks).toBeLessThan(5);
@@ -253,12 +275,17 @@ describe("store account contributor", () => {
     expect((await tablesAccount.eraseAccount(bot, s)).authored_rows).toBe(0);
   });
 
-  test("refuses to leave links to a deleted table", async () => {
+  test.each([false, true])("refuses links to a deleted table (retained container: %s)", async (retained) => {
     const s = await setup();
     const made = await s.make(ada);
     const linked = await s.tables.createTable(made.base.id, "Links", [{ name: "Ref", type: "link", linkTable: made.table.id }]);
     await s.sharing.createResource(ctx(ada), { id: linked.id, type: "table", parentId: made.base.id });
     await s.sharing.grant(ctx(ada), linked.id, bob as never, "owner");
+    if (retained) {
+      await s.store.delete("grants", `${made.base.id}:human:ada`);
+      await s.store.delete("grants", `${linked.id}:human:ada`);
+      await s.store.put("bases", made.base.id, { ...(await s.store.get("bases", made.base.id))!, ownerId: ERASED_ACCOUNT_ID });
+    }
     await expect(tablesAccount.eraseAccount(ada, s)).rejects.toMatchObject({ code: "LINKED_TABLE" });
     expect(await s.store.get("bases", made.base.id)).not.toBeNull();
   });
