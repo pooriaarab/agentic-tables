@@ -1,10 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.13.1 - 2026-10-29
+
+Patch. No change to the API. The bundled web UI picks up the `agentic-design` 0.7 narrow-screen fixes for the top bar.
 
 ### Added
 
 - The README has a table of every subpath export in `package.json`, with what each one is for (#113).
+
+### Changed
+
+- The `agentic-design` dependency is now `^0.8.0`. Before, `^0.5.0` did not accept the newest `agentic-design`, so the `agentic-*` packages could not be installed together (ERESOLVE). The web UI builds on `agentic-design` 0.8 and passes its accessibility checks.
 
 ## 0.13.0
 
