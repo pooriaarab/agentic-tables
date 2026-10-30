@@ -114,7 +114,7 @@ export default worker;
 
 **File store — `agentic-tables/file-store`**
 
-`createFileStore(path: string, options?: FileStoreOptions): Store` opens a local JSON-backed store. `FileStoreOptions` is the adapter options type from `agentic-identity/file`.
+`createFileStore(path: string, options?: FileStoreOptions): Store` opens a local JSON-backed store. `FileStoreOptions` is `AdapterOptions` from `agentic-identity`.
 
 ```ts
 import { createFileStore } from "agentic-tables/file-store";
