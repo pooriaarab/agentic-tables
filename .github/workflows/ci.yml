@@ -21,7 +21,15 @@ jobs:
         with:
           node-version: "22"
       - run: npm ci
-      - run: npm ls agentic-identity@0.12.0 && npm ls agentic-design@0.10.1
+      # Match the runtime versions to the pinned latest dev dependencies.
+      - run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            for (const name of ["agentic-identity", "agentic-design"]) {
+              const version = (pkg) => JSON.parse(readFileSync(`node_modules/${pkg}/package.json`)).version;
+              if (version(name) !== version(`${name}-latest`)) throw new Error(`${name} version differs from latest pin`);
+            }
+          '
       - run: npm run build
       - run: npm run typecheck
       - run: npm test
