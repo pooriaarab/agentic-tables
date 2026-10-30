@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.1 - 2026-10-30
+
+- Allow current identity and design releases.
+
 ## 0.15.0 - 2026-10-30
 
 - Add `readOnly` to UI mount options. Prevent UI writes and close active editors when it changes.
