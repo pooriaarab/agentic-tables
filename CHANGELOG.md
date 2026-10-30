@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.2 - 2026-10-30
+
+**Changed**
+
+- Allow current releases of the shared packages.
+
 ## 0.13.1 - 2026-10-29
 
 Patch. No change to the API. The bundled web UI picks up the `agentic-design` 0.7 narrow-screen fixes for the top bar.
