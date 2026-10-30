@@ -482,6 +482,7 @@ describe("readOnly", () => {
     await act(async () => mounted!.update({ ...options, readOnly: true }));
     await settle();
     expect(host.querySelector('[role="gridcell"] input')).toBeNull();
+    expect(document.activeElement).toBe(host.querySelector('[role="gridcell"]'));
     for (const label of ["New table", "Add column", "Add row", "Delete table"]) {
       expect([...host.querySelectorAll("button")].some((b) => b.textContent?.includes(label))).toBe(false);
     }

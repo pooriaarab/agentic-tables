@@ -6,8 +6,8 @@
 //  3. Many writes at once through one Worker lose a row.
 //  4. A Worker without a region setting, or with "unknown" or "EU", serves requests anyway.
 //  5. A Worker without a D1 binding serves requests anyway.
-//  7. Rename loses a concurrent field change, or disappears after a restart.
 //  6. A path id the store refuses ends as a 500 and puts the id in a log. It must be a 404.
+//  7. Rename loses a concurrent field change, or disappears after a restart.
 //
 // The run writes a JSON record of each request (status only) to $TMPDIR/agentic-tables-d1-e2e.json.
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

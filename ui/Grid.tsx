@@ -35,6 +35,7 @@ export function Grid({ table, rows, more, onCommit, onDelete, header, readOnly =
   const saving = useRef(false);
   useEffect(() => {
     if (readOnly) {
+      if (edit && document.activeElement === document.body) refocus.current = { id: edit.id, c: edit.c };
       active.current = false;
       session.current++;
       setEdit(null);
