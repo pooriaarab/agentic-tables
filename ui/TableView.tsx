@@ -20,6 +20,8 @@ export function TableView({ tableId, onGone, readOnly = false }: { readOnly?: bo
   const [dialog, setDialog] = useState<"column" | "row" | "table" | { row: Row } | { field: Field } | null>(null);
   const [busy, setBusy] = useState(false);
   const loaded = useRef(0);
+  const lastClient = useRef(client);
+  useEffect(() => { if (readOnly) setDialog(null); }, [readOnly]);
   const latest = useRef(0);
   /** Set when a column delete changes the query. The title takes focus once that read lands. */
   const focusTitleAfterRead = useRef(false);
@@ -58,8 +60,10 @@ export function TableView({ tableId, onGone, readOnly = false }: { readOnly?: bo
   useEffect(() => {
     // Keep the old rows on screen during a reload, so a control that changed the query keeps its focus.
     setLoad((was) => (was.state === "ready" ? was : { state: "loading" }));
-    void read();
-  }, [read]);
+    const keep = lastClient.current !== client;
+    lastClient.current = client;
+    void read(undefined, keep);
+  }, [read, client]);
 
   /** Run a write. On failure show the reason and keep the dialog open. On success read the page again. */
   async function run(write: () => Promise<unknown>): Promise<string | null> {

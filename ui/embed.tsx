@@ -48,7 +48,7 @@ function checkBaseUrl(value: unknown): void {
 }
 
 /** A client that asks the callback for the token on each request, so a token that expires is replaced and never kept. */
-function clientFor(options: TablesUiOptions): TablesClient {
+function clientFor(options: TablesUiOptions, isReadOnly: () => boolean): TablesClient {
   if (!options) throw new TypeError("the tables UI needs options with a baseUrl");
   checkBaseUrl(options.baseUrl);
   if (options.getToken !== undefined && typeof options.getToken !== "function") throw new TypeError("getToken must be a function");
@@ -63,8 +63,12 @@ function clientFor(options: TablesUiOptions): TablesClient {
   if (typeof inner !== "function") throw new TypeError("no fetch available: pass options.fetch");
   const { getToken } = options;
   const withToken: typeof fetch = async (input, init) => {
-    if (options.readOnly && init?.method && !["GET", "HEAD"].includes(init.method)) throw new TypeError("The tables UI is read-only");
+    const checkWrite = () => {
+      if (isReadOnly() && init?.method && !["GET", "HEAD"].includes(init.method)) throw new TypeError("The tables UI is read-only");
+    };
+    checkWrite();
     const token = getToken ? await getToken() : undefined;
+    checkWrite();
     if (token === undefined || token === "") return inner(input, init);
     const headers = new Headers(init?.headers);
     headers.set("authorization", `Bearer ${token}`);
@@ -95,7 +99,8 @@ const mounted = new WeakSet<HTMLElement>();
 export function mount(element: HTMLElement, options: TablesUiOptions): MountedTables {
   if (!(element instanceof HTMLElement)) throw new TypeError("mount needs an element");
   if (mounted.has(element)) throw new TypeError("the tables UI is already mounted in this element");
-  let client = clientFor(options);
+  let readOnly = options?.readOnly === true;
+  let client = clientFor(options, () => readOnly);
   let picker = options.themePicker === true;
   let frame = options.frame !== false;
   let where = { baseId: options.baseId, tableId: options.tableId, baseSwitcher: options.baseSwitcher === true, readOnly: options.readOnly === true };
@@ -117,7 +122,8 @@ export function mount(element: HTMLElement, options: TablesUiOptions): MountedTa
   return {
     update(next) {
       if (gone) return;
-      client = clientFor(next);
+      client = clientFor(next, () => readOnly);
+      readOnly = next.readOnly === true;
       picker = next.themePicker === true;
       frame = next.frame !== false;
       where = { baseId: next.baseId, tableId: next.tableId, baseSwitcher: next.baseSwitcher === true, readOnly: next.readOnly === true };

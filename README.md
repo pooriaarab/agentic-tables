@@ -129,8 +129,7 @@ const store = createFileStore("./tables.json", options);
 
 Set `readOnly: true` to browse without UI writes. This disables cell edits and row deletion, hides table and column actions, and prevents automatic base creation. Filters, sort, navigation, and pagination still work. `update` can change this option and closes open editors and dialogs. The current UI has no saved-view or rename controls. This option controls the UI; server roles and scopes still enforce access.
 
-To rename from a host header, call `client.renameTable(tableId, name)`. The guarded SDK and core expose `renameTable` too. The operation keeps the table id, fields, rows, and views. Names are trimmed and must contain 1 to 200 characters. The guarded API requires owner access and `table:admin` scope.
-
+To rename a table from your own UI, call `client.renameTable(tableId, name)`. The guarded SDK and core expose `renameTable` too. The operation keeps the table id, fields, rows, and views. Names are trimmed and must contain 1 to 200 characters. The guarded API requires owner access and `table:admin` scope.
 
 ## Quick start
 

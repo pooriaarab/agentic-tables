@@ -397,7 +397,57 @@ describe("readOnly", () => {
     await act(async () => void (mounted = mount(host, { baseUrl: "https://t.example", fetch, readOnly: true })));
     await settle();
     expect(host.textContent).toContain("No readable bases");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.textContent).not.toContain("Try again");
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("revokes writes from a load pending before update", async () => {
+    let finish!: (response: Response) => void;
+    let n = 0;
+    const methods: string[] = [];
+    const fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      methods.push(init?.method ?? "GET");
+      if (++n === 1) return new Promise<Response>((resolve) => { finish = resolve; });
+      return new Response(JSON.stringify({ items: [] }));
+    }) as typeof globalThis.fetch;
+    const options = { baseUrl: "https://t.example", fetch };
+    await act(async () => void (mounted = mount(host, options)));
+    await act(async () => mounted!.update({ ...options, readOnly: true }));
+    await settle();
+    await act(async () => finish(new Response(JSON.stringify({ items: [] }))));
+    await settle();
+    expect(methods).toEqual(["GET", "GET"]);
+    expect(host.textContent).toContain("No readable bases");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+  });
+  it("keeps loaded pages and sort when readOnly changes", async () => {
+    const limits: number[] = [];
+    const fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const t = { ...table("Tasks"), fields: [{ id: "f1", name: "Name", type: "text" }] };
+      let body: unknown = t;
+      if (url.pathname.endsWith("/bases")) body = { items: [base] };
+      else if (url.pathname.endsWith("/tables") && url.pathname.includes("/bases/")) body = { items: [t] };
+      else if (url.pathname.endsWith("/rows")) {
+        const limit = Number(url.searchParams.get("limit"));
+        limits.push(limit);
+        body = { items: Array.from({ length: limit }, (_, i) => ({ id: `r${i + (url.searchParams.has("cursor") ? 100 : 0)}`, values: { Name: `Row ${i}` }, updatedBy: { id: "a", kind: "human" } })), nextCursor: limit === 100 && !url.searchParams.has("cursor") ? "next" : undefined };
+      }
+      return new Response(JSON.stringify(body));
+    }) as typeof globalThis.fetch;
+    const options = { baseUrl: "https://t.example", fetch, tableId: "t-Tasks" };
+    await act(async () => void (mounted = mount(host, options)));
+    await settle();
+    const direction = [...host.querySelectorAll("select")].at(-1)!;
+    await act(async () => { direction.value = "desc"; direction.dispatchEvent(new Event("change", { bubbles: true })); });
+    await settle();
+    await act(async () => [...host.querySelectorAll("button")].find((b) => b.textContent === "Load more rows")!.click());
+    await settle();
+    await act(async () => mounted!.update({ ...options, readOnly: true }));
+    await settle();
+    expect(limits.at(-1)).toBe(200);
+    expect([...host.querySelectorAll("select")].at(-1)!.value).toBe("desc");
+    expect(host.querySelectorAll("tbody tr")).toHaveLength(200);
   });
   it("closes a creation dialog when readOnly changes", async () => {
     const api = fakeApi(["Tasks"]);

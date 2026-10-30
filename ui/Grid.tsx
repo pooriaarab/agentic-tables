@@ -33,6 +33,14 @@ export function Grid({ table, rows, more, onCommit, onDelete, header, readOnly =
   /** The edit that may still save. A save that finishes for an older edit changes nothing. */
   const session = useRef(0);
   const saving = useRef(false);
+  useEffect(() => {
+    if (readOnly) {
+      active.current = false;
+      session.current++;
+      setEdit(null);
+      setProblem(null);
+    }
+  }, [readOnly]);
   /** True while an editor is open. A blur from an editor that is closing must not save. */
   const active = useRef(false);
   const refocus = useRef<{ id: string; c: number } | null>(null);
@@ -172,7 +180,7 @@ export function Grid({ table, rows, more, onCommit, onDelete, header, readOnly =
           {rows.map((row, ri) => (
             <tr key={row.id} data-agent={machine(row.updatedBy.kind) || undefined} aria-rowindex={ri + 2}>
               {fields.map((f, ci) => {
-                const editing = editRow === ri && edit?.c === ci;
+                const editing = !readOnly && editRow === ri && edit?.c === ci;
                 return (
                   <td key={f.id} {...cellProps(ri, ci)} className="grid__cell" aria-readonly={readOnly || !EDITABLE.has(f.type) || undefined}>
                     {editing ? (
