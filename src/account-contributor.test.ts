@@ -3,6 +3,7 @@
 // same-id other kind; damaged resource type; authored orphan rows;
 // subject legacy bases, missing/broken owner grants, and valid transfers; damaged grant/key/path/author/orphan; rollback and retry;
 // unrelated legacy bases and damaged rows; unrelated writes during erase;
+// viewer grants with unrelated damaged/busy rows; registry export and erase;
 // JSON records, file references, pagination, and surviving links to a deleted table.
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { createD1Store, D1_SCHEMA } from "agentic-identity/cloudflare";
@@ -105,6 +106,44 @@ describe("store account contributor", () => {
     expect(await s.store.get("rows", other.row.id)).not.toBeNull();
   });
 
+  test("exports and removes viewer grants without checking the owner's rows", async () => {
+    const s = await setup();
+    const other = await s.make(bob);
+    await s.sharing.grant(ctx(bob), other.base.id, ada as never, "viewer");
+    await s.store.put("rows", other.row.id, { ...(await s.store.get("rows", other.row.id))!, updatedAt: "x" });
+    const out = await tablesAccount.exportAccount(ada, s);
+    expect(out.grants).toMatchObject([{ resourceId: other.base.id, role: "viewer" }]);
+    expect(out.rows).toEqual([]);
+    expect((await tablesAccount.eraseAccount(ada, s)).grants).toBe(1);
+    expect((await tablesAccount.exportAccount(ada, s)).grants).toEqual([]);
+    expect(await s.store.get("rows", other.row.id)).not.toBeNull();
+  });
+
+  test("a direct table owner does not validate unrelated sibling rows", async () => {
+    const s = await setup();
+    const other = await s.make(bob);
+    const g = createGuarded(s.tables, s.sharing)(ctx(bob));
+    const sibling = await g.createTable(other.base.id, "Sibling", []);
+    const row = await g.insertRow(sibling.id, {});
+    await s.sharing.grant(ctx(bob), other.table.id, ada as never, "owner");
+    await s.store.put("rows", row.id, { ...(await s.store.get("rows", row.id))!, updatedAt: "x" });
+    expect((await tablesAccount.exportAccount(ada, s)).rows).toMatchObject([{ id: other.row.id }]);
+    expect((await tablesAccount.eraseAccount(ada, s)).grants).toBe(1);
+  });
+
+  test("runs registry export and erase with the request actor", async () => {
+    const s = await setup();
+    await s.make(ada);
+    const registry = createAccountRegistry().register(tablesAccount, { store: s.store });
+    const exported = await registry.export(ada);
+    expect(exported.zip.byteLength).toBeGreaterThan(0);
+    expect(exported.manifest.apps.map((app) => app.id)).toEqual(["tables"]);
+    const report = await registry.erase(ada, s.store, { actor: ctx(ada) });
+    expect(report.ok).toBe(true);
+    expect(report.counts.tables).toMatchObject({ bases: 1, tables: 1, rows: 1 });
+    expect((await registry.erase(ada, s.store, { actor: ctx(ada) })).counts.tables).toEqual({ bases: 0, tables: 0, views: 0, rows: 0, authored_rows: 0, grants: 0 });
+  });
+
   test.each(["legacy", "missing grant", "damaged grant", "damaged kind"])("refuses the subject's %s base", async (damage) => {
     const s = await setup();
     const mine = await s.make(ada);
@@ -167,7 +206,9 @@ describe("store account contributor", () => {
       }, { region: "unknown" });
       const s = await setup(store);
       const mine = await s.make(ada);
-      unrelatedId = (await s.make(bob)).row.id;
+      const other = await s.make(bob);
+      unrelatedId = other.row.id;
+      await s.sharing.grant(ctx(bob), other.base.id, ada as never, "viewer");
       interfere = true;
       expect((await tablesAccount.exportAccount(ada, s)).rows).toMatchObject([{ id: mine.row.id }]);
       expect((await tablesAccount.eraseAccount(ada, s)).bases).toBe(1);

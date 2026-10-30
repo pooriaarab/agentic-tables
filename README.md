@@ -382,11 +382,11 @@ const registry = createAccountRegistry().register(tablesAccount, { store });
 const subject = { id: "ana", kind: "human" } as const;
 const { zip, manifest } = await registry.export(subject);
 // Save the export and collect file keys before erase.
-const report = await registry.erase(subject, store);
+const report = await registry.erase(subject, store, { actor: ctx });
 if (!report.ok) throw new Error("Account erase is incomplete");
 ```
 
-The contributor implements `AccountPackage<TablesAccountDeps>` from identity 0.10. The host supplies the trusted subject and the Store. Keep this entry point on the server. Pause writes by the subject between export and erase. Other subjects can keep working.
+The contributor implements `AccountPackage<TablesAccountDeps>` from identity 0.10. The host supplies the trusted subject, the Store, and the signed-in principal context (`ctx`) for the registry audit. Keep this entry point on the server. Pause writes by the subject between export and erase. Other subjects can keep working.
 
 Export returns plain JSON collections: `bases`, `tables`, `views`, `rows`, `authored_rows`, and `grants`. Ownership comes from sharing grants, including parent grants. Rows keep field IDs and file references. The package stores no blob bytes or version history. Before erase, the host must collect file keys from the export or a read of the rows. After erase succeeds, the host deletes those blobs through its blob provider. The host handles identity audit data through identity.
 
