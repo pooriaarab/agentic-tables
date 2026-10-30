@@ -21,6 +21,7 @@ jobs:
         with:
           node-version: "22"
       - run: npm ci
+      - run: npm ls agentic-identity@0.12.0 && npm ls agentic-design@0.10.1
       - run: npm run build
       - run: npm run typecheck
       - run: npm test
@@ -38,6 +39,7 @@ jobs:
           node-version: "22"
       - run: npm ci
       - run: npm install --no-save agentic-identity@0.10.0 agentic-design@0.8.0
+      - run: npm ls agentic-identity@0.10.0 && npm ls agentic-design@0.8.0
       - run: npm run ci:local
 
   firestore:
