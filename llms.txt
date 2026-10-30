@@ -5,6 +5,7 @@ Typed tables that agents read and write as rows.
 Keywords: database,tables,airtable,rows,schema,agents,mcp,cli,structured-data.
 
 - SDK: import { createTables } from "agentic-tables", with a Store from "agentic-identity".
+- Account: `tablesAccount` from `agentic-tables/account` implements the identity 0.10 account registry contract with `{ store }`. The root export keeps the guarded `{ tables, sharing, ctx }` API.
 - Remote SDK: import { createClient } from "agentic-tables/client". One typed method per Worker route; errors are TablesClientError with code and status; { signal } on every call; no retries; runs in browsers, Workers and Node 22.
 - CLI: agentic-tables new | list | schema | add-field | insert | update | query | required | rename-field | delete-field | change-type | bases | new-base | delete-base | views | new-view | view | delete-view | delete-table | claim-base | share | shares | invite | link | links | revoke-link | unshare | export-data | erase-data | export | import.
 - MCP: run agentic-tables mcp, then call describe_table.

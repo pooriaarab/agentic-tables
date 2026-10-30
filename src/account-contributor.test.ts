@@ -1,6 +1,7 @@
 // Failure cases, written before the checks:
 // missing kind/store; sole versus shared owners; changed owner; delegated author and
-// same-id other kind; damaged resource type; authored orphan rows; damaged grant/key/path/author/orphan; rollback and retry;
+// same-id other kind; damaged resource type; authored orphan rows;
+// subject legacy bases, missing/broken owner grants, and valid transfers; damaged grant/key/path/author/orphan; rollback and retry;
 // unrelated legacy bases and damaged rows; unrelated writes during erase;
 // JSON records, file references, pagination, and surviving links to a deleted table.
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
@@ -102,6 +103,35 @@ describe("store account contributor", () => {
     expect((await tablesAccount.eraseAccount(ada, s)).bases).toBe(1);
     expect(await s.store.get("bases", "legacy")).not.toBeNull();
     expect(await s.store.get("rows", other.row.id)).not.toBeNull();
+  });
+
+  test.each(["legacy", "missing grant", "damaged grant", "damaged kind"])("refuses the subject's %s base", async (damage) => {
+    const s = await setup();
+    const mine = await s.make(ada);
+    const key = `${mine.base.id}:human:ada`;
+    if (damage === "legacy") {
+      const base = (await s.store.get("bases", mine.base.id))!;
+      delete base.ownerKind;
+      await s.store.put("bases", mine.base.id, base);
+      await s.store.delete("resources", mine.base.id);
+    }
+    if (damage === "damaged kind") await s.store.put("bases", mine.base.id, { ...(await s.store.get("bases", mine.base.id))!, ownerKind: "unknown" });
+    await s.store.delete("grants", key);
+    if (damage === "damaged grant") await s.store.put("grants", key, { resourceId: mine.base.id, subjectId: ada.id, role: "owner" });
+    await expect(tablesAccount.exportAccount(ada, s)).rejects.toMatchObject({ code: "DAMAGED_ACCOUNT_DATA" });
+    await expect(tablesAccount.eraseAccount(ada, s)).rejects.toMatchObject({ code: "DAMAGED_ACCOUNT_DATA" });
+    expect(await s.store.get("bases", mine.base.id)).not.toBeNull();
+  });
+
+  test("keeps a valid transferred base and clears its former creator", async () => {
+    const s = await setup();
+    const mine = await s.make(ada);
+    await s.sharing.grant(ctx(ada), mine.base.id, bob as never, "owner");
+    for (const id of [mine.base.id, mine.table.id]) await s.store.delete("grants", `${id}:human:ada`);
+    expect((await tablesAccount.exportAccount(ada, s)).bases).toEqual([]);
+    expect((await tablesAccount.eraseAccount(ada, s)).bases).toBe(0);
+    expect((await s.store.get("bases", mine.base.id))?.ownerId).toBe(ERASED_ACCOUNT_ID);
+    expect((await tablesAccount.exportAccount(bob, s)).bases).toMatchObject([{ id: mine.base.id }]);
   });
 
   test("refuses an orphan row authored outside the owned tree", async () => {

@@ -81,6 +81,12 @@ async function snapshot(tx: StoreOps, subject: AccountSubject) {
     if (resource.type === "base" || resource.type === "table") await visit(g.data.resourceId);
     else if (await tx.get("bases", g.data.resourceId) || await tx.get("tables", g.data.resourceId)) bad();
   }
+  // A legacy base or a damaged/missing grant must not hide the subject's data.
+  // A valid transfer still has other owner grants and is kept by the erase.
+  for (const base of await scan(tx, "bases", { ownerId: subject.id })) {
+    if (!(PRINCIPAL_KINDS as readonly unknown[]).includes(base.data.ownerKind)) bad();
+    if (base.data.ownerKind === subject.kind) await visit(base.id);
+  }
   for (const c of ["bases", "tables", "views", "rows"] as const) for (const r of docs[c]) {
     if (!json(r.data) || !time(r.data.createdAt)) bad();
     if ((c === "tables" || c === "rows") && !time(r.data.updatedAt)) bad();
@@ -105,12 +111,7 @@ async function snapshot(tx: StoreOps, subject: AccountSubject) {
     }
     paths.set(id, path);
   }
-  const relevant = new Set([...paths.values()].flat());
   for (const { id, data: g } of docs.grants) {
-    if (!relevant.has(String(g.resourceId))) {
-      if (g.subjectId === subject.id && (!text(g.resourceId) || !resources.has(g.resourceId))) bad();
-      continue;
-    }
     if (!text(g.subjectId) || !(SUBJECT_KINDS as readonly unknown[]).includes(g.subjectKind) || !(ROLES as readonly unknown[]).includes(g.role) || id !== `${String(g.resourceId)}:${String(g.subjectKind)}:${g.subjectId}`) bad();
   }
   const owners = (id: string) => docs.grants.filter((g) => paths.get(id)!.includes(String(g.data.resourceId)) && g.data.role === "owner");

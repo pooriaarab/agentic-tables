@@ -380,8 +380,10 @@ import { createAccountRegistry } from "agentic-identity/account";
 
 const registry = createAccountRegistry().register(tablesAccount, { store });
 const subject = { id: "ana", kind: "human" } as const;
-const data = await tablesAccount.exportAccount(subject, { store });
-const counts = await tablesAccount.eraseAccount(subject, { store });
+const { zip, manifest } = await registry.export(subject);
+// Save the export and collect file keys before erase.
+const report = await registry.erase(subject, store);
+if (!report.ok) throw new Error("Account erase is incomplete");
 ```
 
 The contributor implements `AccountPackage<TablesAccountDeps>` from identity 0.10. The host supplies the trusted subject and the Store. Keep this entry point on the server. Pause writes by the subject between export and erase. Other subjects can keep working.
@@ -392,8 +394,7 @@ Erase deletes sole-owned bases and tables with their rows, views, resources, gra
 
 Erase refuses a table delete while a surviving table links to it. Remove that link field first, as for `deleteTable`.
 
-Both calls reject damaged records on the subject’s resource paths and data. Unrelated data does not block the call. Resource cleanup reads first and writes in one Store transaction. Authored rows outside that tree are found outside the transaction, then each is read again and cleared in a small transaction. A failed transaction changes nothing in that transaction. A later failure can leave a partial erase; repeat the call to finish. Counts cover only the work done by that call. Erase returns counts for the export collection names. A second erase counts zero. The older root API and the HTTP self-data routes retain their earlier behavior.
-
+Both calls reject damaged records on the subject's resource paths and data. Unrelated data does not block the call. Resource cleanup reads first and writes in one Store transaction. Authored rows outside that tree are found outside the transaction, then each is read again and cleared in a small transaction. A failed transaction changes nothing in that transaction. A later failure can leave a partial erase; repeat the call to finish. Counts cover only the work done by that call. Erase returns counts for the export collection names. A second erase counts zero. The older root API and the HTTP self-data routes retain their earlier behavior.
 
 Contributor limits: it holds the export in memory and scans rows to find authored edits. A large owned tree can exceed a backend transaction limit. It stores no blob bytes or history, has no retention setting, and cannot wipe file blocks or backups. Content on shared rows stays with the other owners. Pause subject writes until all erase calls succeed.
 
