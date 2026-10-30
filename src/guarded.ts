@@ -180,6 +180,7 @@ export function createGuarded(tables: Tables, sharing: Sharing, store?: Store) {
       async listTables(baseId: string) {
         return onBase("read", baseId, () => tables.listTables(baseId));
       },
+      renameTable: (tableId: string, name: string) => onTable("admin", tableId, () => tables.renameTable(tableId, name)),
       getTable: (tableId: string) => onTable("read", tableId, () => tables.getTable(tableId)),
       /** Delete the table and every grant on it. A repeat call finishes a delete that stopped half way. */
       deleteTable: (tableId: string) =>

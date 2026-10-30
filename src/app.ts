@@ -169,6 +169,7 @@ function build(tables: Tables, sharing: Sharing, authenticate: Authenticate, sto
   });
   api.get("/bases/:baseId/tables", async (c) => c.json({ items: await (await as(c)).listTables(idParam(c, "baseId")) }));
   api.delete("/bases/:baseId", async (c) => c.json(await (await as(c)).deleteBase(idParam(c, "baseId"))));
+  api.patch("/tables/:tableId", async (c) => c.json(await (await as(c)).renameTable(idParam(c, "tableId"), (await jsonBody(c, schemas.renameTable)).name)));
   api.delete("/tables/:tableId", async (c) => c.json(await (await as(c)).deleteTable(idParam(c, "tableId"))));
   api.get("/tables/:tableId", async (c) => c.json(await (await as(c)).getTable(idParam(c, "tableId"))));
 

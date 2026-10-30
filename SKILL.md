@@ -9,7 +9,9 @@ description: Typed tables that agents read and write as rows. Use to keep struct
 
 Start it with `npx agentic-tables mcp`. Call `describe_table` first. Then use
 `insert_rows`, `update_row`, `query_rows`, `get_row`, and `delete_row`.
-`insert_rows` writes all rows or none.
+`insert_rows` writes all rows or none. Use `rename_table` to change a table name.
+It requires owner access and keeps the table id and data. The CLI command is
+`rename-table <table> <newName>`.
 
 ## Use the CLI
 

@@ -202,6 +202,7 @@ export function createClient(options: ClientOptions) {
       call<Table>("POST", `/bases/${id(baseId)}/tables`, { body: { name, fields }, signal: o.signal }),
     listTables: async (baseId: string, o: CallOptions = {}) => (await call<{ items: Table[] }>("GET", `/bases/${id(baseId)}/tables`, { signal: o.signal })).items,
     getTable: (tableId: string, o: CallOptions = {}) => call<Table>("GET", `/tables/${id(tableId)}`, { signal: o.signal }),
+    renameTable: (tableId: string, name: string, o: CallOptions = {}) => call<Table>("PATCH", `/tables/${id(tableId)}`, { body: { name }, signal: o.signal }),
     deleteTable: (tableId: string, o: CallOptions = {}) => call<{ rows: number; views: number }>("DELETE", `/tables/${id(tableId)}`, { signal: o.signal }),
 
     addField: (tableId: string, field: AddFieldInput, o: CallOptions = {}) => call<Table>("POST", `/tables/${id(tableId)}/fields`, { body: field, signal: o.signal }),

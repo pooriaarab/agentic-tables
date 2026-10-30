@@ -10,7 +10,7 @@ const PAGE = 100;
 type Load = { state: "loading" } | { state: "error"; message: string } | { state: "ready"; table: Table; rows: Row[]; next?: string };
 const NO_FILTER: Condition = { field: "", op: "contains", value: "" };
 
-export function TableView({ tableId, onGone }: { tableId: string; onGone: () => void }) {
+export function TableView({ tableId, onGone, readOnly = false }: { readOnly?: boolean; tableId: string; onGone: () => void }) {
   const client = useClient();
   const toast = useToast();
   const [load, setLoad] = useState<Load>({ state: "loading" });
@@ -89,11 +89,11 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
     <section aria-labelledby="table-title" aria-busy={busy}>
       <div className="head">
         <h1 id="table-title" tabIndex={-1}>{table.name}</h1>
-        <div className="head__actions">
+        {!readOnly ? <div className="head__actions">
           <Button variant="secondary" onClick={() => setDialog("column")}><PlusIcon aria-hidden="true" /> Add column</Button>
           <Button onClick={() => setDialog("row")}><PlusIcon aria-hidden="true" /> Add row</Button>
           <Button variant="ghost" onClick={() => setDialog("table")}>Delete table</Button>
-        </div>
+        </div> : null}
       </div>
 
       <form className="query" aria-label="Filter and sort" onSubmit={(e) => { e.preventDefault(); setApplied(draft); }}>
@@ -126,27 +126,29 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
       </form>
 
       {table.fields.length === 0 ? (
-        <EmptyState title="No columns yet" description="Add a column to start." action={<Button onClick={() => setDialog("column")}>Add column</Button>} />
+        <EmptyState title="No columns yet" description="Add a column to start." action={readOnly ? undefined : <Button onClick={() => setDialog("column")}>Add column</Button>} />
       ) : (
         <>
-          {rows.length > 0 ? <p className="hint">Use the arrow keys to move, Enter or a double click to edit a cell, and Escape to cancel. Shift+Enter adds a line in long text.</p> : null}
+          {rows.length > 0 && !readOnly ? <p className="hint">Use the arrow keys to move, Enter or a double click to edit a cell, and Escape to cancel. Shift+Enter adds a line in long text.</p> : null}
           <Grid
+            readOnly={readOnly}
             table={table}
             rows={rows}
             more={next !== undefined}
             onCommit={async (row, f, value) => failed("The cell did not save")(await run(() => client.updateRow(row.id, { [f.name]: value })))}
             onDelete={(row) => setDialog({ row })}
-            header={(f) => (
+            header={(f) => readOnly ? null : (
               <Menu trigger={<IconButton label={`Column options for ${f.name}`} icon={<MoreIcon aria-hidden="true" />} size="sm" variant="ghost" />} items={[{ label: "Delete column", danger: true, onSelect: () => setDialog({ field: f }) }]} />
             )}
           />
           {rows.length === 0 ? (
-            <EmptyState title={applied.field ? "No rows match" : "No rows yet"} description={applied.field ? "Change or clear the filter." : "Add the first row."} action={applied.field ? undefined : <Button onClick={() => setDialog("row")}>Add row</Button>} />
+            <EmptyState title={applied.field ? "No rows match" : "No rows yet"} description={applied.field ? "Change or clear the filter." : "Add the first row."} action={applied.field || readOnly ? undefined : <Button onClick={() => setDialog("row")}>Add row</Button>} />
           ) : null}
           {next ? <Button variant="secondary" onClick={() => void read(next)}>Load more rows</Button> : null}
         </>
       )}
 
+      {!readOnly ? <>
       <NewColumnDialog open={dialog === "column"} onOpenChange={close} create={(f: FieldInput) => run(() => client.addField(tableId, f))} />
       <NewRowDialog open={dialog === "row"} onOpenChange={close} table={table} create={(values) => run(() => client.insertRow(tableId, values as never))} />
       <ConfirmDialog
@@ -195,6 +197,7 @@ export function TableView({ tableId, onGone }: { tableId: string; onGone: () => 
           return null;
         }}
       />
+      </> : null}
     </section>
   );
 }

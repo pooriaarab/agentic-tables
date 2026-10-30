@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.15.0 - 2026-10-30
+
+- Add `readOnly` to UI mount options. Prevent UI writes and close active editors when it changes.
+- Add persistent `renameTable` to the core, guarded SDK, and HTTP client, `PATCH /tables/:tableId`, CLI `rename-table`, and MCP `rename_table`. Keep table ids and data.
+
 ## 0.14.1 - 2026-10-30
 
 - Document the public exports and their package entry points. No API behavior changes.

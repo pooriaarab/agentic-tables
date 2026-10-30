@@ -384,3 +384,72 @@ describe("base and table options", () => {
     expect(result.violations.map((v) => v.id)).toEqual([]);
   });
 });
+
+// Read-only failure cases: automatic creation; visible writes; keyboard/pointer edits;
+// update leaves an active editor or dialog; filtering stops; invalid option types.
+describe("readOnly", () => {
+  afterEach(() => { location.hash = ""; });
+  it("rejects a nonboolean option", () => {
+    expect(() => mount(host, { baseUrl: "https://t.example", readOnly: "yes" } as never)).toThrow(TypeError);
+  });
+  it("never creates a base for an empty account", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ items: [] })));
+    await act(async () => void (mounted = mount(host, { baseUrl: "https://t.example", fetch, readOnly: true })));
+    await settle();
+    expect(host.textContent).toContain("No readable bases");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("closes a creation dialog when readOnly changes", async () => {
+    const api = fakeApi(["Tasks"]);
+    const options = { baseUrl: "https://t.example", fetch: api.fetch };
+    await act(async () => void (mounted = mount(host, options)));
+    await settle();
+    await act(async () => [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("New table"))!.click());
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    await act(async () => mounted!.update({ ...options, readOnly: true }));
+    await settle();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => mounted!.update(options));
+    await settle();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+  it("blocks pointer and keyboard edits, keeps reads, and drops open editors on update", async () => {
+    const fields = [{ id: "f1", name: "Name", type: "text" }, { id: "f2", name: "Done", type: "checkbox" }];
+    const row = { id: "r1", values: { Name: "Hello", Done: false }, updatedBy: { kind: "human", id: "a" } };
+    const methods: string[] = [];
+    const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      methods.push(init?.method ?? "GET");
+      const path = String(input).split("/api/v1/tables")[1]!.split("?")[0];
+      const t = { ...table("Tasks"), fields };
+      const body = path === "/bases" ? { items: [base] } : path === "/bases/b1/tables" ? { items: [t] } : path?.endsWith("/rows") ? { items: [row] } : t;
+      return new Response(JSON.stringify(body));
+    }) as typeof globalThis.fetch;
+    const options = { baseUrl: "https://t.example", fetch, tableId: "t-Tasks" };
+    await act(async () => void (mounted = mount(host, options)));
+    await settle();
+    await act(async () => host.querySelector('[role="gridcell"]')!.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(host.querySelector('[role="gridcell"] input')).not.toBeNull();
+    await act(async () => mounted!.update({ ...options, readOnly: true }));
+    await settle();
+    expect(host.querySelector('[role="gridcell"] input')).toBeNull();
+    for (const label of ["New table", "Add column", "Add row", "Delete table"]) {
+      expect([...host.querySelectorAll("button")].some((b) => b.textContent?.includes(label))).toBe(false);
+    }
+    expect(host.querySelector('[aria-label^="Column options"]')).toBeNull();
+    for (const cell of host.querySelectorAll('[role="gridcell"]')) {
+      await act(async () => {
+        cell.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+        cell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        for (const key of ["Enter", "F2", " "]) cell.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      });
+    }
+    expect(host.querySelector('[role="gridcell"] input')).toBeNull();
+    expect(host.querySelector<HTMLButtonElement>('[aria-label="Delete row 1"]')!.disabled).toBe(true);
+    await act(async () => [...host.querySelectorAll("button")].find((b) => b.textContent === "Apply filter")!.click());
+    await settle();
+    expect(new Set(methods)).toEqual(new Set(["GET"]));
+    await act(async () => mounted!.update(options));
+    await settle();
+    expect(host.textContent).toContain("Add row");
+  });
+});

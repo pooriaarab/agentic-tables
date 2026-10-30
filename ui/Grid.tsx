@@ -5,6 +5,7 @@ import { Editor } from "./Editor";
 import { draftOf, EDITABLE, show, valueOf, type Draft } from "./values";
 
 interface Props {
+  readOnly?: boolean;
   table: Table;
   rows: Row[];
   /** Save one cell. Resolves to an error text, or `null` when it saved. */
@@ -20,7 +21,7 @@ const machine = (kind: string) => kind !== "human";
 /** Who made the last edit, in words. Color is never the only sign. */
 export const authorText = (kind: string) => (kind === "human" ? "Person" : kind === "user_token" ? "Person via agent" : "Agent");
 
-export function Grid({ table, rows, more, onCommit, onDelete, header }: Props) {
+export function Grid({ table, rows, more, onCommit, onDelete, header, readOnly = false }: Props) {
   const fields = table.fields;
   const columns = fields.length + 2; // the fields, who edited, and the row action
   const [pos, setPos] = useState({ r: 0, c: 0 });
@@ -59,7 +60,7 @@ export function Grid({ table, rows, more, onCommit, onDelete, header }: Props) {
     setEdit(null);
   };
   async function commit(fromKey: boolean) {
-    if (!edit || saving.current || !active.current) return;
+    if (readOnly || !edit || saving.current || !active.current) return;
     const mine = session.current;
     const row = rows[editRow]!;
     const field = fields[edit.c]!;
@@ -90,7 +91,7 @@ export function Grid({ table, rows, more, onCommit, onDelete, header }: Props) {
   }
   async function begin(row: number, col: number) {
     const field = fields[col];
-    if (!field || !EDITABLE.has(field.type) || saving.current) return;
+    if (readOnly || !field || !EDITABLE.has(field.type) || saving.current) return;
     const draft = draftOf(field, rows[row]!.values[field.name]);
     if (field.type === "checkbox") {
       saving.current = true;
@@ -120,7 +121,7 @@ export function Grid({ table, rows, more, onCommit, onDelete, header }: Props) {
     else if (e.key === "End") move(0, columns - 1 - col);
     else if (e.key === "Enter" || e.key === "F2") {
       e.preventDefault();
-      if (col === columns - 1) onDelete(rows[row]!);
+      if (col === columns - 1 && !readOnly) onDelete(rows[row]!);
       else void begin(row, col);
     } else if (e.key === " " && fields[col]?.type === "checkbox") {
       e.preventDefault();
@@ -173,7 +174,7 @@ export function Grid({ table, rows, more, onCommit, onDelete, header }: Props) {
               {fields.map((f, ci) => {
                 const editing = editRow === ri && edit?.c === ci;
                 return (
-                  <td key={f.id} {...cellProps(ri, ci)} className="grid__cell" aria-readonly={!EDITABLE.has(f.type) || undefined}>
+                  <td key={f.id} {...cellProps(ri, ci)} className="grid__cell" aria-readonly={readOnly || !EDITABLE.has(f.type) || undefined}>
                     {editing ? (
                       <>
                         <Editor ref={editor} field={f} draft={edit.draft} label={`${f.name}, row ${ri + 1}`} onChange={(draft) => setEdit({ ...edit, draft })} onKeyDown={onEditorKey} onBlur={() => void commit(false)} invalid={problem !== null} describedBy={problem ? "grid-problem" : undefined} />
@@ -191,7 +192,7 @@ export function Grid({ table, rows, more, onCommit, onDelete, header }: Props) {
                 {machine(row.updatedBy.kind) ? <span className="agd-pill grid__agent"><BotIcon aria-hidden="true" width={14} height={14} /> {authorText(row.updatedBy.kind)}</span> : authorText(row.updatedBy.kind)}
               </td>
               <td {...cellProps(ri, fields.length + 1)} className="grid__cell">
-                <Button size="sm" variant="ghost" tabIndex={-1} aria-label={`Delete row ${ri + 1}`} onClick={() => onDelete(row)}>Delete</Button>
+                <Button disabled={readOnly} size="sm" variant="ghost" tabIndex={-1} aria-label={`Delete row ${ri + 1}`} onClick={() => onDelete(row)}>Delete</Button>
               </td>
             </tr>
           ))}
